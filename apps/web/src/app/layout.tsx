@@ -2,7 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider, themeInitScript } from "@/components/theme-provider";
 
 // Self-hosted variable fonts, roman only: the design language uses no italics. See src/fonts/LICENSE-*.txt.
 const sans = localFont({
@@ -31,8 +31,11 @@ const publishableKey =
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className={`${sans.variable} ${serif.variable}`}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider>
           <ClerkProvider
             {...(publishableKey ? { publishableKey } : {})}
             signInUrl="/login"
