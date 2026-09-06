@@ -39,28 +39,55 @@ export default async function AboutPage() {
 
         <Section title="The idea">
           <p>
-            Most finance tools ask you to fit your company into their structure first: a chart of accounts, a template, a setup wizard. nevermodel starts from the other end. You hand it what you already have, in whatever shape it comes: a bank statement, an invoice, a fund agreement, a sentence typed into the composer. It works out what that evidence means for your company and asks you only when it cannot tell.
+            A CFO already holds everything a financial model needs: the evidence, the context, the policies, the assumptions, and the judgment. The only thing missing is the labour of keying it all into a spreadsheet and keeping that spreadsheet alive. nevermodel takes the same inputs a CFO uses and maintains the model itself.
           </p>
           <p>
-            The interface is a conversation because a conversation is the cheapest interface to reach from anywhere: a phone, a text message, a chat assistant, another app. Everything the system knows can be expressed as text, and everything it produces can be read as text.
+            Two rules make that possible. Language models handle meaning: interpretation, classification, matching, ambiguity, and explanation. Deterministic code handles math: schedules, balances, recognition, cash roll-forwards, allocations, and statements. The model is never the calculator and never the database.
           </p>
           <p>
-            But the numbers never come from the conversation. A language model reads and interprets. A deterministic engine calculates. Authorization lives in application code that the model cannot touch. That separation is what makes the result auditable.
+            It is not Excel in a browser. There is no grid, and nobody maintains formulas. It is not QuickBooks either. Economic reality is stored first and accounting is derived from it. And when interpretation needs judgment, the system does not guess and does not hide the wrinkle in a settings page. It asks you one precise question, and your answer becomes durable state.
           </p>
         </Section>
 
-        <Section title="Three layers">
+        <Section title="The operating loop">
           <p>
-            <strong className="font-medium">Evidence.</strong> The raw material: files and statements you attach, notes you type. Every piece is stored with its source, a hash, and a link to the facts drawn from it, so any number can be traced back to where it came from.
+            Evidence arrives. Observations are extracted from it. The model interprets them against what it already knows about the company: its knowledge documents, its policies, its prior decisions. If the treatment can be resolved, the result becomes Company State. If not, it becomes a question for you, and your answer becomes a decision or a policy, which then becomes Company State. The deterministic engine turns Company State into financial state: schedules, statements, and a forecast.
           </p>
           <p>
-            <strong className="font-medium">Interpreted state.</strong> What the evidence means: an agreement to receive a fee quarterly, an obligation to pay a contractor monthly, an opening cash balance. Each fact carries a confidence, and each open question waits for you. Nothing counts until you approve it.
+            The same loop runs whether the evidence is a bank CSV, an invoice PDF, a management-fee agreement, a QuickBooks export, or a sentence you type into the composer. You never pick a workflow first.
+          </p>
+        </Section>
+
+        <Section title="Three layers of state">
+          <p>
+            <strong className="font-medium">Evidence</strong> is what external sources told us: bank transactions, invoices, contracts, payroll files, your own messages. Each is kept as a source with its hash and metadata, and the observations extracted from it stay linked back.
           </p>
           <p>
-            <strong className="font-medium">Calculation.</strong> Approved facts become cash events, and cash events roll forward into a monthly forecast, actuals, variance, and a P&amp;L. This layer is plain arithmetic with a trace on every value. The model can query it and explain it, but cannot change it.
+            <strong className="font-medium">Economic state</strong> is what the system believes actually exists or happened: entities such as the management company, each fund, an employee, a vendor; agreements such as a management agreement or a retainer; facts, events, and obligations; and the decisions, policies, assumptions, and scenarios that shape them. This is the canonical, structured Company State.
           </p>
           <p>
-            On screen, the layers read as ink and pencil. Actuals and anything you have approved are set in ink. Forecasts and unconfirmed facts are pencil. The one thing waiting on you carries a highlighter mark.
+            <strong className="font-medium">Financial state</strong> is what follows mathematically: revenue and expense schedules, cash schedules, receivables, payables, prepaids, intercompany balances, the P&amp;L, and the cash forecast. This layer is deterministic and every value carries a trace.
+          </p>
+          <p>
+            On screen the layers read as ink and pencil. Actuals and anything you have approved are set in ink. Forecasts and unconfirmed facts are pencil. The one thing waiting on you carries a highlighter mark.
+          </p>
+        </Section>
+
+        <Section title="Knowledge in plain language">
+          <p>
+            Executable state lives in structured records: a $75,000 obligation due October 1, a $482,314 cash balance. Human financial knowledge lives in Markdown: how the company operates, standing policies, allocation philosophy, forecasting assumptions, the unusual arrangements. The system keeps a small set of these documents for each company, conceptually a company, policies, allocations, accounting, forecast, and open-questions file, and it can draft them from conversation and from what you upload.
+          </p>
+          <p>
+            Markdown expresses context and intent. Structured state executes it. The model reconciles between the two, and neither pretends to be the other.
+          </p>
+        </Section>
+
+        <Section title="Provenance">
+          <p>
+            Every important piece of state records where it came from: supplied by the CFO, extracted from a document, observed at the bank, imported from QuickBooks, inferred by the model, confirmed by the CFO, or calculated by the system. An inference never silently becomes a confirmed fact. When you ask why a number is what it is, the answer walks the chain from the statement line to the schedule, to the obligation, to the decision that allocated it, to the original file.
+          </p>
+          <p>
+            One distinction the system holds carefully: who paid is not the same as who bears the cost. The management company may pay a $10,000 legal bill while the funds economically bear most of it. The result is an expense for the company, amounts due from each fund, and a single cash movement, with the allocation traceable to the policy or decision that produced it.
           </p>
         </Section>
 
@@ -68,9 +95,9 @@ export default async function AboutPage() {
           <p>Start with the smallest true thing and let the picture build from there.</p>
           <ol className="grid list-decimal gap-3 pl-6">
             <li>Tell it where cash stands. Type <Command>opening cash 2026-09 $25,000</Command>, using your own month and balance.</li>
-            <li>Attach one piece of evidence: a bank statement, an invoice, a customer or fund agreement, or a note like <Command>Fund II pays us $60k quarterly starting in October</Command>. Files are read independently, even when they cover different months.</li>
-            <li>Review what it extracted under Waiting on you. Approve facts that are right, edit the ones that are close, reject the rest. Approved facts become forecast events.</li>
-            <li>Attach a transaction file (CSV, XLSX, QBO, or OFX). Rows are dated and normalised into actuals, and re-uploads of the same file are ignored.</li>
+            <li>Tell it, or show it, the company. A sentence like <Command>Fund II pays us $60k quarterly starting in October</Command> works, and so does a management-fee agreement, a contract, an invoice, or a QuickBooks export. Files are read independently, even when they cover different months.</li>
+            <li>Review what it extracted under Waiting on you. Approve facts that are right, edit the ones that are close, reject the rest. Approved facts become obligations, agreements, and forecast events.</li>
+            <li>Attach a transaction file (CSV, XLSX, QBO, or OFX). Rows are dated and normalised into actuals. Re-uploading the same file is ignored, and observations of the same payment from a bank, an invoice, and QuickBooks resolve to one economic chain.</li>
             <li>Pick a month to compare forecast with actuals. Close it with <Command>close month 2026-09</Command>. Closed months reject later changes; reopen with <Command>open month 2026-09</Command> if something needs correcting.</li>
             <li>Ask questions in plain language: <Command>How much cash will we have in December?</Command> The answer is drawn only from your approved state, and any suggested decision shows up under Waiting on you for you to apply or reject.</li>
           </ol>
@@ -78,22 +105,41 @@ export default async function AboutPage() {
 
         <Section title="Building the language for your company">
           <p>
-            Every company has its own vocabulary and its own judgment calls. nevermodel keeps both as first-class records, so the next document is read the way you would read it.
+            Anything that feels like configuring finance software should be a sentence instead. Not an allocation settings screen but <Command>Allocate Carta 60% Fund II, 30% Fund III, 10% management company going forward</Command>. Not editing forecast cells but <Command>Assume we hire a finance contractor in January at $6k a month</Command>. Not configuring recurring revenue but <Command>Fund III pays us $50k quarterly through the end of 2028</Command>. The agent turns intent into Company State.
           </p>
           <p>
             <strong className="font-medium">Decisions</strong> answer one question once. When the system asks how to treat something, reply with <Command>decision: How should contractor invoices be treated? =&gt; Cash basis</Command>. The answer is remembered and applied to similar evidence later.
           </p>
           <p>
-            <strong className="font-medium">Policies</strong> are standing rules. <Command>policy: Contractor timing =&gt; Recognise on payment date</Command> tells it how to read a whole class of evidence, and the policy is cited whenever it is used.
+            <strong className="font-medium">Policies</strong> are standing judgment. <Command>policy: Contractor timing =&gt; Recognise on payment date</Command> tells it how to read a whole class of evidence, and the policy is cited whenever it is used. Decisions that keep recurring are candidates for policies.
           </p>
           <p>
-            <strong className="font-medium">Names</strong> matter. Use the same name for a fund, customer, or vendor each time you mention it, and it will resolve future references to the same entity.
+            <strong className="font-medium">Names</strong> matter. Use the same name for a fund, customer, or vendor each time, and the system resolves future references to the same entity.
+          </p>
+          <p>
+            <strong className="font-medium">Knowledge documents</strong> hold the rest: how the company operates, its accounting preferences, its forecast philosophy. Ask it to draft them from what you have uploaded, then correct them in your own words.
           </p>
           <p>
             <strong className="font-medium">An example model</strong> teaches style. Hand it a spreadsheet you already use and it learns the structure and formatting: the line items, the ordering, the units and sign conventions. Future outputs follow that shape. The example changes how results are presented, never how they are calculated.
           </p>
           <p>
             Work in small steps and correct it early. A handful of decisions and policies in the first month do more for accuracy than any amount of setup.
+          </p>
+        </Section>
+
+        <Section title="What it should be able to tell you">
+          <ul className="grid list-disc gap-1.5 pl-6 text-ink-2">
+            <li>How much management-fee revenue did we earn this month, and how much cash did we receive?</li>
+            <li>What receipts do we expect next quarter?</li>
+            <li>What expenses did we incur, what did we actually pay, and what remains unpaid?</li>
+            <li>Which expenses were allocated to funds, and how much do the funds owe us?</li>
+            <li>Why is professional-services expense this amount?</li>
+            <li>Which parts of next year’s forecast are contractual, and which are assumptions?</li>
+            <li>What questions still need my input?</li>
+            <li>What happens if Fund II stops paying management fees next year?</li>
+          </ul>
+          <p>
+            The hypothesis behind all of it: a CFO should be able to give an intelligent system the same evidence, context, policies, assumptions, and judgment they use themselves, and have it continuously maintain an auditable financial model without building or maintaining that model in Excel.
           </p>
         </Section>
 
