@@ -137,6 +137,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [editFacts, setEditFacts] = useState<{ label: string; value: string; confidence: number }[]>([]);
   const [closeSummary, setCloseSummary] = useState<{ month: string; actualNet: number; variance: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the composer with its content, up to a cap, and shrink back when cleared.
+  useEffect(() => {
+    const element = composerInput.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  }, [message]);
   const currentForecast = forecast.find((month) => month.month === selectedMonth);
   const currentPnl = pnl.find((month) => month.month === selectedMonth);
   const pendingEvidence = evidence.filter((item) => item.status === "pending");
@@ -397,7 +406,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           <label htmlFor="nevermodel-message" className="sr-only">What should we work on?</label>
           <textarea
             id="nevermodel-message"
-            className="prose-serif min-h-[72px] w-full resize-none bg-transparent text-[19px] leading-[1.45] text-ink outline-none placeholder:text-pencil"
+            ref={composerInput}
+            className="prose-serif max-h-[60vh] min-h-[72px] w-full resize-none overflow-y-auto bg-transparent text-[19px] leading-[1.45] text-ink outline-none placeholder:text-pencil"
             style={{ fontVariationSettings: '"opsz" 19' }}
             value={message}
             onChange={(event) => {
