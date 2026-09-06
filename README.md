@@ -91,6 +91,12 @@ the application auth boundary and prove membership before data access. Agent
 tools will receive the authorized company from server context, never from model
 output or an unverified browser parameter.
 
+## Reference
+
+The V0 build specification and its authentication additions live in
+`docs/specs/`. The design language is documented in `docs/design-language.html`.
+The in-app version of the manifesto is at `/about`.
+
 ## Repository map
 
 ```text
