@@ -55,7 +55,7 @@ export function LoginForm() {
   return (
     <form className="grid w-full max-w-[384px] gap-2" onSubmit={step === "email" ? sendCode : verifyCode} noValidate>
       <h1 className="display text-[32px] leading-[1.15]" style={{ fontVariationSettings: '"opsz" 32' }}>
-        Sign in to Nevermodel
+        Sign in to Hemrock
       </h1>
       <p className="mb-5 text-ink-2">
         {step === "email" ? "A radical rethink of financial operations for AI-native startups." : <>Thanks! We sent a six-digit code to <span className="text-ink">{email}</span>.</>}

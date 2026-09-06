@@ -35,10 +35,11 @@ export async function POST(request: Request) {
   if (duplicate) return NextResponse.json({ imported: 0, duplicate: true, sourceName: file.name });
   const events = parsedTransactions.map((transaction) => {
     const externalKey = transactionExternalKey(transaction);
-    return { companyId: context.company.id, month: transaction.date, description: transaction.description || file.name, amount: String(transaction.amount), direction: transaction.direction, isActual: "Y" as const, externalKey };
+    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description: transaction.description || file.name, amount: String(transaction.amount), direction: transaction.direction, isActual: "Y" as const, externalKey };
   });
   const months = [...new Set(events.map((event) => event.month))];
   let importedCount = 0;
+  let evidenceId: string | undefined;
   if (months.length) {
     const closed = await getDatabase().select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, months), eq(reportingPeriods.status, "closed")));
     if (closed.length) return NextResponse.json({ error: `Closed reporting month: ${closed[0]!.month}` }, { status: 409 });
@@ -55,16 +56,26 @@ export async function POST(request: Request) {
       extractedJson: JSON.stringify({ summary: `${events.length} actual transactions imported`, facts: [{ label: "Transactions", value: String(events.length), confidence: 1 }], questions: [] }),
       status: "approved",
     }).returning({ id: evidence.id });
-    const inserted = await getDatabase().insert(cashEvents).values(events.map((event) => ({ ...event, evidenceId: source!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id });
+    evidenceId = source?.id;
+    const inserted = await getDatabase().insert(cashEvents).values(events.map(({ postedDate, ...event }) => ({ ...event, transactionDate: postedDate, evidenceId: source!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id });
     if (canonicalSource?.id) {
       const keys = events.map((event) => event.externalKey).filter((key): key is string => Boolean(key));
       const canonicalEvents = await getDatabase().select({ id: cashEvents.id, externalKey: cashEvents.externalKey }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), inArray(cashEvents.externalKey, keys)));
       const eventByKey = new Map(canonicalEvents.map((event) => [event.externalKey, event.id]));
-      await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.month}-01T00:00:00Z`), amount: event.amount, counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey }), confidence: "high" })));
+      await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate }), confidence: "high" })));
     }
     importedCount = inserted.length;
   }
-  return NextResponse.json({ imported: importedCount, skipped: events.length - importedCount, sourceName: file.name });
+  const extraction = {
+    summary: `${events.length} actual transactions imported with statement dates, amounts, and descriptions or notes`,
+    facts: events.slice(0, 200).map((event) => ({
+      label: `Transaction ${event.postedDate ?? event.month}`,
+      value: `${event.direction === "spend" ? "−" : "+"}$${Number(event.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — ${event.description}`,
+      confidence: 1,
+    })),
+    questions: [] as string[],
+  };
+  return NextResponse.json({ id: evidenceId, imported: importedCount, skipped: events.length - importedCount, sourceName: file.name, extraction });
 }
 
 export async function GET() {
@@ -73,6 +84,7 @@ export async function GET() {
   const rows = await getDatabase().select({
     id: cashEvents.id,
     month: cashEvents.month,
+    transactionDate: cashEvents.transactionDate,
     description: cashEvents.description,
     amount: cashEvents.amount,
     direction: cashEvents.direction,
