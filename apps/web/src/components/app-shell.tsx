@@ -57,6 +57,15 @@ function useStoredChoice(key: string, fallback: string, allowed: (value: string)
 const quietSelect = "h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 text-[13px] text-ink-2 shadow-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-transparent dark:hover:bg-transparent [&_svg]:hidden";
 const quietButton = "inline-flex items-center gap-1.5 rounded-md text-[13px] text-ink-2 transition-colors outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
+/** A raw excerpt that only restates the extracted summary adds nothing; show excerpts only when they differ. */
+function repeatsSummary(excerpt: string, summary: string | undefined) {
+  if (!summary) return false;
+  const normalise = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const a = normalise(excerpt);
+  const b = normalise(summary);
+  return a.length === 0 || a === b || a.includes(b) || b.includes(a);
+}
+
 const actionButton = "grid size-7 place-items-center rounded-md border border-rule text-ink-2 transition-colors hover:bg-rule hover:text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background [&_svg]:size-3.5";
 
 function Figure({ label, value, note, pencil, negative }: { label: string; value: string; note: string; pencil?: boolean; negative?: boolean }) {
@@ -526,8 +535,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       {item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""}
                       {` · ${item.extraction?.facts.length ?? 0} facts extracted`}
                     </div>
-                    {item.sourceExcerpt && (
-                      <div className="prose-serif mt-1 truncate text-[14px] text-ink-2" style={{ fontVariationSettings: '"opsz" 14' }}>
+                    {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && (
+                      <div className="mt-1 truncate text-[13px] text-ink-2">
                         “{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”
                       </div>
                     )}
