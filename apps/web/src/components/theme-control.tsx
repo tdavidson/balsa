@@ -1,8 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { useTheme } from "next-themes";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
 const options = [
@@ -13,9 +12,7 @@ const options = [
 
 /** Three-segment light / dark / system control. */
 export function ThemeControl({ className }: { className?: string }) {
-  const { theme, setTheme } = useTheme();
-  const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
-  const current = mounted && (theme === "dark" || theme === "light" || theme === "system") ? theme : "system";
+  const { theme: current, setTheme } = useTheme();
   return (
     <div className={cn("inline-flex rounded-full border border-rule p-0.5", className)} role="radiogroup" aria-label="Theme">
       {options.map(({ value, label, Icon }) => (
