@@ -521,7 +521,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       {` · ${item.extraction?.facts.length ?? 0} facts extracted`}
                     </div>
                     {item.sourceExcerpt && (
-                      <div className="prose-serif mt-1 truncate text-[14px] text-ink-2 italic" style={{ fontVariationSettings: '"opsz" 14' }}>
+                      <div className="prose-serif mt-1 truncate text-[14px] text-ink-2" style={{ fontVariationSettings: '"opsz" 14' }}>
                         “{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”
                       </div>
                     )}

@@ -2,9 +2,7 @@
 <style>
   /* Self-hosted variable fonts, shared with the app (apps/web/src/fonts). */
   @font-face { font-family: "Inter"; src: url("../apps/web/src/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
-  @font-face { font-family: "Inter"; src: url("../apps/web/src/fonts/InterVariable-Italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
   @font-face { font-family: "Source Serif 4"; src: url("../apps/web/src/fonts/SourceSerif4Variable-Roman.woff2") format("woff2"); font-weight: 200 900; font-style: normal; font-display: swap; }
-  @font-face { font-family: "Source Serif 4"; src: url("../apps/web/src/fonts/SourceSerif4Variable-Italic.woff2") format("woff2"); font-weight: 200 900; font-style: italic; font-display: swap; }
   :root {
     --paper: #ffffff;
     --ink: #111214;
@@ -106,7 +104,7 @@
   .fig-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; padding: 4px 0 20px; border-bottom: 1px solid var(--rule); }
   .fig small { display: block; color: var(--ink-2); font-size: 13px; }
   .fig strong { display: block; font-family: var(--sans); font-weight: 500; font-size: 26px; line-height: 1.15; margin-top: 6px; font-feature-settings: "tnum";
-    letter-spacing: -0.01em; letter-spacing: -0.02em; }
+    letter-spacing: -0.02em; }
   .fig strong.pen { color: var(--ink-2); font-weight: 400; }
   .fig em { display: block; font-style: normal; color: var(--pencil); font-size: 12px; margin-top: 4px; }
   .chart { display: grid; gap: 10px; }
@@ -285,7 +283,7 @@
     <p>Two families, clearly different jobs. Source Serif 4 for anything you read or sign: headings, the composer, extracted-fact prose. Inter for anything you operate or count: buttons, labels, metadata, tables, and every number. IBM Plex Mono, DM Serif Display, and Manrope are removed.</p>
     <div>
       <div class="specimen"><span style="font-family:var(--serif);font-size:40px;line-height:1.1;font-weight:500;letter-spacing:-.015em;font-variation-settings:'opsz' 40">Source Serif 4 500, 40px</span><small>Page titles. Optical size matched to point size.</small></div>
-      <div class="specimen"><span style="font-family:var(--serif);font-size:19px;line-height:1.45;font-variation-settings:'opsz' 19">Source Serif 4 400, 19px. “Fund II pays us $60k quarterly, starting in October.” <i>Italic for quoted source excerpts.</i></span><small>Composer, prose, source excerpts.</small></div>
+      <div class="specimen"><span style="font-family:var(--serif);font-size:19px;line-height:1.45;font-variation-settings:'opsz' 19">Source Serif 4 400, 19px. “Fund II pays us $60k quarterly, starting in October.”</span><small>Composer, prose, source excerpts.</small></div>
       <div class="specimen"><span style="font-size:26px;font-weight:500;line-height:1.15;letter-spacing:-.02em;font-feature-settings:'tnum'">$412,380 &nbsp; <span style="color:var(--ink-2);font-weight:400">$60,000</span> &nbsp; <span style="color:var(--red-ink)">−$3,140</span></span><small>Figures. Inter 500 in ink for actuals, 400 in pencil for forecasts, tabular numerals throughout.</small></div>
       <div class="specimen"><span style="font-size:15px">Inter 400, 15px. Attach a statement, invoice, or agreement.</span><small>Interface text and body copy.</small></div>
       <div class="specimen"><span style="font-size:13px;color:var(--ink-2)">Inter 400, 13px. chase-aug-2026.csv · 41 transactions · 2 unmatched</span><small>Metadata and secondary detail. Never uppercase, never letter-spaced.</small></div>
@@ -295,7 +293,7 @@
       <small>Scale</small><span>12 · 13 · 15 · 17 · 19 · 22 · 26 · 28 · 32 · 40</span>
       <small>Line height</small><span>1.5 for sans body, 1.45 for serif prose, 1.1 to 1.2 for headings and figures</span>
       <small>Tracking</small><span>−0.01em on all sans text, −0.015em on serif headings, −0.02em on large figures</span>
-      <small>Weights</small><span>Source Serif 4 400 and 500. Inter 400 and 500. Nothing heavier.</span>
+      <small>Weights</small><span>Source Serif 4 400 and 500. Inter 400 and 500. Nothing heavier, and no italics: emphasis is weight or colour.</span>
       <small>Numerals</small><span>Inter with <code>tnum</code> everywhere, including inside serif prose</span>
     </div>
   </section>
@@ -350,7 +348,7 @@
       <tr><th>Area</th><th>Now</th><th>Proposed</th></tr>
       <tr><td>Styling</td><td>Custom CSS classes plus Tailwind utilities that never load because <code>globals.css</code> lacks the Tailwind import</td><td>Tailwind v4 wired properly. The eight tokens live in an <code>@theme</code> block and are mapped onto shadcn's variables (background, foreground, muted, border, primary, destructive), so shadcn components pick up the language automatically. Component styling moves from hand-written classes to utilities.</td></tr>
       <tr><td>Components</td><td>Four shadcn files, mostly unused; a hand-rolled dropdown, dialog, and select</td><td>shadcn Button, Input, Dialog, Select, DropdownMenu. The edit-facts modal, the month picker, and the account menu become the real primitives with keyboard and focus handling for free.</td></tr>
-      <tr><td>Fonts</td><td>IBM Plex Mono (local), DM Serif Display, Manrope</td><td>Source Serif 4 and Inter as self-hosted variable WOFF2 files in <code>src/fonts</code>, loaded with <code>next/font/local</code>. No font CDN.</td></tr>
+      <tr><td>Fonts</td><td>IBM Plex Mono (local), DM Serif Display, Manrope</td><td>Source Serif 4 and Inter as self-hosted variable WOFF2 files in <code>src/fonts</code>, roman only, loaded with <code>next/font/local</code>. No font CDN, no italics.</td></tr>
       <tr><td>Theme</td><td>next-themes with a three-way icon button in the top bar; dark styles duplicated per component</td><td>next-themes kept. Tokens redefined once under <code>.dark</code>. Segmented light / dark / system control in the account menu and on the sign-in page.</td></tr>
       <tr><td>Routes</td><td><code>/</code> sign-in, <code>/sign-in</code> redirect, <code>/sign-up</code> Clerk embed, <code>/workspace</code></td><td><code>/login</code> sign-in, <code>/</code> the app. Signed-out visits to <code>/</code> go to <code>/login</code>; signed-in visits to <code>/login</code> go to <code>/</code>. The three old routes are deleted.</td></tr>
       <tr><td>Auth UI</td><td>Clerk <code>&lt;SignIn&gt;</code> and <code>&lt;SignUp&gt;</code> with appearance overrides</td><td>Our own form using <code>useSignIn</code> and <code>useSignUp</code>: email code only; an unknown email falls through to sign-up. Server auth, middleware, and company provisioning untouched. Requires the Google connection to be off and email code on in the Clerk dashboard.</td></tr>

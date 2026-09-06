@@ -4,22 +4,16 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
-// Self-hosted variable fonts. See src/fonts/LICENSE-*.txt.
+// Self-hosted variable fonts, roman only: the design language uses no italics. See src/fonts/LICENSE-*.txt.
 const sans = localFont({
-  src: [
-    { path: "../fonts/InterVariable.woff2", style: "normal" },
-    { path: "../fonts/InterVariable-Italic.woff2", style: "italic" },
-  ],
+  src: "../fonts/InterVariable.woff2",
   weight: "100 900",
   variable: "--font-sans-face",
   display: "swap",
 });
 
 const serif = localFont({
-  src: [
-    { path: "../fonts/SourceSerif4Variable-Roman.woff2", style: "normal" },
-    { path: "../fonts/SourceSerif4Variable-Italic.woff2", style: "italic" },
-  ],
+  src: "../fonts/SourceSerif4Variable-Roman.woff2",
   weight: "200 900",
   variable: "--font-serif-face",
   display: "swap",
