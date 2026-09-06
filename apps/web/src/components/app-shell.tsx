@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowUp, Check, ChevronDown, FileText, History, LoaderCircle, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
@@ -470,13 +471,18 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               ))}
             </ol>
           )}
-          <div className="flex items-center gap-4">
-            <button className={quietButton} type="button" onClick={newChat} disabled={turns.length === 0 && !message && files.length === 0 && !notice}>
-              <Plus className="size-3.5" aria-hidden="true" /> New chat
-            </button>
-            <button className={quietButton} type="button" onClick={openHistory}>
-              <History className="size-3.5" aria-hidden="true" /> History
-            </button>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <button className={quietButton} type="button" onClick={newChat} disabled={turns.length === 0 && !message && files.length === 0 && !notice}>
+                <Plus className="size-3.5" aria-hidden="true" /> New chat
+              </button>
+              <button className={quietButton} type="button" onClick={openHistory}>
+                <History className="size-3.5" aria-hidden="true" /> History
+              </button>
+            </div>
+            <Link href="/about" className={quietButton}>
+              <CircleHelp className="size-3.5" aria-hidden="true" /> Hints on how to use
+            </Link>
           </div>
         </div>
 
