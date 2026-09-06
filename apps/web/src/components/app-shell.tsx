@@ -57,6 +57,16 @@ function useStoredChoice(key: string, fallback: string, allowed: (value: string)
 const quietSelect = "h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 text-[13px] text-ink-2 shadow-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-transparent dark:hover:bg-transparent [&_svg]:hidden";
 const quietButton = "inline-flex items-center gap-1.5 rounded-md text-[13px] text-ink-2 transition-colors outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
+/** Parse a JSON body, or turn an empty or HTML error body into a readable message. */
+async function readJson(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return { error: response.ok ? "Unexpected response from the server" : `Request failed (${response.status})` };
+  }
+}
+
 /** A raw excerpt that only restates the extracted summary adds nothing; show excerpts only when they differ. */
 function repeatsSummary(excerpt: string, summary: string | undefined) {
   if (!summary) return false;
@@ -169,20 +179,20 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   useEffect(() => {
     async function loadForecast() {
       const monthsResponse = await fetch("/api/months");
-      const monthsPayload = monthsResponse.ok ? await monthsResponse.json() : null;
+      const monthsPayload = monthsResponse.ok ? await readJson(monthsResponse) : null;
       if (monthsPayload?.months?.length === 0) {
         const month = new Date().toISOString().slice(0, 7);
         await fetch("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month }) });
       }
       const response = await fetch("/api/forecast");
-      const payload = response.ok ? await response.json() : null;
+      const payload = response.ok ? await readJson(response) : null;
       if (payload?.months) { setForecast(payload.months); setSelectedMonth(payload.months[0]?.month ?? ""); }
       const pnlResponse = await fetch("/api/pnl");
-      const pnlPayload = pnlResponse.ok ? await pnlResponse.json() : null;
+      const pnlPayload = pnlResponse.ok ? await readJson(pnlResponse) : null;
       if (pnlPayload?.months) setPnl(pnlPayload.months);
       const [obligationsResponse, allocationsResponse] = await Promise.all([fetch("/api/obligations"), fetch("/api/allocations")]);
-      if (obligationsResponse.ok) { const data = await obligationsResponse.json(); setObligations(data.obligations ?? []); }
-      if (allocationsResponse.ok) { const data = await allocationsResponse.json(); setDueFromFunds(data.dueFromFunds ?? []); }
+      if (obligationsResponse.ok) { const data = await readJson(obligationsResponse); setObligations(data.obligations ?? []); }
+      if (allocationsResponse.ok) { const data = await readJson(allocationsResponse); setDueFromFunds(data.dueFromFunds ?? []); }
     }
     loadForecast().catch(() => undefined);
   }, []);
@@ -220,7 +230,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setHistoryOpen(true);
     if (history) return;
     const response = await fetch("/api/conversations");
-    if (response.ok) { const data = await response.json(); setHistory(data.turns ?? []); } else setHistory([]);
+    if (response.ok) { const data = await readJson(response); setHistory(data.turns ?? []); } else setHistory([]);
   }
 
   async function submit(event: React.FormEvent) {
@@ -232,37 +242,37 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const closeCommand = message.trim().match(/^close\s+(?:month\s+)?(\d{4}-\d{2})$/i);
       if (closeCommand) {
         const response = await fetch("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: closeCommand[1], status: "closed" }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to close month");
         const summary = payload.summary as { actualNet?: number; variance?: number } | undefined;
         if (summary?.actualNet !== undefined && summary.variance !== undefined) setCloseSummary({ month: closeCommand[1]!, actualNet: summary.actualNet, variance: summary.variance });
         setNotice(`${closeCommand[1]} close completed${summary ? ` · actual net ${company.currency} ${summary.actualNet?.toLocaleString()} · variance ${summary.variance?.toLocaleString()}` : ""}.`);
         setMessage("");
         const refreshed = await fetch("/api/forecast");
-        if (refreshed.ok) { const data = await refreshed.json(); setForecast(data.months); }
+        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       const reopenCommand = message.trim().match(/^(?:open|reopen)\s+(?:month\s+)?(\d{4}-\d{2})$/i);
       if (reopenCommand) {
         const response = await fetch("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: reopenCommand[1], status: "open" }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to reopen month");
         setNotice(`${reopenCommand[1]} reopened.`);
         setMessage("");
         const refreshed = await fetch("/api/forecast");
-        if (refreshed.ok) { const data = await refreshed.json(); setForecast(data.months); }
+        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       const decisionCommand = message.trim().match(/^decision\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       const policyCommand = message.trim().match(/^policy\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       if (decisionCommand || policyCommand) {
         const response = await fetch("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decisionCommand ? { question: decisionCommand[1], answer: decisionCommand[2] } : { question: "Standing CFO policy", answer: policyCommand![2], policyName: policyCommand![1], policyRule: policyCommand![2] }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to save decision");
         setNotice(policyCommand ? `Policy “${policyCommand[1]}” saved.` : "Decision saved.");
         const refreshedEvidence = await fetch("/api/evidence");
         if (refreshedEvidence.ok) {
-          const evidencePayload = await refreshedEvidence.json();
+          const evidencePayload = await readJson(refreshedEvidence);
           setEvidence(evidencePayload.evidence);
           setReviewQuestions(evidencePayload.reviewItems ?? []);
         }
@@ -272,18 +282,18 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const openingCommand = message.trim().match(/^(?:set\s+)?opening\s+(?:cash|balance)\s+(?:for\s+)?(\d{4}-\d{2})\s*(?:to|=)?\s*\$?([\d,]+(?:\.\d+)?)$/i);
       if (openingCommand) {
         const response = await fetch("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: openingCommand[1], openingCash: openingCommand[2]!.replace(/,/g, "") }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to set opening balance");
         setNotice(`Opening cash set for ${openingCommand[1]}.`);
         setMessage("");
         const refreshed = await fetch("/api/forecast");
-        if (refreshed.ok) { const data = await refreshed.json(); setForecast(data.months); }
+        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       if (!selectedFiles.length && /^(what|how|why|show|explain|forecast|cash|runway)\b/i.test(message.trim())) {
         const question = message.trim();
         const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question, month: selectedMonth || undefined, ...modelChoice() }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
         const questions = payload.questions?.length ? ` ${payload.questions.join(" ")}` : "";
         const proposals = payload.proposedDecisions?.length ? ` Proposed: ${payload.proposedDecisions.map((proposal: { question: string; answer: string }) => `${proposal.question}: ${proposal.answer}`).join("; ")}` : "";
@@ -291,7 +301,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         setHistory(null);
         if (payload.proposedDecisions?.length) {
           const refreshed = await fetch("/api/decisions");
-          if (refreshed.ok) { const data = await refreshed.json(); if (data.decisions) setAgentDecisions(data.decisions); }
+          if (refreshed.ok) { const data = await readJson(refreshed); if (data.decisions) setAgentDecisions(data.decisions); }
         }
         setMessage("");
         return;
@@ -305,7 +315,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           if (looksLikeTransactions) {
             const actualsForm = new FormData(); actualsForm.append("file", file);
             const actualsResponse = await fetch("/api/actuals", { method: "POST", body: actualsForm });
-            const actualsPayload = await actualsResponse.json();
+            const actualsPayload = await readJson(actualsResponse);
             if (!actualsResponse.ok) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
             importedActuals += Number(actualsPayload.imported ?? 0);
             if (actualsPayload.duplicate) duplicateActuals += 1;
@@ -313,19 +323,19 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           }
           const form = new FormData(); form.append("file", file); form.append("model", model); if (effort !== "auto") form.append("effort", effort);
           const response = await fetch("/api/evidence", { method: "POST", body: form });
-          const payload = await response.json();
+          const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? `Unable to process ${file.name}`);
           payloads.push({ ...payload, sourceName: file.name });
         }
         if (message.trim()) {
           const response = await fetch("/api/evidence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: message.trim(), sourceName: "conversation context", ...modelChoice() }) });
-          const payload = await response.json();
+          const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? "Unable to process conversation context");
           payloads.push({ ...payload, sourceName: "conversation context" });
         }
       } else {
         const response = await fetch("/api/evidence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: message.trim() || fileText || `Attached evidence: ${files.join(", ")}`, sourceName: files[0] ?? "conversation", ...modelChoice() }) });
-        const payload = await response.json();
+        const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to process evidence");
         payloads.push({ ...payload, sourceName: files[0] ?? "conversation" });
       }
@@ -337,15 +347,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       setFileText("");
       const refreshedEvidence = await fetch("/api/evidence");
       if (refreshedEvidence.ok) {
-        const evidencePayload = await refreshedEvidence.json();
+        const evidencePayload = await readJson(refreshedEvidence);
         setEvidence(evidencePayload.evidence);
         setReviewQuestions(evidencePayload.reviewItems ?? []);
       }
       if (importedActuals) {
         const refreshed = await fetch("/api/forecast");
-        if (refreshed.ok) { const data = await refreshed.json(); setForecast(data.months); }
+        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         const refreshedPnl = await fetch("/api/pnl");
-        if (refreshedPnl.ok) { const data = await refreshedPnl.json(); setPnl(data.months); }
+        if (refreshedPnl.ok) { const data = await readJson(refreshedPnl); setPnl(data.months); }
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to process evidence");
