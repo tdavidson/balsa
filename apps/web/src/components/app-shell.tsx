@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AccountMenu } from "@/components/account-menu";
@@ -174,6 +174,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [closeSummary, setCloseSummary] = useState<{ month: string; actualNet: number; variance: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
+  const requestAbortController = useRef<AbortController | null>(null);
 
   // Grow the composer with its content, up to a cap, and shrink back when cleared.
   useEffect(() => {
@@ -245,7 +246,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     return { model, ...(effort === "auto" ? {} : { effort }) };
   }
 
-  async function askAgent(question: string, newEvidence: ChatEvidence[] = []) {
+  async function askAgent(question: string, newEvidence: ChatEvidence[] = [], signal?: AbortSignal) {
     const conversationHistory = turns.slice(-10).flatMap((turn) => [
       { role: "user" as const, content: turn.question },
       { role: "assistant" as const, content: turn.answer },
@@ -253,6 +254,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     const response = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      ...(signal ? { signal } : {}),
       body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, reviewQuestionId: activeReviewQuestionId ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
     });
     const payload = await readJson(response);
@@ -298,6 +300,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
+  function stopSubmission() {
+    requestAbortController.current?.abort();
+    setSubmissionStatus("Stopping…");
+  }
+
   async function openHistory() {
     setHistoryOpen(true);
     if (history) return;
@@ -309,42 +316,45 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     event.preventDefault();
     const submittedMessage = message.trim();
     if (isSubmitting || (!submittedMessage && files.length === 0)) return;
+    const abortController = new AbortController();
+    requestAbortController.current = abortController;
     setIsSubmitting(true);
     setPendingQuestion(submittedMessage || `Uploaded ${files.join(", ")}`);
     setSubmissionStatus(selectedFiles.length ? `Reading ${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"}…` : "Thinking about your message…");
     setNotice(null);
     setMessage("");
+    const request = (input: RequestInfo | URL, init: RequestInit = {}) => fetch(input, { ...init, signal: abortController.signal });
     try {
       const closeCommand = submittedMessage.match(/^close\s+(?:month\s+)?(\d{4}-\d{2})$/i);
       if (closeCommand) {
-        const response = await fetch("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: closeCommand[1], status: "closed" }) });
+        const response = await request("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: closeCommand[1], status: "closed" }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to close month");
         const summary = payload.summary as { actualNet?: number; variance?: number } | undefined;
         if (summary?.actualNet !== undefined && summary.variance !== undefined) setCloseSummary({ month: closeCommand[1]!, actualNet: summary.actualNet, variance: summary.variance });
         setNotice(`${closeCommand[1]} close completed${summary ? ` · actual net ${company.currency} ${summary.actualNet?.toLocaleString()} · variance ${summary.variance?.toLocaleString()}` : ""}.`);
-        const refreshed = await fetch("/api/forecast");
+        const refreshed = await request("/api/forecast");
         if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       const reopenCommand = submittedMessage.match(/^(?:open|reopen)\s+(?:month\s+)?(\d{4}-\d{2})$/i);
       if (reopenCommand) {
-        const response = await fetch("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: reopenCommand[1], status: "open" }) });
+        const response = await request("/api/months", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: reopenCommand[1], status: "open" }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to reopen month");
         setNotice(`${reopenCommand[1]} reopened.`);
-        const refreshed = await fetch("/api/forecast");
+        const refreshed = await request("/api/forecast");
         if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       const decisionCommand = submittedMessage.match(/^decision\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       const policyCommand = submittedMessage.match(/^policy\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       if (decisionCommand || policyCommand) {
-        const response = await fetch("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decisionCommand ? { question: decisionCommand[1], answer: decisionCommand[2] } : { question: "Standing CFO policy", answer: policyCommand![2], policyName: policyCommand![1], policyRule: policyCommand![2] }) });
+        const response = await request("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decisionCommand ? { question: decisionCommand[1], answer: decisionCommand[2] } : { question: "Standing CFO policy", answer: policyCommand![2], policyName: policyCommand![1], policyRule: policyCommand![2] }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to save decision");
         setNotice(policyCommand ? `Policy “${policyCommand[1]}” saved.` : "Decision saved.");
-        const refreshedEvidence = await fetch("/api/evidence");
+        const refreshedEvidence = await request("/api/evidence");
         if (refreshedEvidence.ok) {
           const evidencePayload = await readJson(refreshedEvidence);
           setEvidence(evidencePayload.evidence);
@@ -354,16 +364,16 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       }
       const openingCommand = submittedMessage.match(/^(?:set\s+)?opening\s+(?:cash|balance)\s+(?:for\s+)?(\d{4}-\d{2})\s*(?:to|=)?\s*\$?([\d,]+(?:\.\d+)?)$/i);
       if (openingCommand) {
-        const response = await fetch("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: openingCommand[1], openingCash: openingCommand[2]!.replace(/,/g, "") }) });
+        const response = await request("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: openingCommand[1], openingCash: openingCommand[2]!.replace(/,/g, "") }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to set opening balance");
         setNotice(`Opening cash set for ${openingCommand[1]}.`);
-        const refreshed = await fetch("/api/forecast");
+        const refreshed = await request("/api/forecast");
         if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
         return;
       }
       if (!selectedFiles.length) {
-        await askAgent(submittedMessage);
+        await askAgent(submittedMessage, [], abortController.signal);
         return;
       }
       const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"] }[] = [];
@@ -375,7 +385,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           const looksLikeTransactions = /\.(csv|xlsx|xls|qbo|ofx)$/i.test(file.name) && (/bank|transaction|actual|statement|quickbooks|qbo|ofx/i.test(file.name) || (/\.csv$/i.test(file.name) && /date/i.test(await file.slice(0, 2000).text()) && /amount|debit|credit|value|total/i.test(await file.slice(0, 2000).text())));
           if (looksLikeTransactions) {
             const actualsForm = new FormData(); actualsForm.append("file", file);
-            const actualsResponse = await fetch("/api/actuals", { method: "POST", body: actualsForm });
+            const actualsResponse = await request("/api/actuals", { method: "POST", body: actualsForm });
             const actualsPayload = await readJson(actualsResponse);
             if (!actualsResponse.ok) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
             importedActuals += Number(actualsPayload.imported ?? 0);
@@ -384,7 +394,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             continue;
           }
           const form = new FormData(); form.append("file", file); form.append("model", model); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
-          const response = await fetch("/api/evidence", { method: "POST", body: form });
+          const response = await request("/api/evidence", { method: "POST", body: form });
           const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? `Unable to process ${file.name}`);
           payloads.push({ ...payload, sourceName: file.name, status: "pending" });
@@ -400,26 +410,31 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         questions: payload.extraction?.questions ?? [],
       }));
       setSubmissionStatus("Considering the files and preparing a response…");
-      await askAgent(question, chatEvidence);
+      await askAgent(question, chatEvidence, abortController.signal);
       setNotice(`${payloads.length} evidence source${payloads.length === 1 ? "" : "s"} captured${importedActuals ? `; ${importedActuals} actual transactions imported` : duplicateActuals ? `; ${duplicateActuals} actual file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}.`);
       setFiles([]);
       setSelectedFiles([]);
-      const refreshedEvidence = await fetch("/api/evidence");
+      const refreshedEvidence = await request("/api/evidence");
       if (refreshedEvidence.ok) {
         const evidencePayload = await readJson(refreshedEvidence);
         setEvidence(evidencePayload.evidence);
         setReviewQuestions(evidencePayload.reviewItems ?? []);
       }
       if (importedActuals) {
-        const refreshed = await fetch("/api/forecast");
+        const refreshed = await request("/api/forecast");
         if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
-        const refreshedPnl = await fetch("/api/pnl");
+        const refreshedPnl = await request("/api/pnl");
         if (refreshedPnl.ok) { const data = await readJson(refreshedPnl); setPnl(data.months); }
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setNotice("Request stopped. No assistant response was saved.");
+        return;
+      }
       if (submittedMessage) setMessage((current) => current.trim() ? current : submittedMessage);
-      setNotice(error instanceof Error ? error.message : "Unable to process evidence");
+      setNotice(error instanceof Error ? `The request failed: ${error.message}` : "The request failed while contacting the model.");
     } finally {
+      if (requestAbortController.current === abortController) requestAbortController.current = null;
       setIsSubmitting(false);
       setSubmissionStatus(null);
       setPendingQuestion(null);
@@ -488,6 +503,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               </div>
               <p className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
                 <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> {submissionStatus}
+                <button type="button" className="ml-1 rounded-md border border-rule px-2 py-0.5 text-[12px] text-ink transition-colors hover:bg-rule focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={stopSubmission}>Stop</button>
               </p>
             </div>
           )}
@@ -567,14 +583,20 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <button
-                className="grid size-8 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:bg-rule disabled:text-pencil"
-                type="submit"
-                disabled={isSubmitting || (!message.trim() && files.length === 0)}
-                aria-label="Send"
-              >
-                {isSubmitting ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <ArrowUp className="size-4" aria-hidden="true" />}
-              </button>
+              {isSubmitting ? (
+                <button className="grid size-8 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" onClick={stopSubmission} aria-label="Stop request">
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  className="grid size-8 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:bg-rule disabled:text-pencil"
+                  type="submit"
+                  disabled={!message.trim() && files.length === 0}
+                  aria-label="Send"
+                >
+                  <ArrowUp className="size-4" aria-hidden="true" />
+                </button>
+              )}
             </div>
           </form>
           <div className="flex items-center justify-between gap-4">
