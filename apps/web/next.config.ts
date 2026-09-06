@@ -12,6 +12,8 @@ const clerkPublishableKey =
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // pdf.js resolves its worker relative to its own files; bundling it breaks that.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
   env: clerkPublishableKey
     ? { NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkPublishableKey }
     : undefined,
