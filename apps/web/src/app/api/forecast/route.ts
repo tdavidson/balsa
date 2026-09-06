@@ -24,7 +24,7 @@ export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
   const rows = await getDatabase().select({ id: evidence.id, sourceName: evidence.sourceName, extractedJson: evidence.extractedJson, status: evidence.status, reportingMonth: evidence.reportingMonth }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt));
-  const persisted = await getDatabase().select({ month: cashEvents.month, amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId, sourceName: evidence.sourceName }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, context.company.id));
+  const persisted = await getDatabase().select({ month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId, sourceName: evidence.sourceName }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, context.company.id));
   const confirmedItems = await getDatabase().select({ id: economicItems.id, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, sourceName: evidence.sourceName }).from(economicItems).leftJoin(evidence, eq(economicItems.evidenceId, evidence.id)).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.status, "confirmed")));
   const periods = await getDatabase().select({ month: reportingPeriods.month, openingCash: reportingPeriods.openingCash, status: reportingPeriods.status }).from(reportingPeriods).where(eq(reportingPeriods.companyId, context.company.id));
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -35,7 +35,7 @@ export async function GET() {
     if (!cadence) return [];
     return Array.from({ length: 12 }, (_, index) => index + 1).filter((index) => index % cadence === 0).map((index) => ({ month: addMonths(currentMonth, index), amount, kind: item.direction, actual: false, trace: { description: "Recurring confirmed item", evidenceId: item.id, sourceName: item.sourceName } }));
   });
-  const events = [...persisted.map((event) => ({ month: event.month, amount: Number(event.amount), kind: event.direction, actual: event.isActual === "Y", trace: { description: event.description, evidenceId: event.evidenceId, sourceName: event.sourceName } })), ...recurringEvents, ...rows.filter((row) => row.status === "approved").flatMap((row) => {
+  const events = [...persisted.map((event) => ({ month: event.month, amount: Number(event.amount), kind: event.direction, actual: event.isActual === "Y", trace: { description: `${event.transactionDate ? `${event.transactionDate} · ` : ""}${event.description}`, evidenceId: event.evidenceId, sourceName: event.sourceName } })), ...recurringEvents, ...rows.filter((row) => row.status === "approved").flatMap((row) => {
     if (!row.extractedJson) return [];
     const extraction = JSON.parse(row.extractedJson) as { facts?: { label: string; value: string }[] };
     return (extraction.facts ?? []).flatMap((fact) => {

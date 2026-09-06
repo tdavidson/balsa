@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight } from "lucide-react";
+import { AccountMenu } from "@/components/account-menu";
+import { requireCompanyAccess } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -35,17 +37,19 @@ function Command({ children }: { children: React.ReactNode }) {
 
 export default async function AboutPage() {
   await auth.protect({ unauthenticatedUrl: "/login" });
+  const context = await requireCompanyAccess();
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex h-14 items-center justify-end px-7">
-        <Link href="/" className="inline-flex items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-          <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to nevermodel
-        </Link>
+        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name }} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-4">
-          <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>How nevermodel works</h1>
+          <Link href="/" className="inline-flex w-fit items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Hemrock
+          </Link>
+          <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>How Hemrock works</h1>
           <p className="max-w-[60ch] text-[18px] leading-[1.5] text-ink-2">
             A financial system you talk to, that never does the math by talking. Evidence comes in, gets read into facts, and the facts feed a calculator that does not guess.
           </p>
@@ -67,7 +71,7 @@ export default async function AboutPage() {
 
         <Section title="The idea">
           <p>
-            A CFO already holds everything a financial model needs: the evidence, the context, the policies, the assumptions, and the judgment. The only thing missing is the labour of keying it all into a spreadsheet and keeping that spreadsheet alive. nevermodel takes the same inputs a CFO uses and maintains the model itself.
+            A CFO already holds everything a financial model needs: the evidence, the context, the policies, the assumptions, and the judgment. The only thing missing is the labour of keying it all into a spreadsheet and keeping that spreadsheet alive. Hemrock takes the same inputs a CFO uses and maintains the model itself.
           </p>
           <p>
             Two rules make that possible. Language models handle meaning: interpretation, classification, matching, ambiguity, and explanation. Deterministic code handles math: schedules, balances, recognition, cash roll-forwards, allocations, and statements. The model is never the calculator and never the database.
@@ -108,6 +112,9 @@ export default async function AboutPage() {
           <p>
             Markdown expresses context and intent. Structured state executes it. The model reconciles between the two, and neither pretends to be the other.
           </p>
+          <p>
+            Hemrock also provides knowledge templates for common business models such as SaaS, professional services, e-commerce, and venture funds with management companies. A template is a proxy for industry experience: it supplies useful questions, terminology, and starting policies, but it never becomes a confirmed company fact. Apply one from the Knowledge page, review the Markdown, and edit it in the company&apos;s own language before relying on it.
+          </p>
         </Section>
 
         <Section title="Provenance">
@@ -136,7 +143,7 @@ export default async function AboutPage() {
             Anything that feels like configuring finance software should be a sentence instead. Not an allocation settings screen but <Command>Allocate Carta 60% Fund II, 30% Fund III, 10% management company going forward</Command>. Not editing forecast cells but <Command>Assume we hire a finance contractor in January at $6k a month</Command>. Not configuring recurring revenue but <Command>Fund III pays us $50k quarterly through the end of 2028</Command>. The agent turns intent into Company State.
           </p>
           <p>
-            <strong className="font-medium">Decisions</strong> answer one question once. When the system asks how to treat something, reply with <Command>decision: How should contractor invoices be treated? =&gt; Cash basis</Command>. The answer is remembered and applied to similar evidence later.
+            <strong className="font-medium">Decisions</strong> answer one question once. When the system asks how to treat something, select the question under Waiting on you and answer it naturally in chat. The answer is remembered and applied to similar evidence later.
           </p>
           <p>
             <strong className="font-medium">Policies</strong> are standing judgment. <Command>policy: Contractor timing =&gt; Recognise on payment date</Command> tells it how to read a whole class of evidence, and the policy is cited whenever it is used. Decisions that keep recurring are candidates for policies.
@@ -173,10 +180,10 @@ export default async function AboutPage() {
 
         <Section title="About Taylor">
           <p>
-            nevermodel is built by Taylor Davidson. Taylor helps founders and investors create and use financial models through Hemrock, formerly Foresight, whose template models have been used by more than fifty thousand people worldwide since 1998. He serves as fractional Chief Financial Officer for Synthetic Example Company Capital Group, an early-stage venture firm, running fund administration, capital planning, investor reporting, and management-company finance.
+            Hemrock is built by Taylor Davidson. Taylor helps founders and investors create and use financial models through Hemrock, formerly Foresight, whose template models have been used by more than fifty thousand people worldwide since 1998. He serves as fractional Chief Financial Officer for Synthetic Example Company Capital Group, an early-stage venture firm, running fund administration, capital planning, investor reporting, and management-company finance.
           </p>
           <p>
-            That work is where nevermodel comes from: years of watching the same evidence get re-keyed into models by hand, and the conviction that a company’s financial operations should be learned from what it already produces rather than configured up front. He teaches financial modeling, venture fund forecasting, and cap tables and exit waterfalls, and lives in Pittsburgh.
+            That work is where Hemrock comes from: years of watching the same evidence get re-keyed into models by hand, and the conviction that a company’s financial operations should be learned from what it already produces rather than configured up front. He teaches financial modeling, venture fund forecasting, and cap tables and exit waterfalls, and lives in Pittsburgh.
           </p>
           <p className="text-ink-2">
             More at <a className="text-ink underline underline-offset-[3px]" href="https://www.hemrock.com" target="_blank" rel="noreferrer">hemrock.com</a> and <a className="text-ink underline underline-offset-[3px]" href="https://taylordavidson.com" target="_blank" rel="noreferrer">taylordavidson.com</a>.

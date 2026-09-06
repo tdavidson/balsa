@@ -20,7 +20,7 @@ const serif = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "nevermodel",
+  title: "Hemrock",
   description: "An auditable, LLM-native financial operating system.",
 };
 

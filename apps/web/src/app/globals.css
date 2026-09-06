@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
-  nevermodel design tokens.
+  Hemrock design tokens.
 
   Ink, pencil, highlighter. Actuals and approved facts are ink. Forecasts and
   unconfirmed facts are pencil. The one thing waiting on you gets a highlighter

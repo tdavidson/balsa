@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   char,
+  date,
   index,
   pgEnum,
   pgTable,
@@ -267,6 +268,7 @@ export const cashEvents = pgTable(
     sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
     evidenceId: uuid("evidence_id").references(() => evidence.id, { onDelete: "set null" }),
     month: text("month").notNull(),
+    transactionDate: date("transaction_date"),
     externalKey: text("external_key"),
     description: text("description").notNull(),
     amount: text("amount").notNull(),

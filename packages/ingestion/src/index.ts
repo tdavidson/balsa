@@ -6,10 +6,10 @@ export async function extractPdfText(buffer: Uint8Array): Promise<string> {
   try { return (await parser.getText()).text; } finally { await parser.destroy(); }
 }
 
-export type TransactionRow = { date: string; description: string; amount: number; direction: "receipt" | "spend" };
+export type TransactionRow = { date: string; postedDate?: string; description: string; amount: number; direction: "receipt" | "spend" };
 
-export function transactionExternalKey(transaction: Pick<TransactionRow, "date" | "description" | "amount" | "direction">): string {
-  return createHash("sha256").update(`${transaction.date}|${transaction.description}|${transaction.amount.toFixed(2)}|${transaction.direction}`).digest("hex");
+export function transactionExternalKey(transaction: Pick<TransactionRow, "date" | "postedDate" | "description" | "amount" | "direction">): string {
+  return createHash("sha256").update(`${transaction.postedDate ?? transaction.date}|${transaction.description}|${transaction.amount.toFixed(2)}|${transaction.direction}`).digest("hex");
 }
 
 export function parseCsvRows(text: string): string[][] {
@@ -27,6 +27,24 @@ export function parseCsvRows(text: string): string[][] {
 
 function amount(value: string) { return Number(value.replace(/[$,]/g, "").replace(/^\((.*)\)$/, "-$1")); }
 
+function fullDate(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+/** Expand statement-style M/D and M/D/YY dates using the dated source filename or reporting period. */
+export function expandFinancialFactDates<T extends { label: string; value: string }>(facts: T[], sourceDate?: string | null): T[] {
+  const sourceYear = Number(sourceDate?.match(/\b(20\d{2})(?:-\d{2})?(?:-\d{2})?\b/)?.[1]);
+  const expand = (text: string) => text
+    .replace(/\b(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})\b/g, (match, month, day, year) => {
+      const numericYear = Number(year) < 100 ? 2000 + Number(year) : Number(year);
+      return fullDate(numericYear, Number(month), Number(day)) ?? match;
+    })
+    .replace(/\b(\d{1,2})\/(\d{1,2})\b/g, (match, month, day) => sourceYear ? fullDate(sourceYear, Number(month), Number(day)) ?? match : match);
+  return facts.map((fact) => ({ ...fact, label: expand(fact.label), value: expand(fact.value) }));
+}
+
 export function normalizeTransactions(rows: string[][], fallbackMonth: string): TransactionRow[] {
   if (rows.length < 2) return [];
   const headers = rows[0]!.map((h) => h.toLowerCase());
@@ -34,7 +52,7 @@ export function normalizeTransactions(rows: string[][], fallbackMonth: string): 
   const value = headers.findIndex((h) => /amount|total|value/.test(h));
   const debit = headers.findIndex((h) => /debit|withdrawal|outflow/.test(h));
   const credit = headers.findIndex((h) => /credit|deposit|inflow/.test(h));
-  const description = headers.findIndex((h) => /description|memo|payee|name/.test(h));
+  const descriptionColumns = headers.flatMap((header, index) => /description|memo|note|payee|name/.test(header) ? [index] : []);
   return rows.slice(1).flatMap((cells) => {
     const direct = value >= 0 ? amount(cells[value] ?? "") : 0;
     const d = debit >= 0 ? Math.abs(amount(cells[debit] ?? "")) : 0;
@@ -43,8 +61,10 @@ export function normalizeTransactions(rows: string[][], fallbackMonth: string): 
     if (!Number.isFinite(signed) || signed === 0) return [];
     const rawDate = cells[date] ?? "";
     const parsed = /^\d{5}(?:\.\d+)?$/.test(rawDate) ? new Date(Date.UTC(1899, 11, 30) + Number(rawDate) * 86400000) : new Date(rawDate);
-    const month = Number.isNaN(parsed.getTime()) ? fallbackMonth : parsed.toISOString().slice(0, 7);
-    return [{ date: month, description: cells[description] || "Imported transaction", amount: Math.abs(signed), direction: signed < 0 ? "spend" : "receipt" }];
+    const postedDate = Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
+    const month = postedDate?.slice(0, 7) ?? fallbackMonth;
+    const description = [...new Set(descriptionColumns.map((index) => cells[index]?.trim()).filter(Boolean))].join(" · ") || "Imported transaction";
+    return [{ date: month, ...(postedDate ? { postedDate } : {}), description, amount: Math.abs(signed), direction: signed < 0 ? "spend" : "receipt" }];
   });
 }
 
@@ -52,6 +72,9 @@ export function parseOfx(text: string): TransactionRow[] {
   return [...text.matchAll(/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>))/gi)].flatMap((match) => {
     const block = match[1] ?? ""; const tag = (name: string) => block.match(new RegExp(`<${name}>([^<\\r\\n]+)`, "i"))?.[1]?.trim() ?? "";
     const signed = amount(tag("TRNAMT")); if (!Number.isFinite(signed) || signed === 0) return [];
-    return [{ date: tag("DTPOSTED").slice(0, 6).replace(/^(\d{4})(\d{2})$/, "$1-$2"), description: tag("NAME") || tag("MEMO") || "Imported transaction", amount: Math.abs(signed), direction: signed < 0 ? "spend" as const : "receipt" as const }];
+    const rawDate = tag("DTPOSTED").slice(0, 8);
+    const postedDate = rawDate.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+    const description = [...new Set([tag("NAME"), tag("MEMO")].filter(Boolean))].join(" · ") || "Imported transaction";
+    return [{ date: postedDate.slice(0, 7), postedDate, description, amount: Math.abs(signed), direction: signed < 0 ? "spend" as const : "receipt" as const }];
   });
 }

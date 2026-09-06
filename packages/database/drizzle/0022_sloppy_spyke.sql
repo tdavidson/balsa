@@ -1,0 +1,1 @@
+ALTER TABLE "cash_events" ADD COLUMN "transaction_date" date;
