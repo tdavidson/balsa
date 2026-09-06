@@ -1,14 +1,28 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 const serif = (size: number) => ({ fontVariationSettings: `"opsz" ${size}` });
 
+const sections = [
+  "The idea",
+  "The operating loop",
+  "Three layers of state",
+  "Knowledge in plain language",
+  "Provenance",
+  "Getting started",
+  "Building the language for your company",
+  "What it should be able to tell you",
+  "About Taylor",
+];
+
+const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="grid gap-4 pt-4">
+    <section className="grid scroll-mt-6 gap-4 pt-4" id={slug(title)}>
       <h2 className="display text-[26px] leading-[1.2]" style={serif(26)}>{title}</h2>
       <div className="grid max-w-[62ch] gap-4 text-[16px] leading-[1.6] text-ink">{children}</div>
     </section>
@@ -36,6 +50,20 @@ export default async function AboutPage() {
             A financial system you talk to, that never does the math by talking. Evidence comes in, gets read into facts, and the facts feed a calculator that does not guess.
           </p>
         </div>
+
+        <details className="group grid gap-3" open>
+          <summary className="inline-flex w-fit list-none items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none select-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+            On this page
+          </summary>
+          <ol className="grid gap-1.5 pl-5 text-[14px]">
+            {sections.map((title) => (
+              <li key={title}>
+                <a href={`#${slug(title)}`} className="rounded-sm text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">{title}</a>
+              </li>
+            ))}
+          </ol>
+        </details>
 
         <Section title="The idea">
           <p>
