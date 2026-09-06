@@ -93,6 +93,9 @@ export function LoginForm() {
         />
       )}
 
+      {/* Clerk mounts its bot-protection widget here when sign-up needs it. */}
+      <div id="clerk-captcha" className="empty:hidden" />
+
       <button
         className="mt-3 inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-ink text-[15px] font-medium text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60"
         type="submit"
