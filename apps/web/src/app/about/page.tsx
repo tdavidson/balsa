@@ -8,9 +8,9 @@ const serif = (size: number) => ({ fontVariationSettings: `"opsz" ${size}` });
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="grid gap-4 border-t border-rule pt-8">
+    <section className="grid gap-4 pt-4">
       <h2 className="display text-[26px] leading-[1.2]" style={serif(26)}>{title}</h2>
-      <div className="prose-serif grid max-w-[62ch] gap-4 text-[17px] leading-[1.55] text-ink" style={serif(17)}>{children}</div>
+      <div className="grid max-w-[62ch] gap-4 text-[16px] leading-[1.6] text-ink">{children}</div>
     </section>
   );
 }
@@ -32,7 +32,7 @@ export default async function AboutPage() {
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-4">
           <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>How nevermodel works</h1>
-          <p className="prose-serif max-w-[60ch] text-[19px] leading-[1.5] text-ink-2" style={serif(19)}>
+          <p className="max-w-[60ch] text-[18px] leading-[1.5] text-ink-2">
             A financial system you talk to, that never does the math by talking. Evidence comes in, gets read into facts, and the facts feed a calculator that does not guess.
           </p>
         </div>
