@@ -1,0 +1,32 @@
+{
+  "name": "@finance/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./auth-repository": "./src/auth-repository.ts"
+  },
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@finance/auth": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "dotenv": "^17.2.3",
+    "drizzle-kit": "0.31.10",
+    "tsx": "^4.20.6",
+    "typescript": "6.0.3",
+    "vitest": "5.0.0"
+  }
+}

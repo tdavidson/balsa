@@ -1,0 +1,20 @@
+{
+  "name": "nevermodel",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter @finance/web build",
+    "dev": "pnpm --filter @finance/web dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "acceptance": "pnpm --filter @nevermodel/ingestion test && pnpm --filter @nevermodel/finance-engine test && pnpm --filter @finance/database exec tsx ../../scripts/company-zero-smoke.ts",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @finance/database db:generate",
+    "db:migrate": "pnpm --filter @finance/database db:migrate",
+    "db:studio": "pnpm --filter @finance/database db:studio"
+  }
+}

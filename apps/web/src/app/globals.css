@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  nevermodel design tokens.
+
+  Ink, pencil, highlighter. Actuals and approved facts are ink. Forecasts and
+  unconfirmed facts are pencil. The one thing waiting on you gets a highlighter
+  mark. Negative figures are red ink. Nothing else carries colour.
+*/
+:root {
+  --paper: #ffffff;
+  --ink: #111214;
+  --ink-2: #5c6068;
+  --pencil: #9a9ea6;
+  --pencil-2: #c9ccd2;
+  --rule: #e5e6e9;
+  --highlight: #fff1a8;
+  --red-ink: #b42318;
+  color-scheme: light;
+}
+
+.dark {
+  --paper: #121316;
+  --ink: #f2f2f4;
+  --ink-2: #a2a6ae;
+  --pencil: #6e7278;
+  --pencil-2: #3a3d44;
+  --rule: #26282d;
+  --highlight: #6b5d12;
+  --red-ink: #ef6a62;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-pencil: var(--pencil);
+  --color-pencil-2: var(--pencil-2);
+  --color-rule: var(--rule);
+  --color-highlight: var(--highlight);
+  --color-red-ink: var(--red-ink);
+
+  /* shadcn semantic names, mapped onto the tokens above */
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-card: var(--paper);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--paper);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--paper);
+  --color-secondary: var(--rule);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--rule);
+  --color-muted-foreground: var(--ink-2);
+  --color-accent: var(--rule);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--red-ink);
+  --color-border: var(--rule);
+  --color-input: var(--pencil-2);
+  --color-ring: var(--ink);
+
+  --font-sans: var(--font-sans-face), "Helvetica Neue", Arial, sans-serif;
+  --font-serif: var(--font-serif-face), Georgia, "Times New Roman", serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    background: var(--paper);
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    font-feature-settings: "tnum";
+  }
+  ::selection {
+    background: var(--highlight);
+    color: var(--ink);
+  }
+}
+
+@layer components {
+  /* Serif headings and prose. Optical size follows point size. */
+  .prose-serif {
+    @apply font-serif;
+    font-variation-settings: "opsz" 20;
+  }
+  .display {
+    @apply font-serif font-medium tracking-[-0.02em];
+    font-variation-settings: "opsz" 32;
+  }
+  /* Figures: sans, tabular, tight. */
+  .figure {
+    @apply font-sans font-medium tracking-[-0.02em];
+    font-feature-settings: "tnum", "lnum";
+  }
+  /* Highlighter mark on the exact phrase that needs a decision. */
+  .mark {
+    background: linear-gradient(transparent 20%, var(--highlight) 20%, var(--highlight) 88%, transparent 88%);
+    padding: 0 2px;
+    margin: 0 -2px;
+  }
+}

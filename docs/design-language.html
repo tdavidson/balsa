@@ -1,0 +1,375 @@
+<title>nevermodel Design Language</title>
+<style>
+  /* Self-hosted variable fonts, shared with the app (apps/web/src/fonts). */
+  @font-face { font-family: "Inter"; src: url("../apps/web/src/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Inter"; src: url("../apps/web/src/fonts/InterVariable-Italic.woff2") format("woff2"); font-weight: 100 900; font-style: italic; font-display: swap; }
+  @font-face { font-family: "Source Serif 4"; src: url("../apps/web/src/fonts/SourceSerif4Variable-Roman.woff2") format("woff2"); font-weight: 200 900; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Source Serif 4"; src: url("../apps/web/src/fonts/SourceSerif4Variable-Italic.woff2") format("woff2"); font-weight: 200 900; font-style: italic; font-display: swap; }
+  :root {
+    --paper: #ffffff;
+    --ink: #111214;
+    --ink-2: #5c6068;
+    --pencil: #9a9ea6;
+    --pencil-2: #c9ccd2;
+    --rule: #e5e6e9;
+    --highlight: #fff1a8;
+    --red-ink: #b42318;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121316; --ink: #f2f2f4; --ink-2: #a2a6ae; --pencil: #6e7278; --pencil-2: #3a3d44; --rule: #26282d; --highlight: #6b5d12; --red-ink: #ef6a62; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #121316; --ink: #f2f2f4; --ink-2: #a2a6ae; --pencil: #6e7278; --pencil-2: #3a3d44; --rule: #26282d; --highlight: #6b5d12; --red-ink: #ef6a62; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum";
+    letter-spacing: -0.01em;
+  }
+  a { color: inherit; }
+  .page { width: min(880px, calc(100% - 48px)); margin: 0 auto; padding: 64px 0 96px; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+  h1 { font-size: 40px; line-height: 1.1; font-variation-settings: "opsz" 40; }
+  h2 { font-size: 28px; line-height: 1.2; font-variation-settings: "opsz" 28; }
+  h3 { font-size: 20px; line-height: 1.3; font-variation-settings: "opsz" 20; }
+  p { margin: 0; }
+  .lede { font-family: var(--serif); font-size: 19px; line-height: 1.5; color: var(--ink); max-width: 60ch; margin-top: 16px; font-variation-settings: "opsz" 19; }
+  .muted { color: var(--ink-2); }
+  .section { margin-top: 64px; padding-top: 32px; border-top: 1px solid var(--rule); display: grid; gap: 24px; }
+  .section > p { max-width: 62ch; }
+  .thesis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 32px; }
+  .thesis > div { display: grid; gap: 8px; padding-top: 12px; border-top: 2px solid var(--ink); }
+  .thesis strong { font-family: var(--serif); font-weight: 500; font-size: 20px; font-variation-settings: "opsz" 20; }
+  .thesis .pencil-t { border-top-color: var(--pencil); }
+  .thesis .high-t { border-top-color: var(--highlight); }
+  .thesis small { color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+
+  .frame { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper); }
+  .frame-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-bottom: 1px solid var(--rule); color: var(--pencil); font-size: 12px; }
+  .frame-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule); display: inline-block; }
+  .frame-bar span { margin-left: 8px; }
+
+  .signin { min-height: 540px; display: grid; place-items: center; padding: 48px 24px; position: relative; }
+  .signin form { width: 100%; max-width: 384px; display: grid; gap: 8px; }
+  .signin h2 { font-size: 32px; font-variation-settings: "opsz" 32; }
+  .signin .sub { color: var(--ink-2); font-size: 15px; margin-bottom: 20px; }
+  .field { height: 52px; padding: 0 16px; border: 1px solid var(--pencil-2); border-radius: 8px; background: var(--paper); font: inherit; font-size: 17px; color: var(--ink); width: 100%; outline: none; }
+  .field::placeholder { color: var(--pencil); }
+  .field:focus { border-color: var(--ink); }
+  .btn-primary { height: 52px; margin-top: 12px; border: 0; border-radius: 999px; background: var(--ink); color: var(--paper); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-primary:focus-visible, .field:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .alt { margin-top: 20px; color: var(--ink-2); font-size: 14px; }
+  .theme-ctl { position: absolute; bottom: 20px; right: 24px; display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 2px; }
+  .theme-ctl span { width: 28px; height: 24px; display: grid; place-items: center; border-radius: 999px; color: var(--pencil); font-size: 11px; }
+  .theme-ctl span.on { background: var(--rule); color: var(--ink); }
+
+  .ws { padding: 0 0 40px; position: relative; }
+  .ws-top { height: 56px; display: flex; align-items: center; justify-content: flex-end; padding: 0 28px; }
+  .ws-top .acct { display: flex; align-items: center; gap: 12px; color: var(--ink-2); font-size: 13px; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-size: 11px; font-weight: 500; }
+  .menu { position: absolute; top: 50px; right: 28px; width: 200px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); padding: 6px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+  .menu div { padding: 7px 10px; border-radius: 6px; color: var(--ink); }
+  .menu .sep { height: 1px; padding: 0; margin: 6px 0; background: var(--rule); }
+  .menu .row-t { display: flex; justify-content: space-between; align-items: center; color: var(--ink-2); }
+  .menu .row-t .theme-ctl { position: static; }
+  .ws-body { width: min(720px, calc(100% - 56px)); margin: 24px auto 0; display: grid; gap: 40px; }
+  .composer { border: 1px solid var(--pencil-2); border-radius: 10px; padding: 16px 18px 12px; display: grid; gap: 14px; }
+  .composer .in { font-family: var(--serif); font-size: 19px; line-height: 1.45; color: var(--ink); font-variation-settings: "opsz" 19; }
+  .composer-foot { display: flex; align-items: center; justify-content: space-between; }
+  .composer-foot .attach { color: var(--ink-2); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+  .send { width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; }
+  .block { display: grid; gap: 14px; }
+  .block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+  .block-head h3 { font-size: 22px; font-variation-settings: "opsz" 22; }
+  .block-head .count { color: var(--ink-2); font-size: 13px; }
+  .rows { border-top: 1px solid var(--rule); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .row .t { font-size: 15px; }
+  .row .d { color: var(--ink-2); font-size: 13px; margin-top: 3px; }
+  .row .acts { display: flex; gap: 4px; }
+  .row .acts span { height: 28px; min-width: 28px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--rule); display: grid; place-items: center; color: var(--ink-2); font-size: 12px; }
+  .mark { background: linear-gradient(transparent 20%, var(--highlight) 20%, var(--highlight) 88%, transparent 88%); padding: 0 2px; margin: 0 -2px; }
+  .fact { display: inline-flex; gap: 6px; align-items: baseline; color: var(--ink-2); font-size: 13px; margin-right: 14px; margin-top: 4px; }
+  .fact b { color: var(--ink); font-weight: 500; }
+  .fig-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; padding: 4px 0 20px; border-bottom: 1px solid var(--rule); }
+  .fig small { display: block; color: var(--ink-2); font-size: 13px; }
+  .fig strong { display: block; font-family: var(--sans); font-weight: 500; font-size: 26px; line-height: 1.15; margin-top: 6px; font-feature-settings: "tnum";
+    letter-spacing: -0.01em; letter-spacing: -0.02em; }
+  .fig strong.pen { color: var(--ink-2); font-weight: 400; }
+  .fig em { display: block; font-style: normal; color: var(--pencil); font-size: 12px; margin-top: 4px; }
+  .chart { display: grid; gap: 10px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 18px; color: var(--ink-2); font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .legend .i-ink { background: var(--ink); }
+  .legend .i-pen { background: var(--pencil-2); }
+
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .sw { display: grid; gap: 8px; font-size: 13px; }
+  .sw i { display: block; height: 64px; border-radius: 6px; border: 1px solid var(--rule); }
+  .sw b { font-weight: 500; }
+  .sw span { color: var(--ink-2); }
+  .specimen { display: grid; gap: 4px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+  .specimen:first-child { padding-top: 0; }
+  .specimen small { color: var(--ink-2); font-size: 13px; }
+  .scale { display: grid; grid-template-columns: 88px 1fr; gap: 16px 24px; align-items: baseline; }
+  .scale small { color: var(--ink-2); font-size: 13px; }
+  .spacing { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .spacing div { display: grid; gap: 6px; justify-items: center; font-size: 12px; color: var(--ink-2); }
+  .spacing i { display: block; background: var(--ink); width: 100%; }
+  .radii { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+  .radii i { display: inline-block; width: 64px; height: 40px; border: 1px solid var(--ink); vertical-align: middle; margin-right: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 500; color: var(--ink-2); }
+  td:first-child { font-weight: 500; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+  .decisions { display: grid; }
+  .decision { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--rule); }
+  .decision:first-child { border-top: 1px solid var(--rule); }
+  .decision i { width: 22px; height: 22px; border: 1.5px solid var(--ink); border-radius: 4px; margin-top: 2px; }
+  .decision i.done { background: var(--ink); }
+  .decision strong { font-weight: 500; display: block; }
+  .decision p { color: var(--ink-2); margin-top: 4px; max-width: 62ch; }
+  @media (max-width: 720px) {
+    .thesis, .fig-grid, .swatches { grid-template-columns: 1fr 1fr; }
+    .page { padding-top: 40px; }
+    h1 { font-size: 32px; }
+  }
+  @media (max-width: 480px) {
+    .thesis, .swatches { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .field, .btn-primary { transition: border-color .15s, background .15s; }
+  }
+</style>
+
+<main class="page">
+  <header>
+    <p class="muted">Design language, approved 5 September 2026</p>
+    <h1 style="margin-top:12px">nevermodel, from the bare bones</h1>
+    <p class="lede">A finance system that reads evidence, drafts a forecast, and asks you to confirm before anything counts. The interface should feel like that: a clean sheet, a pencil draft, and ink once you sign off.</p>
+    <div class="thesis">
+      <div><strong>Ink</strong><small>Actuals, closed months, and anything you have approved. Full contrast. Solid marks.</small></div>
+      <div class="pencil-t"><strong>Pencil</strong><small>Forecasts, projections, and unconfirmed facts. Grey, lighter weight. Erasable by design.</small></div>
+      <div class="high-t"><strong>Highlighter</strong><small>The one thing waiting on you. A yellow mark on the exact phrase, never a whole card.</small></div>
+    </div>
+    <p class="muted" style="margin-top:24px;max-width:62ch">Negative numbers are the only other colour, in red ink. There is no green, no blue, no gradient. Every colour on screen means something an accountant would recognise. The same eight tokens are defined once for light and once for dark, so the metaphor holds in both.</p>
+  </header>
+
+  <section class="section">
+    <h2>Sign in</h2>
+    <p>One field, one button, left-aligned in a 384px column, centered on the page. No wordmark; the title carries the name. Clerk stays as the identity provider behind the scenes, but its prebuilt form goes away: this is our own markup driven by Clerk's sign-in hook. Email code only. An email Clerk has not seen falls through to sign-up with the same code step, so there is no separate sign-up page.</p>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span>nevermodel.app/login</span></div>
+      <div class="signin">
+        <form onsubmit="return false">
+          <h2>Sign in to nevermodel</h2>
+          <p class="sub">We’ll email you a code to sign in.</p>
+          <input class="field" type="email" placeholder="you@company.com" aria-label="Email">
+          <button class="btn-primary" type="submit">Send code <span aria-hidden="true">→</span></button>
+          <p class="alt">New here? The same email creates your workspace.</p>
+        </form>
+        <div class="theme-ctl" aria-label="Theme"><span>☀</span><span>☾</span><span class="on">◐</span></div>
+      </div>
+    </div>
+    <p class="muted">After the code arrives, the email field becomes a six-digit field and the button reads “Continue”. Same column, same rhythm. The theme control sits in the bottom-right corner, out of the reading path.</p>
+  </section>
+
+  <section class="section">
+    <h2>The app</h2>
+    <p>A reading column, not a dashboard. Composer on top. Below it, two blocks separated by rules rather than boxes: what needs you, and where the company stands. Headings and prose are Source Serif 4. Every number, including the large figures, is Inter with tabular numerals, so columns of money always align.</p>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span>nevermodel.app</span></div>
+      <div class="ws">
+        <div class="ws-top">
+          <span class="acct">Northlake Capital <span class="avatar">T</span></span>
+        </div>
+        <div class="menu" aria-label="Account menu, shown open for illustration">
+          <div class="row-t">Theme <span class="theme-ctl"><span>☀</span><span>☾</span><span class="on">◐</span></span></div>
+          <div class="sep"></div>
+          <div>Sign out</div>
+        </div>
+        <div class="ws-body">
+          <div class="composer">
+            <div class="in">Fund II pays us $60k quarterly, starting in October.</div>
+            <div class="composer-foot">
+              <span class="attach"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 1 1-2.8-2.8l8.9-8.9"/></svg><span style="margin-left:10px">Auto ⌄</span><span style="margin-left:10px">Auto effort ⌄</span></span>
+              <span class="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6"/></svg></span>
+            </div>
+          </div>
+
+          <div style="margin-top:-20px;display:flex;gap:16px;color:var(--ink-2);font-size:13px"><span>+ New chat</span><span>⟲ History</span></div>
+
+          <div class="block">
+            <div class="block-head"><h3>Waiting on you</h3><span class="count">3 items</span></div>
+            <div class="rows">
+              <div class="row">
+                <div>
+                  <div class="t">Management fee agreement, Fund II</div>
+                  <div class="d">fund-ii-lpa-excerpt.pdf · 4 facts extracted</div>
+                  <div><span class="fact">Fee <b>2.0% of committed</b></span><span class="fact">Frequency <b>quarterly</b></span><span class="fact">First payment <b><span class="mark">October 2026?</span></b></span></div>
+                </div>
+                <div class="acts"><span>✎</span><span>✓</span><span>✕</span></div>
+              </div>
+              <div class="row">
+                <div>
+                  <div class="t">Is the Q3 audit fee <span class="mark">accrued monthly or paid on invoice</span>?</div>
+                  <div class="d">Affects September through November spending</div>
+                </div>
+                <div class="acts"><span>Answer</span></div>
+              </div>
+              <div class="row">
+                <div>
+                  <div class="t">Chase operating account, August</div>
+                  <div class="d">chase-aug-2026.csv · 41 transactions · 2 unmatched</div>
+                </div>
+                <div class="acts"><span>✎</span><span>✓</span><span>✕</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="block">
+            <div class="block-head"><h3>September 2026</h3><span class="count">Open · forecast in pencil</span></div>
+            <div class="fig-grid">
+              <div class="fig"><small>Cash</small><strong>$412,380</strong><em>Opening, from August close</em></div>
+              <div class="fig"><small>Expected in</small><strong class="pen">$60,000</strong><em>From 1 approved agreement</em></div>
+              <div class="fig"><small>Expected out</small><strong class="pen">$48,210</strong><em>From 6 obligations</em></div>
+              <div class="fig"><small>Net</small><strong class="pen">$11,790</strong><em>August actual was <span style="color:var(--red-ink)">−$3,140</span></em></div>
+            </div>
+            <div class="chart">
+              <div class="legend"><span><i class="i-ink"></i>Actual</span><span><i class="i-pen"></i>Forecast</span></div>
+              <svg viewBox="0 0 720 150" role="img" aria-label="Twelve months of net cash flow. Closed months in ink, forecast months in pencil.">
+                <line x1="0" y1="110" x2="720" y2="110" stroke="var(--rule)" stroke-width="1"/>
+                <rect x="16" y="66" width="28" height="44" fill="var(--ink)"/>
+                <rect x="76" y="110" width="28" height="14" fill="var(--red-ink)"/>
+                <rect x="136" y="58" width="28" height="52" fill="var(--ink)"/>
+                <rect x="196" y="110" width="28" height="9" fill="var(--red-ink)"/>
+                <rect x="256" y="72" width="28" height="38" fill="var(--pencil-2)"/>
+                <rect x="316" y="80" width="28" height="30" fill="var(--pencil-2)"/>
+                <rect x="376" y="110" width="28" height="22" fill="var(--red-ink)" opacity=".35"/>
+                <rect x="436" y="40" width="28" height="70" fill="var(--pencil-2)"/>
+                <rect x="496" y="84" width="28" height="26" fill="var(--pencil-2)"/>
+                <rect x="556" y="90" width="28" height="20" fill="var(--pencil-2)"/>
+                <rect x="616" y="52" width="28" height="58" fill="var(--pencil-2)"/>
+                <rect x="676" y="94" width="28" height="16" fill="var(--pencil-2)"/>
+                <g fill="var(--pencil)" font-family="Inter, sans-serif" font-size="11">
+                  <text x="30" y="146" text-anchor="middle">May</text><text x="90" y="146" text-anchor="middle">Jun</text><text x="150" y="146" text-anchor="middle">Jul</text><text x="210" y="146" text-anchor="middle">Aug</text>
+                  <text x="270" y="146" text-anchor="middle" fill="var(--ink)">Sep</text><text x="330" y="146" text-anchor="middle">Oct</text><text x="390" y="146" text-anchor="middle">Nov</text><text x="450" y="146" text-anchor="middle">Dec</text>
+                  <text x="510" y="146" text-anchor="middle">Jan</text><text x="570" y="146" text-anchor="middle">Feb</text><text x="630" y="146" text-anchor="middle">Mar</text><text x="690" y="146" text-anchor="middle">Apr</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="muted">Example figures. The account menu is drawn open to show where the theme control lives. What goes: the greeting, the wordmark, the help popover, the sparkle orb, uppercase eyebrow labels, drop shadows on panels, the bordered 4-metric card, and the green status dot.</p>
+  </section>
+
+  <section class="section">
+    <h2>Type</h2>
+    <p>Two families, clearly different jobs. Source Serif 4 for anything you read or sign: headings, the composer, extracted-fact prose. Inter for anything you operate or count: buttons, labels, metadata, tables, and every number. IBM Plex Mono, DM Serif Display, and Manrope are removed.</p>
+    <div>
+      <div class="specimen"><span style="font-family:var(--serif);font-size:40px;line-height:1.1;font-weight:500;letter-spacing:-.015em;font-variation-settings:'opsz' 40">Source Serif 4 500, 40px</span><small>Page titles. Optical size matched to point size.</small></div>
+      <div class="specimen"><span style="font-family:var(--serif);font-size:19px;line-height:1.45;font-variation-settings:'opsz' 19">Source Serif 4 400, 19px. “Fund II pays us $60k quarterly, starting in October.” <i>Italic for quoted source excerpts.</i></span><small>Composer, prose, source excerpts.</small></div>
+      <div class="specimen"><span style="font-size:26px;font-weight:500;line-height:1.15;letter-spacing:-.02em;font-feature-settings:'tnum'">$412,380 &nbsp; <span style="color:var(--ink-2);font-weight:400">$60,000</span> &nbsp; <span style="color:var(--red-ink)">−$3,140</span></span><small>Figures. Inter 500 in ink for actuals, 400 in pencil for forecasts, tabular numerals throughout.</small></div>
+      <div class="specimen"><span style="font-size:15px">Inter 400, 15px. Attach a statement, invoice, or agreement.</span><small>Interface text and body copy.</small></div>
+      <div class="specimen"><span style="font-size:13px;color:var(--ink-2)">Inter 400, 13px. chase-aug-2026.csv · 41 transactions · 2 unmatched</span><small>Metadata and secondary detail. Never uppercase, never letter-spaced.</small></div>
+      <div class="specimen"><span style="font-size:15px;font-weight:500">Inter 500, 15px. Send code</span><small>Buttons. Medium is the heaviest weight on the page.</small></div>
+    </div>
+    <div class="scale">
+      <small>Scale</small><span>12 · 13 · 15 · 17 · 19 · 22 · 26 · 28 · 32 · 40</span>
+      <small>Line height</small><span>1.5 for sans body, 1.45 for serif prose, 1.1 to 1.2 for headings and figures</span>
+      <small>Tracking</small><span>−0.01em on all sans text, −0.015em on serif headings, −0.02em on large figures</span>
+      <small>Weights</small><span>Source Serif 4 400 and 500. Inter 400 and 500. Nothing heavier.</span>
+      <small>Numerals</small><span>Inter with <code>tnum</code> everywhere, including inside serif prose</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Colour</h2>
+    <p>Eight tokens, each defined for light and dark. Greys carry a faint blue-violet bias so they read as chosen rather than default. The highlighter and red ink are semantic and appear only when their meaning applies. This page follows your system theme; switch it to see the dark set.</p>
+    <div class="swatches">
+      <div class="sw"><i style="background:var(--paper)"></i><b>paper</b><span>#FFFFFF / #121316 · page and surfaces</span></div>
+      <div class="sw"><i style="background:var(--ink)"></i><b>ink</b><span>#111214 / #F2F2F4 · text, actuals, primary button</span></div>
+      <div class="sw"><i style="background:var(--ink-2)"></i><b>ink-2</b><span>#5C6068 / #A2A6AE · secondary text</span></div>
+      <div class="sw"><i style="background:var(--pencil)"></i><b>pencil</b><span>#9A9EA6 / #6E7278 · placeholders, forecast text</span></div>
+      <div class="sw"><i style="background:var(--pencil-2)"></i><b>pencil-2</b><span>#C9CCD2 / #3A3D44 · forecast marks, input borders</span></div>
+      <div class="sw"><i style="background:var(--rule)"></i><b>rule</b><span>#E5E6E9 / #26282D · dividers</span></div>
+      <div class="sw"><i style="background:var(--highlight)"></i><b>highlight</b><span>#FFF1A8 / #6B5D12 · needs your decision</span></div>
+      <div class="sw"><i style="background:var(--red-ink)"></i><b>red-ink</b><span>#B42318 / #EF6A62 · negative figures, errors</span></div>
+    </div>
+    <p class="muted">Theme is light, dark, or system, stored by next-themes as it is now. The control is a three-segment toggle in the account menu on the app page and in the bottom-right corner of the sign-in page. The current stylesheet declares every colour three times because it styles components inside theme blocks; the new one declares tokens twice and components once.</p>
+  </section>
+
+  <section class="section">
+    <h2>Spacing and shape</h2>
+    <p>A 4px base. Vertical rhythm between blocks is 40 or 64, inside blocks 12 to 16. Radius encodes role: 8px for things you type into, 6px for small controls, 10px for the composer, a full pill for the one primary action.</p>
+    <div class="spacing">
+      <div><i style="height:4px;width:4px"></i>4</div>
+      <div><i style="height:8px;width:8px"></i>8</div>
+      <div><i style="height:12px;width:12px"></i>12</div>
+      <div><i style="height:16px;width:16px"></i>16</div>
+      <div><i style="height:24px;width:24px"></i>24</div>
+      <div><i style="height:32px;width:32px"></i>32</div>
+      <div><i style="height:40px;width:40px"></i>40</div>
+      <div><i style="height:64px;width:64px"></i>64</div>
+    </div>
+    <div class="radii">
+      <span><i style="border-radius:6px"></i>6 controls</span>
+      <span><i style="border-radius:8px"></i>8 inputs</span>
+      <span><i style="border-radius:10px"></i>10 composer</span>
+      <span><i style="border-radius:999px"></i>pill primary</span>
+    </div>
+    <div class="scale">
+      <small>Columns</small><span>Sign-in 384px. App 720px. Nothing wider; the interface is read, not scanned.</span>
+      <small>Borders</small><span>1px rule for dividers, 1px pencil-2 for inputs. Shadows only on floating menus and dialogs.</span>
+      <small>Focus</small><span>2px ink outline, 2px offset. Visible on every control.</span>
+      <small>Motion</small><span>150ms on border and background only. Nothing moves on load.</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>What changes in the code</h2>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Area</th><th>Now</th><th>Proposed</th></tr>
+      <tr><td>Styling</td><td>Custom CSS classes plus Tailwind utilities that never load because <code>globals.css</code> lacks the Tailwind import</td><td>Tailwind v4 wired properly. The eight tokens live in an <code>@theme</code> block and are mapped onto shadcn's variables (background, foreground, muted, border, primary, destructive), so shadcn components pick up the language automatically. Component styling moves from hand-written classes to utilities.</td></tr>
+      <tr><td>Components</td><td>Four shadcn files, mostly unused; a hand-rolled dropdown, dialog, and select</td><td>shadcn Button, Input, Dialog, Select, DropdownMenu. The edit-facts modal, the month picker, and the account menu become the real primitives with keyboard and focus handling for free.</td></tr>
+      <tr><td>Fonts</td><td>IBM Plex Mono (local), DM Serif Display, Manrope</td><td>Source Serif 4 and Inter as self-hosted variable WOFF2 files in <code>src/fonts</code>, loaded with <code>next/font/local</code>. No font CDN.</td></tr>
+      <tr><td>Theme</td><td>next-themes with a three-way icon button in the top bar; dark styles duplicated per component</td><td>next-themes kept. Tokens redefined once under <code>.dark</code>. Segmented light / dark / system control in the account menu and on the sign-in page.</td></tr>
+      <tr><td>Routes</td><td><code>/</code> sign-in, <code>/sign-in</code> redirect, <code>/sign-up</code> Clerk embed, <code>/workspace</code></td><td><code>/login</code> sign-in, <code>/</code> the app. Signed-out visits to <code>/</code> go to <code>/login</code>; signed-in visits to <code>/login</code> go to <code>/</code>. The three old routes are deleted.</td></tr>
+      <tr><td>Auth UI</td><td>Clerk <code>&lt;SignIn&gt;</code> and <code>&lt;SignUp&gt;</code> with appearance overrides</td><td>Our own form using <code>useSignIn</code> and <code>useSignUp</code>: email code only; an unknown email falls through to sign-up. Server auth, middleware, and company provisioning untouched. Requires the Google connection to be off and email code on in the Clerk dashboard.</td></tr>
+      <tr><td>Top bar</td><td>Wordmark, theme toggle, help popover, profile menu opening Clerk's profile modal</td><td>Company name and avatar, right-aligned. The menu holds the theme control and sign out.</td></tr>
+      <tr><td>App page</td><td>Greeting, orb, four bordered metric cells, forecast bars in four colours</td><td>Composer, “Waiting on you”, month figures in the sans, ink and pencil chart. Same data, same API calls.</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Decisions</h2>
+    <div class="decisions">
+      <div class="decision"><i class="done"></i><div><strong>Keep Clerk, drop its UI, email code only</strong><p>Confirmed. Google references removed.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Light, dark, and system theme</strong><p>Confirmed. Control lives in the account menu and on the sign-in page, not in the top bar.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Keep Tailwind and shadcn, wire them properly</strong><p>Confirmed. Tokens in <code>@theme</code>, shadcn variables mapped to them.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Source Serif 4 and Inter, sans for all numbers</strong><p>Confirmed. Weights 400 and 500 only, tight tracking.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>No wordmark on any page</strong><p>Confirmed.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>The app lives at <code>/</code>, sign-in at <code>/login</code></strong><p>Confirmed.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Composer controls and history</strong><p>Model and effort pickers sit in the composer footer as quiet text with a chevron, defaulting to Auto. New chat and History sit below the thread on the left. History lists past questions for the company and brings one back on click.</p></div></div>
+    </div>
+  </section>
+</main>

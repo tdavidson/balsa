@@ -1,0 +1,1 @@
+ALTER TABLE "decisions" ADD COLUMN "status" text DEFAULT 'applied' NOT NULL;

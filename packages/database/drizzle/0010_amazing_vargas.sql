@@ -1,0 +1,2 @@
+ALTER TABLE "cash_events" ADD COLUMN "external_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "cash_events_company_external_key_unique" ON "cash_events" USING btree ("company_id","external_key");

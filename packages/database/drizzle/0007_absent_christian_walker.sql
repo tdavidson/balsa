@@ -1,0 +1,1 @@
+ALTER TABLE "evidence" ADD COLUMN "reporting_month" text;
