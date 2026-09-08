@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { cashEvents, getDatabase } from "@finance/database";
 import { buildMonthlyProfitAndLoss, type FinancialLine } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
+import { financialEventKey, inferFinancialDirection, isDetailedFinancialEvent } from "@/lib/financial-events";
 
 function categoryFor(description: string): FinancialLine["category"] {
   if (/management|fee/i.test(description)) return "management_fee";
@@ -18,7 +19,13 @@ function categoryFor(description: string): FinancialLine["category"] {
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const rows = await getDatabase().select({ id: cashEvents.id, month: cashEvents.month, description: cashEvents.description, amount: cashEvents.amount, direction: cashEvents.direction, evidenceId: cashEvents.evidenceId, accountingTreatment: cashEvents.accountingTreatment, recognitionStart: cashEvents.recognitionStart, recognitionEnd: cashEvents.recognitionEnd }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id));
-  const lines: FinancialLine[] = rows.map((row) => ({ id: row.id, month: row.month, category: categoryFor(row.description), amount: Number(row.amount), direction: row.direction, accountingTreatment: (row.accountingTreatment === "prepaid" || row.accountingTreatment === "accrual" ? row.accountingTreatment : "cash"), ...(row.recognitionStart ? { recognitionStart: row.recognitionStart } : {}), ...(row.recognitionEnd ? { recognitionEnd: row.recognitionEnd } : {}), ...(row.evidenceId ? { sourceId: row.evidenceId } : {}) }));
+  const rows = await getDatabase().select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, description: cashEvents.description, amount: cashEvents.amount, direction: cashEvents.direction, evidenceId: cashEvents.evidenceId, accountingTreatment: cashEvents.accountingTreatment, recognitionStart: cashEvents.recognitionStart, recognitionEnd: cashEvents.recognitionEnd }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id));
+  const seen = new Set<string>();
+  const lines: FinancialLine[] = rows.filter((row) => isDetailedFinancialEvent(row.description)).flatMap((row) => {
+    const key = financialEventKey(row);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ id: row.id, month: row.month, category: categoryFor(row.description), amount: Number(row.amount), direction: inferFinancialDirection(row.direction, row.description), description: row.description, accountingTreatment: (row.accountingTreatment === "prepaid" || row.accountingTreatment === "accrual" ? row.accountingTreatment : "cash"), ...(row.recognitionStart ? { recognitionStart: row.recognitionStart } : {}), ...(row.recognitionEnd ? { recognitionEnd: row.recognitionEnd } : {}), ...(row.evidenceId ? { sourceId: row.evidenceId } : {}) }];
+  });
   return NextResponse.json({ months: buildMonthlyProfitAndLoss(lines) });
 }
