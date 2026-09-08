@@ -2,7 +2,7 @@
 
 import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -57,6 +57,10 @@ function useStoredChoice(key: string, fallback: string, allowed: (value: string)
   return [value, (next: string) => writeStored(key, next)] as const;
 }
 
+function uniqueById<T extends { id: string }>(items: T[]) {
+  return items.filter((item, index) => items.findIndex((candidate) => candidate.id === item.id) === index);
+}
+
 const quietSelect = "h-7 gap-1 rounded-md border-0 bg-transparent px-1.5 text-[13px] text-ink-2 shadow-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-transparent dark:hover:bg-transparent [&_svg]:hidden";
 const quietButton = "inline-flex items-center gap-1.5 rounded-md text-[13px] text-ink-2 transition-colors outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50";
 
@@ -77,6 +81,51 @@ function repeatsSummary(excerpt: string, summary: string | undefined) {
   const a = normalise(excerpt);
   const b = normalise(summary);
   return a.length === 0 || a === b || a.includes(b) || b.includes(a);
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^\)]+\)|\*[^*]+\*|_[^_]+_)/g).filter(Boolean);
+  return tokens.map((token, index) => {
+    if (/^\*\*.*\*\*$|^__.*__$/.test(token)) return <strong key={index}>{token.slice(2, -2)}</strong>;
+    if (/^`.*`$/.test(token)) return <code key={index} className="rounded bg-rule px-1 py-0.5 font-mono text-[0.85em]">{token.slice(1, -1)}</code>;
+    const link = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+    if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="underline underline-offset-2">{link[1]}</a>;
+    if (/^\*.*\*$|^_.*_$/.test(token)) return <em key={index}>{token.slice(1, -1)}</em>;
+    return <span key={index}>{token}</span>;
+  });
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const nodes: ReactNode[] = [];
+  let list: { text: string; ordered: boolean }[] = [];
+  const flushList = () => {
+    if (!list.length) return;
+    const ordered = list[0]!.ordered;
+    const List = ordered ? "ol" : "ul";
+    nodes.push(<List key={`list-${nodes.length}`} className={cn(ordered ? "list-decimal" : "list-disc", "my-2 grid gap-1 pl-5")}>{list.map((item, index) => <li key={index}>{renderInlineMarkdown(item.text)}</li>)}</List>);
+    list = [];
+  };
+  let code = false;
+  let codeLines: string[] = [];
+  lines.forEach((line, index) => {
+    if (line.trim().startsWith("```")) {
+      if (code) { nodes.push(<pre key={`code-${index}`} className="my-3 overflow-x-auto rounded-lg bg-rule p-3 font-mono text-[13px]"><code>{codeLines.join("\n")}</code></pre>); codeLines = []; }
+      code = !code;
+      return;
+    }
+    if (code) { codeLines.push(line); return; }
+    const item = line.match(/^\s*(?:[-*]|(\d+)\.)\s+(.+)$/);
+    if (item) { list.push({ text: item[2]!, ordered: Boolean(item[1]) }); return; }
+    flushList();
+    if (!line.trim()) return;
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) { nodes.push(<h3 key={index} className="display mt-4 text-[1.05em] font-medium first:mt-0">{renderInlineMarkdown(heading[2]!)}</h3>); return; }
+    nodes.push(<p key={index} className="my-2 first:mt-0 last:mb-0">{renderInlineMarkdown(line)}</p>);
+  });
+  if (code) nodes.push(<pre key="code-final" className="my-3 overflow-x-auto rounded-lg bg-rule p-3 font-mono text-[13px]"><code>{codeLines.join("\n")}</code></pre>);
+  flushList();
+  return <div className="markdown-message">{nodes}</div>;
 }
 
 function composerCallToAction(now: Date, context: { needsInputCount: number; hasConversation: boolean; hasFiles: boolean }) {
@@ -140,13 +189,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
   const [storedEffort, chooseEffort] = useStoredChoice("nevermodel.effort", "auto", (value) => efforts.some((option) => option.value === value));
   const effort = storedEffort as Effort;
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState("main");
+  const [threads, setThreads] = useState<Record<string, ConversationTurn[]>>({ main: [] });
   const [history, setHistory] = useState<ConversationTurn[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingThreadId, setSubmittingThreadId] = useState<string | null>(null);
   const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [activeReviewQuestionId, setActiveReviewQuestionId] = useState<string | null>(null);
@@ -168,6 +219,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const requestAbortController = useRef<AbortController | null>(null);
+  const turns = threads[activeThreadId] ?? [];
+  const setTurns = (next: ConversationTurn[] | ((current: ConversationTurn[]) => ConversationTurn[])) => setThreads((current) => ({ ...current, [activeThreadId]: typeof next === "function" ? next(current[activeThreadId] ?? []) : next }));
 
   // Grow the composer with its content, up to a cap, and shrink back when cleared.
   useEffect(() => {
@@ -201,7 +254,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   useEffect(() => {
     fetch("/api/evidence")
       .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => { if (payload) { setEvidence(payload.evidence); setReviewQuestions(payload.reviewItems ?? []); } })
+      .then((payload) => { if (payload) { setEvidence(payload.evidence); setReviewQuestions(uniqueById(payload.reviewItems ?? [])); } })
       .catch(() => undefined);
   }, []);
 
@@ -246,6 +299,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   }
 
   async function askAgent(question: string, newEvidence: ChatEvidence[] = [], signal?: AbortSignal) {
+    const requestThreadId = activeThreadId;
     const conversationHistory = turns.slice(-10).flatMap((turn) => [
       { role: "user" as const, content: turn.question },
       { role: "assistant" as const, content: turn.answer },
@@ -259,7 +313,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     const payload = await readJson(response);
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
     const answer = [payload.answer, payload.forecastExplanation].filter(Boolean).join(" ").trim();
-    setTurns((current) => [...current, { id: crypto.randomUUID(), question, answer, model: model === "auto" ? null : model, createdAt: new Date().toISOString() }]);
+    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
     if (activeReviewQuestionId && payload.resolvedQuestions?.some((resolution: { id: string }) => resolution.id === activeReviewQuestionId)) {
       setActiveReviewQuestionId(null);
       setActiveReviewQuestion(null);
@@ -270,7 +324,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     if (refreshedEvidence.ok) {
       const evidencePayload = await readJson(refreshedEvidence);
       setEvidence(evidencePayload.evidence);
-      setReviewQuestions(evidencePayload.reviewItems ?? []);
+      setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? []));
     }
     if (refreshedDecisions.ok) {
       const decisionsPayload = await readJson(refreshedDecisions);
@@ -280,7 +334,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   }
 
   function newChat() {
-    setTurns([]);
+    const nextThreadId = `thread-${crypto.randomUUID()}`;
+    setThreads((current) => ({ ...current, [nextThreadId]: [] }));
+    setActiveThreadId(nextThreadId);
     setMessage("");
     setFiles([]);
     setSelectedFiles([]);
@@ -291,8 +347,24 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setActiveReviewQuestion(null);
   }
 
+  function clearCurrentThread() {
+    if (submittingThreadId === activeThreadId) requestAbortController.current?.abort();
+    setThreads((current) => ({ ...current, [activeThreadId]: [] }));
+    setMessage("");
+    setNotice(null);
+    setActiveReviewQuestion(null);
+    setActiveReviewQuestionId(null);
+  }
+
   function answerInChat(item: ReviewQuestion) {
-    setTurns([]);
+    // An untouched chat is already a suitable place to answer the question.
+    // Keep a separate tab when the current chat contains a conversation or is
+    // still processing a request, so that we do not disturb that work.
+    const currentThread = threads[activeThreadId] ?? [];
+    const useCurrentThread = currentThread.length === 0 && submittingThreadId !== activeThreadId;
+    const nextThreadId = useCurrentThread ? activeThreadId : `thread-${crypto.randomUUID()}`;
+    if (!useCurrentThread) setThreads((current) => ({ ...current, [nextThreadId]: [] }));
+    setActiveThreadId(nextThreadId);
     setMessage("");
     setFiles([]);
     setSelectedFiles([]);
@@ -301,6 +373,23 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setPendingQuestion(null);
     setActiveReviewQuestionId(item.id);
     setActiveReviewQuestion(item);
+    requestAnimationFrame(() => composerInput.current?.focus());
+  }
+
+  function discussDecision(decision: AgentDecision) {
+    const currentThread = threads[activeThreadId] ?? [];
+    const useCurrentThread = currentThread.length === 0 && submittingThreadId !== activeThreadId;
+    const nextThreadId = useCurrentThread ? activeThreadId : `thread-${crypto.randomUUID()}`;
+    if (!useCurrentThread) setThreads((current) => ({ ...current, [nextThreadId]: [] }));
+    setActiveThreadId(nextThreadId);
+    setFiles([]);
+    setSelectedFiles([]);
+    setNotice(null);
+    setSubmissionStatus(null);
+    setPendingQuestion(null);
+    setActiveReviewQuestionId(null);
+    setActiveReviewQuestion(null);
+    setMessage(`Please help me review this proposed decision.\nQuestion: ${decision.question}\nProposed answer: ${decision.answer}`);
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
@@ -319,12 +408,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const submittedMessage = message.trim();
-    if (isSubmitting || (!submittedMessage && files.length === 0)) return;
+    if (!submittedMessage && files.length === 0) return;
     const contextualQuestion = activeReviewQuestion ? `Regarding “${activeReviewQuestion.question}”: ${submittedMessage}` : submittedMessage;
+    const requestThreadId = activeThreadId;
     setActiveReviewQuestion(null);
     const abortController = new AbortController();
     requestAbortController.current = abortController;
     setIsSubmitting(true);
+    setSubmittingThreadId(requestThreadId);
     setPendingQuestion(contextualQuestion || `Uploaded ${files.join(", ")}`);
     setSubmissionStatus(selectedFiles.length ? `Reading ${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"}…` : "Thinking about your message…");
     setNotice(null);
@@ -385,25 +476,34 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"] }[] = [];
       let importedActuals = 0;
       let duplicateActuals = 0;
+      const failedFiles: string[] = [];
       if (selectedFiles.length) {
         for (const [index, file] of selectedFiles.entries()) {
           setSubmissionStatus(`Reading ${file.name} (${index + 1} of ${selectedFiles.length})…`);
-          const looksLikeTransactions = /\.(csv|xlsx|xls|qbo|ofx)$/i.test(file.name) && (/bank|transaction|actual|statement|quickbooks|qbo|ofx/i.test(file.name) || (/\.csv$/i.test(file.name) && /date/i.test(await file.slice(0, 2000).text()) && /amount|debit|credit|value|total/i.test(await file.slice(0, 2000).text())));
+          try {
+          const filePreview = /\.(csv|xlsx|xls)$/i.test(file.name) ? await file.slice(0, 4000).text() : "";
+          const looksLikeTransactions = /\.(qbo|ofx)$/i.test(file.name) || (/\.(csv|xlsx|xls)$/i.test(file.name) && /bank|transaction|actual|statement/i.test(file.name) && /date/i.test(filePreview) && /amount|debit|credit|value|total/i.test(filePreview));
           if (looksLikeTransactions) {
             const actualsForm = new FormData(); actualsForm.append("file", file);
             const actualsResponse = await request("/api/actuals", { method: "POST", body: actualsForm });
             const actualsPayload = await readJson(actualsResponse);
-            if (!actualsResponse.ok) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
-            importedActuals += Number(actualsPayload.imported ?? 0);
-            if (actualsPayload.duplicate) duplicateActuals += 1;
-            if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "approved", extraction: actualsPayload.extraction });
-            continue;
+            if (actualsResponse.ok) {
+              importedActuals += Number(actualsPayload.imported ?? 0);
+              if (actualsPayload.duplicate) duplicateActuals += 1;
+              if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "approved", extraction: actualsPayload.extraction });
+              continue;
+            }
+            if (actualsResponse.status !== 400 || !/no transactions|needs an amount/i.test(String(actualsPayload.error ?? ""))) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
           }
           const form = new FormData(); form.append("file", file); form.append("model", model); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
           const response = await request("/api/evidence", { method: "POST", body: form });
           const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? `Unable to process ${file.name}`);
           payloads.push({ ...payload, sourceName: file.name, status: "pending" });
+          } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") throw error;
+            failedFiles.push(`${file.name}: ${error instanceof Error ? error.message : "processing failed"}`);
+          }
         }
       }
       setEvidence((current) => [...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]);
@@ -417,7 +517,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       }));
       setSubmissionStatus("Considering the files and preparing a response…");
       await askAgent(question, chatEvidence, abortController.signal);
-      setNotice(`${payloads.length} evidence source${payloads.length === 1 ? "" : "s"} captured${importedActuals ? `; ${importedActuals} actual transactions imported` : duplicateActuals ? `; ${duplicateActuals} actual file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}.`);
+      setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} processed${importedActuals ? `; ${importedActuals} actual transactions imported` : duplicateActuals ? `; ${duplicateActuals} actual file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}${failedFiles.length ? `; ${failedFiles.length} failed: ${failedFiles.join(" · ")}` : "."}`);
       setFiles([]);
       setSelectedFiles([]);
       const refreshedEvidence = await request("/api/evidence");
@@ -440,10 +540,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       if (submittedMessage) setMessage((current) => current.trim() ? current : submittedMessage);
       setNotice(error instanceof Error ? `The request failed: ${error.message}` : "The request failed while contacting the model.");
     } finally {
-      if (requestAbortController.current === abortController) requestAbortController.current = null;
-      setIsSubmitting(false);
-      setSubmissionStatus(null);
-      setPendingQuestion(null);
+      const ownsRequest = requestAbortController.current === abortController;
+      if (ownsRequest) requestAbortController.current = null;
+      if (ownsRequest) {
+        setIsSubmitting(false);
+        setSubmittingThreadId(null);
+        setSubmissionStatus(null);
+        setPendingQuestion(null);
+      }
     }
   }
 
@@ -472,22 +576,25 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   const proposed = agentDecisions.filter((decision) => decision.status === "proposed");
   const isClosed = currentForecast?.status === "closed";
-  const bars = forecast.slice(0, 12).map((month) => {
-    const closed = month.status === "closed";
-    const net = closed ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
-    return { month: month.month, closed, net };
+  const bars = periodForecastRows.map((month) => {
+    const actual = month.actualReceipts !== 0 || month.actualSpending !== 0;
+    const net = actual ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
+    return { month: month.month, actual, net };
   });
   const maxAbs = Math.max(1, ...bars.map((bar) => Math.abs(bar.net)));
   const zeroY = 95;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
       <header className="flex h-14 items-center justify-end px-7">
         <AccountMenu company={company.name} baseCurrency={company.currency} user={user} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">
         <section className="grid gap-5" aria-label="Conversation">
+          {Object.keys(threads).length > 1 && <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-rule pb-1" role="tablist" aria-label="Chat threads">
+            {Object.entries(threads).map(([id, thread], index) => <span key={id} className={cn("inline-flex shrink-0 items-center rounded-md", id === activeThreadId && "bg-rule")}><button type="button" role="tab" aria-selected={id === activeThreadId} className={cn("rounded-md px-3 py-1.5 text-[13px] text-ink-2 hover:bg-rule", id === activeThreadId && "text-ink")} onClick={() => { setActiveThreadId(id); setMessage(""); setActiveReviewQuestion(null); setActiveReviewQuestionId(null); }}>{id === "main" ? "Chat" : `Chat ${index + 1}`}{thread.length ? <span className="ml-1 text-pencil">· {thread.length}</span> : null}</button><button type="button" aria-label={`Clear ${id === "main" ? "chat" : `Chat ${index + 1}`}`} className="px-1.5 text-ink-2 hover:text-ink" onClick={() => { if (submittingThreadId === id) requestAbortController.current?.abort(); setThreads((current) => { const next = { ...current }; delete next[id]; const remaining = Object.keys(next); if (!remaining.length) next.main = []; if (activeThreadId === id) setActiveThreadId(remaining[0] ?? "main"); return next; }); }}>×</button></span>)}
+          </div>}
           {turns.length > 0 && (
             <ol className="grid gap-6">
               {turns.map((turn) => (
@@ -496,13 +603,13 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                     <p className="max-w-[82%] rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink sm:max-w-[70%]">{turn.question}</p>
                   </div>
                   <div className="flex justify-start">
-                    <p className="prose-serif max-w-[62ch] text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }}>{turn.answer}</p>
+                    <div className="prose-serif max-w-[70ch] text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }}><MarkdownMessage content={turn.answer} /></div>
                   </div>
                 </li>
               ))}
             </ol>
           )}
-          {isSubmitting && pendingQuestion && submissionStatus && (
+          {isSubmitting && submittingThreadId === activeThreadId && pendingQuestion && submissionStatus && (
             <div className="grid gap-3" aria-live="polite">
               <div className="flex justify-end">
                 <p className="max-w-[82%] rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink sm:max-w-[70%]">{pendingQuestion}</p>
@@ -524,6 +631,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               collectFiles(event.dataTransfer.files);
             }}
           >
@@ -594,7 +702,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   </SelectContent>
                 </Select>
               </div>
-              {isSubmitting ? (
+              {isSubmitting && submittingThreadId === activeThreadId ? (
                 <button className="grid size-8 shrink-0 place-items-center rounded-full bg-ink text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" onClick={stopSubmission} aria-label="Stop request">
                   <Square className="size-3.5 fill-current" aria-hidden="true" />
                 </button>
@@ -612,9 +720,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           </form>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <button className={quietButton} type="button" onClick={newChat} disabled={turns.length === 0 && !message && files.length === 0 && !notice}>
+              <button className={quietButton} type="button" onClick={newChat}>
                 <Plus className="size-3.5" aria-hidden="true" /> New chat
               </button>
+              {turns.length > 0 && <button className={quietButton} type="button" onClick={clearCurrentThread}>Clear chat</button>}
               <button className={quietButton} type="button" onClick={openHistory}>
                 <History className="size-3.5" aria-hidden="true" /> History
               </button>
@@ -651,7 +760,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       <button className="w-fit max-w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" onClick={() => answerInChat(item)}>
                         <span className="mark">{item.question}</span>
                       </button>
-                      <div className="text-[13px] text-ink-2">Opens a new chat thread with this question ready to answer.</div>
+                      <div className="text-[12px] text-pencil">Regarding {item.evidenceId ? (evidence.find((source) => source.id === item.evidenceId)?.sourceName ?? "uploaded evidence") : "company evidence"}</div>
+                      <div className="text-[13px] text-ink-2">Opens a chat with this question ready to answer.</div>
                     </div>
                   ))}
                 </div>
@@ -706,8 +816,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
                       </div>
                       <span className="flex gap-1">
-                        <button className={actionButton} type="button" aria-label="Apply proposed decision" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
-                        <button className={actionButton} type="button" aria-label="Reject proposed decision" onClick={() => updateAgentDecision(decision.id, "rejected")}><Trash2 /></button>
+                        <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
+                        <button className={actionButton} type="button" aria-label="Reject proposed decision" title="Reject" onClick={() => updateAgentDecision(decision.id, "rejected")}><Trash2 /></button>
+                        <button className={actionButton} type="button" aria-label="Discuss proposed decision in chat" title="Discuss in chat" onClick={() => discussDecision(decision)}><MessageSquareText /></button>
                       </span>
                     </div>
                   ))}
@@ -814,8 +925,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   const selected = bar.month === selectedMonth;
                   return (
                     <g key={bar.month} className="cursor-pointer" onClick={() => setSelectedMonth(bar.month)}>
-                      <title>{`${monthLabel(bar.month)}: ${money(bar.net)} ${bar.closed ? "actual" : "forecast"}`}</title>
-                      <rect x={x} y={negative ? zeroY : zeroY - height} width={width} height={height} className={cn(negative ? "fill-red-ink" : bar.closed ? "fill-ink" : "fill-pencil-2")} opacity={negative && !bar.closed ? 0.35 : 1} />
+                      <title>{`${monthLabel(bar.month)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}`}</title>
+                      <rect x={x} y={negative ? zeroY : zeroY - height} width={width} height={height} className={cn(negative ? "fill-red-ink" : bar.actual ? "fill-ink" : "fill-pencil-2")} opacity={negative && !bar.actual ? 0.35 : 1} />
                       <text x={x + width / 2} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{monthLabel(bar.month, shortMonthFormatter)}</text>
                     </g>
                   );
@@ -919,7 +1030,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       >
                         <span className="grid min-w-0 flex-1 gap-1">
                           <span className="line-clamp-2 text-[15px] leading-5 text-ink">{turn.question}</span>
-                          {turn.answer && <span className="prose-serif line-clamp-2 text-[13px] leading-5 text-ink-2">{turn.answer}</span>}
+                          {turn.answer && <span className="prose-serif line-clamp-2 text-[13px] leading-5 text-ink-2">{turn.answer.replace(/[#*_`]/g, "")}</span>}
                           <span className="mt-1 text-[12px] text-pencil">{dateFormatter.format(new Date(turn.createdAt))} at {timeFormatter.format(new Date(turn.createdAt))}{turn.model ? ` · ${turn.model}` : ""}</span>
                         </span>
                       </Button>

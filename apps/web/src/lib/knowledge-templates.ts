@@ -13,11 +13,23 @@ export type KnowledgeTemplate = {
   documents: KnowledgeDocumentTemplate[];
 };
 
+export const universalAccountingRules = `## Universal cash-activity rules
+
+These baseline rules apply to every company unless a company-specific policy or approved decision says otherwise.
+
+- Internal transfers, sweeps, automatic investments, bank-product deposits, and movements between accounts are cash-location changes—not revenue, expense, or operating cash receipts.
+- Investment purchases, sales, redemptions, and financing activity are not operating revenue or operating expense.
+- Opening and ending balances, total assets, holdings, and period summaries are balances or summaries—not transactions.
+- A bank receipt is not automatically revenue. Recognize operating revenue only when the source supports the underlying customer, contract, service, sale, fee, or other earning activity.
+- Preserve ambiguous items as review exceptions rather than silently assigning them to revenue.
+- Reconcile beginning balance plus classified cash movements to the ending balance before treating a period as reliable.
+`;
+
 export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
   { slug: "company", title: "Company", content: "# Company\n\nHow the company operates.\n" },
   { slug: "policies", title: "Policies", content: "# Financial Policies\n\nStanding CFO judgment and recognition policies.\n" },
   { slug: "allocations", title: "Allocations", content: "# Allocations\n\nRecurring cost allocation treatment.\n" },
-  { slug: "accounting", title: "Accounting", content: "# Accounting\n\nRecognition and accounting context.\n" },
+  { slug: "accounting", title: "Accounting", content: `# Accounting\n\nRecognition and accounting context.\n\n${universalAccountingRules}` },
   { slug: "forecast", title: "Forecast", content: "# Forecast\n\nForecast assumptions and scenarios.\n" },
 ];
 

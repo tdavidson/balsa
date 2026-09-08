@@ -3,7 +3,7 @@ import { and, asc, eq, like } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDatabase, knowledgeDocuments } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
-import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
+import { defaultKnowledgeDocuments, knowledgeTemplates, universalAccountingRules } from "@/lib/knowledge-templates";
 
 const appliedIdsFor = (documents: { slug: string; content: string }[]) => [...new Set(documents.flatMap((document) => {
   const match = document.slug.match(/^template:([^:]+):/);
@@ -19,6 +19,12 @@ export async function GET() {
   if (!documents.length) {
     await getDatabase().insert(knowledgeDocuments).values(defaultKnowledgeDocuments.map(({ slug, title, content }) => ({ companyId: context.company.id, slug, title, content })));
     documents = await getDatabase().select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)).orderBy(asc(knowledgeDocuments.slug));
+  }
+  const accounting = documents.find((document) => document.slug === "accounting");
+  if (accounting && !accounting.content.includes("## Universal cash-activity rules")) {
+    const content = `${accounting.content.trim()}\n\n${universalAccountingRules}`;
+    await getDatabase().update(knowledgeDocuments).set({ content, updatedAt: new Date() }).where(eq(knowledgeDocuments.id, accounting.id));
+    documents = documents.map((document) => document.id === accounting.id ? { ...document, content } : document);
   }
   return NextResponse.json({ documents, appliedTemplateIds: appliedIdsFor(documents) });
 }

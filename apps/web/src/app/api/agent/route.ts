@@ -8,6 +8,7 @@ import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/l
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";
 import { relevantEvidenceContext } from "@/lib/evidence-context";
+import { uniqueReviewQuestions } from "@/lib/review-questions";
 
 const conversationMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
   const db = getDatabase();
   const [items, events, docs, activePolicies, priorDecisions, periods, openReviews, evidenceDocuments] = await Promise.all([
     db.select({ id: economicItems.id, type: economicItems.type, label: economicItems.label, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, status: economicItems.status }).from(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.status, "confirmed"))),
-    db.select({ month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id)).orderBy(desc(cashEvents.month)).limit(200),
+    db.select({ month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id)).orderBy(desc(cashEvents.month)).limit(200),
     db.select({ slug: knowledgeDocuments.slug, content: knowledgeDocuments.content }).from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)),
     db.select({ name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y"))),
     db.select({ question: decisions.question, answer: decisions.answer }).from(decisions).where(and(eq(decisions.companyId, context.company.id), eq(decisions.status, "applied"))).orderBy(desc(decisions.createdAt)).limit(20),
@@ -99,33 +100,45 @@ export async function POST(request: Request) {
     db.select({ id: reviewItems.id, question: reviewItems.question, evidenceId: reviewItems.evidenceId }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt)).limit(50),
     db.select({ id: evidence.id, sourceName: evidence.sourceName, rawText: evidence.rawText, extractedJson: evidence.extractedJson }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20),
   ]);
+  const consolidatedOpenReviews = uniqueReviewQuestions(openReviews);
   const openingCash = Number(periods.find((period) => period.month === (body.data.month ?? new Date().toISOString().slice(0, 7)))?.openingCash ?? periods[0]?.openingCash ?? 0);
   const calculated = buildMonthlyCash(openingCash, events.map((event) => ({ month: event.month, amount: Number(event.amount), kind: event.direction, actual: event.isActual === "Y" })));
   const provider = getModelProvider(resolveModelOverrides(body.data));
   const conversation = [...body.data.history, { role: "user" as const, content: body.data.message }];
-  const focusedReview = body.data.reviewQuestionId ? openReviews.find((review) => review.id === body.data.reviewQuestionId) : undefined;
+  const focusedReview = body.data.reviewQuestionId ? consolidatedOpenReviews.find((review) => review.id === body.data.reviewQuestionId) : undefined;
   const evidenceQuery = [...conversation.map((message) => message.content), focusedReview?.question ?? ""].join("\n");
   const sourceEvidence = relevantEvidenceContext(evidenceDocuments, evidenceQuery, focusedReview?.evidenceId);
-  const actualTransactions = events.filter((event) => event.isActual === "Y").map((event) => ({ date: event.transactionDate ?? event.month, amount: event.amount, direction: event.direction, descriptionOrNote: event.description, evidenceId: event.evidenceId }));
-  const baseInstructions = `You are the controlled finance agent for company ${context.company.id}, participating in a continuing conversation with its CFO. Answer naturally from the supplied state and evidence. Uploaded evidence is available below: inspect it before asking the CFO to repeat information. Never say that you cannot access an uploaded source when that source or its extracted transactions are supplied. For bank statements, use the transaction date, amount, and full description or note to identify transactions. Never invent amounts or identities. When evidence is genuinely ambiguous after inspection, ask one concise, direct question in both your answer and the questions field so it can be tracked. Open clarification questions include stable ids. When the latest message clearly answers one, or when the focused uploaded evidence explicitly answers it, include its exact id and the evidence-grounded answer in resolvedQuestions. Do not resolve a question unless the answer is clear. Proposals are suggestions only; do not claim they were applied. You may request at most one supplied controlled tool per turn; tool results will be returned for a subsequent turn. Focused clarification: ${JSON.stringify(focusedReview ?? null)}. Policies: ${JSON.stringify(activePolicies)}. Prior decisions: ${JSON.stringify(priorDecisions)}. Open clarification questions: ${JSON.stringify(openReviews)}. Uploaded source evidence excerpts: ${JSON.stringify(sourceEvidence)}. Imported actual transactions: ${JSON.stringify(actualTransactions)}. Knowledge: ${JSON.stringify(docs)}. Confirmed items: ${JSON.stringify(items)}. New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}. Deterministic forecast: ${JSON.stringify(calculated.slice(0, 12))}`;
-  let result = await provider.generateStructured({
-    name: "finance_agent_response",
-    schema: outputSchema,
-    jsonSchema: outputJsonSchema,
-    instructions: baseInstructions,
-    messages: conversation,
-  });
+  const actualTransactions = events.filter((event) => event.isActual === "Y").map((event) => ({ date: event.transactionDate ?? event.month, amount: event.amount, direction: event.direction, category: event.category, descriptionOrNote: event.description, evidenceId: event.evidenceId }));
+  const baseInstructions = `You are the controlled finance agent for company ${context.company.id}, participating in a continuing conversation with its CFO. Answer naturally from the supplied state and evidence. Uploaded evidence is available below: inspect it before asking the CFO to repeat information. Never say that you cannot access an uploaded source when that source or its extracted transactions are supplied. For bank statements, use the transaction date, amount, and full description or note to identify transactions. Never invent amounts or identities. Apply the universal accounting rules in the Accounting knowledge document first, then apply company-specific Policies and approved decisions; company-specific rules override the universal defaults. Review imported transactions for likely misclassification, especially transfers, investments, financing, opening/ending balances, and operating activity. Ask one grouped CFO-friendly question only for material or ambiguous exceptions. When evidence is genuinely ambiguous after inspection, ask one concise, direct question in both your answer and the questions field so it can be tracked. Consolidate duplicative or closely related questions into one concise CFO-friendly question, both in your answer and in the questions field. Open clarification questions include stable ids. When the latest message clearly answers one, or when the focused uploaded evidence explicitly answers it, include its exact id and the evidence-grounded answer in resolvedQuestions. Do not resolve a question unless the answer is clear. Proposals are suggestions only; do not claim they were applied. You may request at most one supplied controlled tool per turn; tool results will be returned for a subsequent turn. Focused clarification: ${JSON.stringify(focusedReview ?? null)}. Policies: ${JSON.stringify(activePolicies)}. Prior decisions: ${JSON.stringify(priorDecisions)}. Open clarification questions: ${JSON.stringify(consolidatedOpenReviews)}. Uploaded source evidence excerpts: ${JSON.stringify(sourceEvidence)}. Imported actual transactions: ${JSON.stringify(actualTransactions)}. Knowledge: ${JSON.stringify(docs)}. Confirmed items: ${JSON.stringify(items)}. New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}. Deterministic forecast: ${JSON.stringify(calculated.slice(0, 12))}`;
+  let result;
+  try {
+    result = await provider.generateStructured({
+      name: "finance_agent_response",
+      schema: outputSchema,
+      jsonSchema: outputJsonSchema,
+      instructions: baseInstructions,
+      messages: conversation,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The model returned an invalid response.";
+    return NextResponse.json({ error: `The model response could not be read. ${message}` }, { status: 502 });
+  }
   const runIds: string[] = [];
   const firstRun = await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "agent", request: { message: body.data.message, history: body.data.history, evidence: body.data.evidence, reviewQuestionId: body.data.reviewQuestionId, month: body.data.month }, response: JSON.stringify(result) });
   if (firstRun) runIds.push(firstRun);
   for (let turn = 0; turn < 2 && result.toolCalls.length; turn += 1) {
-    const toolResults = result.toolCalls.slice(0, 1).map((call) => call.tool === "query_forecast" ? { tool: call.tool, result: calculated.slice(0, 12) } : call.tool === "read_policies" ? { tool: call.tool, result: activePolicies } : call.tool === "trace_value" ? { tool: call.tool, result: calculated.slice(0, 12).map((month) => ({ month: month.month, trace: events.filter((event) => event.month === month.month).map((event) => ({ description: event.description, evidenceId: event.evidenceId })) })) } : call.tool === "get_obligations" ? { tool: call.tool, result: items.filter((item) => item.type === "obligation") } : call.tool === "get_allocations" ? { tool: call.tool, result: "Allocation records are available in the authorized company state." } : { tool: call.tool, result: { items, events: events.slice(0, 50), periods } });
-    result = await provider.generateStructured({ name: "finance_agent_response", schema: outputSchema, jsonSchema: outputJsonSchema, instructions: `${baseInstructions}\nControlled tool results: ${JSON.stringify(toolResults)}`, messages: conversation });
+    const toolResults: Array<{ tool: string; result: unknown }> = result.toolCalls.slice(0, 1).map((call) => call.tool === "query_forecast" ? { tool: call.tool, result: calculated.slice(0, 12) } : call.tool === "read_policies" ? { tool: call.tool, result: activePolicies } : call.tool === "trace_value" ? { tool: call.tool, result: calculated.slice(0, 12).map((month) => ({ month: month.month, trace: events.filter((event) => event.month === month.month).map((event) => ({ description: event.description, evidenceId: event.evidenceId })) })) } : call.tool === "get_obligations" ? { tool: call.tool, result: items.filter((item) => item.type === "obligation") } : call.tool === "get_allocations" ? { tool: call.tool, result: "Allocation records are available in the authorized company state." } : { tool: call.tool, result: { items, events: events.slice(0, 50), periods } });
+    try {
+      result = await provider.generateStructured({ name: "finance_agent_response", schema: outputSchema, jsonSchema: outputJsonSchema, instructions: `${baseInstructions}\nControlled tool results: ${JSON.stringify(toolResults)}`, messages: conversation });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The model returned an invalid response.";
+      return NextResponse.json({ error: `The model follow-up could not be read. ${message}` }, { status: 502 });
+    }
     const followupRun = await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "agent_tool_followup", request: { message: body.data.message, history: body.data.history, evidence: body.data.evidence, reviewQuestionId: body.data.reviewQuestionId, toolResults }, response: JSON.stringify(result) });
     if (followupRun) runIds.push(followupRun);
   }
 
-  const openReviewById = new Map(openReviews.map((review) => [review.id, review]));
+  const openReviewById = new Map(consolidatedOpenReviews.map((review) => [review.id, review]));
   let resolvedQuestionCount = 0;
   for (const resolution of result.resolvedQuestions) {
     const review = openReviewById.get(resolution.id);
@@ -137,11 +150,11 @@ export async function POST(request: Request) {
   }
 
   const normalizeQuestion = (question: string) => question.trim().toLowerCase().replace(/\s+/g, " ");
-  const existingQuestions = new Set(openReviews.map((review) => normalizeQuestion(review.question)));
+  const existingQuestions = [...consolidatedOpenReviews.map((review) => ({ question: review.question }))];
   const newQuestions = result.questions.map((question) => question.trim()).filter((question) => {
     const normalized = normalizeQuestion(question);
-    if (!question || existingQuestions.has(normalized)) return false;
-    existingQuestions.add(normalized);
+    if (!question || existingQuestions.some((existing) => normalizeQuestion(existing.question) === normalized || uniqueReviewQuestions([existing, { question }]).length === 1)) return false;
+    existingQuestions.push({ question });
     return true;
   });
   if (newQuestions.length) {
