@@ -9,6 +9,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { expandFinancialFactDates, extractPdfText } from "@nevermodel/ingestion";
+import { isDetailedFinancialEvent } from "@/lib/financial-events";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -164,6 +165,13 @@ export async function GET() {
     status: evidence.status,
     createdAt: evidence.createdAt,
   }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20);
+  const breakoutQuestion = "How should these statement transactions be broken out in the financial statements—by revenue stream and expense type, or using another grouping? Please specify any categories you want Hemrock to use consistently.";
+  for (const source of rows.filter((item) => item.status === "approved")) {
+    const [event] = await getDatabase().select({ id: cashEvents.id }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, source.id))).limit(1);
+    if (!event) continue;
+    const [existing] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion))).limit(1);
+    if (!existing) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: source.id, question: breakoutQuestion });
+  }
   const openReviews = await getDatabase().select({ id: reviewItems.id, evidenceId: reviewItems.evidenceId, question: reviewItems.question, answer: reviewItems.answer, status: reviewItems.status }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt));
   const facts = await getDatabase().select({ id: factRecords.id, evidenceId: factRecords.evidenceId, label: factRecords.label, value: factRecords.value, confidence: factRecords.confidence, status: factRecords.status }).from(factRecords).where(eq(factRecords.companyId, context.company.id)).orderBy(desc(factRecords.createdAt));
 
@@ -230,9 +238,13 @@ export async function PATCH(request: Request) {
       return { companyId: context.company.id, evidenceId: body.data.id, type: spend ? "obligation" as const : "agreement" as const, direction: spend ? "spend" as const : "receipt" as const, label: fact.label, amount, cadence: /month|quarter|annual|year|weekly/i.exec(fact.value)?.[0], policyId: policyFor(fact), status: "confirmed" as const };
     });
     const events = financialFacts.flatMap((fact) => {
+      const description = `${fact.label}: ${fact.value}`;
+      if (!isDetailedFinancialEvent(description)) return [];
       const match = fact.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i);
       if (!match) return [];
-      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description: `${fact.label}: ${fact.value}`, amount: match[1]!.replace(/,/g, ""), direction: /pay|spend|cost|expense/i.test(fact.value) ? "spend" as const : "receipt" as const, policyId: policyFor(fact) }];
+      const factText = `${fact.label} ${fact.value}`;
+      const direction = /debit|withdraw|outflow|payment|paid|payroll|expense|spend|cost|\(\s*\$|[-−]\s*\$/i.test(factText) ? "spend" as const : "receipt" as const;
+      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: match[1]!.replace(/,/g, ""), direction, isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
     });
     const eventMonths = [...new Set(events.map((event) => event.month))];
     if (eventMonths.length) {
@@ -250,6 +262,11 @@ export async function PATCH(request: Request) {
     if (!existingItems.length && items.length) await getDatabase().insert(economicItems).values(items);
     const existingEvents = await getDatabase().select({ id: cashEvents.id }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id)));
     if (!existingEvents.length && events.length) await getDatabase().insert(cashEvents).values(events);
+    if (events.length) {
+      const breakoutQuestion = "How should these statement transactions be broken out in the financial statements—by revenue stream and expense type, or using another grouping? Please specify any categories you want Hemrock to use consistently.";
+      const [existingQuestion] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion)));
+      if (!existingQuestion) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: body.data.id, question: breakoutQuestion });
+    }
   }
   return NextResponse.json(row);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AccountMenu } from "@/components/account-menu";
@@ -104,15 +104,6 @@ function Figure({ label, value, note, pencil, negative }: { label: string; value
   );
 }
 
-function Detail({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1 border-b border-rule pb-4 text-[13px]">
-      <span className="text-ink-2">{title}</span>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-ink">{children}</div>
-    </div>
-  );
-}
-
 type AppShellProps = {
   company: { name: string; currency: string };
   user: { email: string; name: string | null };
@@ -139,10 +130,9 @@ type ChatEvidence = {
 };
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
-type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; status?: "open" | "closed"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null }[] };
-type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number> };
-type ObligationSummary = { id: string; label: string; unpaidAmount: number; status: string };
-type DueFromFund = { entityId: string; entityName: string; amount: number };
+type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; status?: "open" | "closed"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean }[] };
+type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string }[] };
+type PeriodPreset = "month" | "quarter" | "ytd" | "year" | "custom";
 
 export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [message, setMessage] = useState("");
@@ -160,14 +150,17 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [submissionStatus, setSubmissionStatus] = useState<string | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [activeReviewQuestionId, setActiveReviewQuestionId] = useState<string | null>(null);
+  const [activeReviewQuestion, setActiveReviewQuestion] = useState<ReviewQuestion | null>(null);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
   const [pnl, setPnl] = useState<PnlMonth[]>([]);
-  const [obligations, setObligations] = useState<ObligationSummary[]>([]);
-  const [dueFromFunds, setDueFromFunds] = useState<DueFromFund[]>([]);
   const [selectedMonth, setSelectedMonth] = useState("");
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("month");
+  const [statementTab, setStatementTab] = useState<"income" | "cash" | "balance">("income");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const [editingItem, setEditingItem] = useState<EvidenceItem | null>(null);
   const [editSummary, setEditSummary] = useState("");
   const [editFacts, setEditFacts] = useState<{ label: string; value: string; confidence: number }[]>([]);
@@ -186,8 +179,17 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   useEffect(() => {
     if (turns.length > 0) composerInput.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [turns.length]);
-  const currentForecast = forecast.find((month) => month.month === selectedMonth);
-  const currentPnl = pnl.find((month) => month.month === selectedMonth);
+  const anchorDate = selectedMonth ? new Date(`${selectedMonth}-01T00:00:00Z`) : null;
+  const anchorYear = anchorDate?.getUTCFullYear();
+  const anchorMonth = anchorDate ? anchorDate.getUTCMonth() + 1 : 1;
+  const periodStart = periodPreset === "custom" ? (customStart || selectedMonth) : periodPreset === "ytd" ? `${anchorYear}-01` : periodPreset === "year" ? `${anchorYear}-01` : periodPreset === "quarter" ? `${anchorYear}-${String(Math.floor((anchorMonth - 1) / 3) * 3 + 1).padStart(2, "0")}` : selectedMonth;
+  const periodEnd = periodPreset === "custom" ? (customEnd || selectedMonth) : periodPreset === "ytd" || periodPreset === "quarter" ? selectedMonth : periodPreset === "year" ? `${anchorYear}-12` : selectedMonth;
+  const periodForecastRows = forecast.filter((month) => month.month >= periodStart && month.month <= periodEnd);
+  const periodPnlRows = pnl.filter((month) => month.month >= periodStart && month.month <= periodEnd);
+  const lastForecast = periodForecastRows.at(-1);
+  const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: periodForecastRows.reduce((sum, row) => sum + row.receipts, 0), spending: periodForecastRows.reduce((sum, row) => sum + row.spending, 0), actualReceipts: periodForecastRows.reduce((sum, row) => sum + row.actualReceipts, 0), actualSpending: periodForecastRows.reduce((sum, row) => sum + row.actualSpending, 0), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
+  const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
+  const periodLabel = periodPreset === "quarter" ? `Q${Math.floor((anchorMonth - 1) / 3) + 1} ${anchorYear}` : periodPreset === "ytd" ? `YTD ${monthLabel(selectedMonth)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${monthLabel(periodStart)} – ${monthLabel(periodEnd)}` : monthLabel(selectedMonth);
   const pendingEvidence = evidence.filter((item) => item.status === "pending");
   const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length;
   useEffect(() => {
@@ -226,9 +228,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const pnlResponse = await fetch("/api/pnl");
       const pnlPayload = pnlResponse.ok ? await readJson(pnlResponse) : null;
       if (pnlPayload?.months) setPnl(pnlPayload.months);
-      const [obligationsResponse, allocationsResponse] = await Promise.all([fetch("/api/obligations"), fetch("/api/allocations")]);
-      if (obligationsResponse.ok) { const data = await readJson(obligationsResponse); setObligations(data.obligations ?? []); }
-      if (allocationsResponse.ok) { const data = await readJson(allocationsResponse); setDueFromFunds(data.dueFromFunds ?? []); }
     }
     loadForecast().catch(() => undefined);
   }, []);
@@ -261,7 +260,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
     const answer = [payload.answer, payload.forecastExplanation].filter(Boolean).join(" ").trim();
     setTurns((current) => [...current, { id: crypto.randomUUID(), question, answer, model: model === "auto" ? null : model, createdAt: new Date().toISOString() }]);
-    if (activeReviewQuestionId && payload.resolvedQuestions?.some((resolution: { id: string }) => resolution.id === activeReviewQuestionId)) setActiveReviewQuestionId(null);
+    if (activeReviewQuestionId && payload.resolvedQuestions?.some((resolution: { id: string }) => resolution.id === activeReviewQuestionId)) {
+      setActiveReviewQuestionId(null);
+      setActiveReviewQuestion(null);
+    }
     setPendingQuestion(null);
     setHistory(null);
     const [refreshedEvidence, refreshedDecisions] = await Promise.all([fetch("/api/evidence"), fetch("/api/decisions")]);
@@ -286,17 +288,19 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setSubmissionStatus(null);
     setPendingQuestion(null);
     setActiveReviewQuestionId(null);
+    setActiveReviewQuestion(null);
   }
 
   function answerInChat(item: ReviewQuestion) {
     setTurns([]);
-    setMessage(`Regarding “${item.question}”: `);
+    setMessage("");
     setFiles([]);
     setSelectedFiles([]);
     setNotice(null);
     setSubmissionStatus(null);
     setPendingQuestion(null);
     setActiveReviewQuestionId(item.id);
+    setActiveReviewQuestion(item);
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
@@ -316,10 +320,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     event.preventDefault();
     const submittedMessage = message.trim();
     if (isSubmitting || (!submittedMessage && files.length === 0)) return;
+    const contextualQuestion = activeReviewQuestion ? `Regarding “${activeReviewQuestion.question}”: ${submittedMessage}` : submittedMessage;
+    setActiveReviewQuestion(null);
     const abortController = new AbortController();
     requestAbortController.current = abortController;
     setIsSubmitting(true);
-    setPendingQuestion(submittedMessage || `Uploaded ${files.join(", ")}`);
+    setPendingQuestion(contextualQuestion || `Uploaded ${files.join(", ")}`);
     setSubmissionStatus(selectedFiles.length ? `Reading ${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"}…` : "Thinking about your message…");
     setNotice(null);
     setMessage("");
@@ -373,7 +379,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         return;
       }
       if (!selectedFiles.length) {
-        await askAgent(submittedMessage, [], abortController.signal);
+        await askAgent(contextualQuestion, [], abortController.signal);
         return;
       }
       const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"] }[] = [];
@@ -401,7 +407,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         }
       }
       setEvidence((current) => [...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]);
-      const question = submittedMessage || `I uploaded ${files.join(", ")}. Review what I shared, tell me what you found, and ask me about anything that needs clarification.`;
+      const question = contextualQuestion || `I uploaded ${files.join(", ")}. Review what I shared, tell me what you found, and ask me about anything that needs clarification.`;
       const chatEvidence = payloads.map((payload) => ({
         id: payload.id,
         sourceName: payload.sourceName,
@@ -503,8 +509,13 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               </div>
               <p className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
                 <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> {submissionStatus}
-                <button type="button" className="ml-1 rounded-md border border-rule px-2 py-0.5 text-[12px] text-ink transition-colors hover:bg-rule focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={stopSubmission}>Stop</button>
               </p>
+            </div>
+          )}
+          {activeReviewQuestion && (
+            <div className="grid gap-1 rounded-[12px] border border-rule bg-rule/35 px-4 py-3" aria-label="Question being answered">
+              <span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">Answering waiting question</span>
+              <p className="text-[15px] leading-[1.45] text-ink">Regarding “{activeReviewQuestion.question}”</p>
             </div>
           )}
           <form
@@ -625,16 +636,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           )}
         </section>
 
-        <section className="grid gap-3.5">
+        {needsInputCount > 0 && <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Waiting on you</h2>
-            <span className="text-[13px] text-ink-2">{needsInputCount ? `${needsInputCount} item${needsInputCount === 1 ? "" : "s"}` : "Nothing"}</span>
+            <span className="text-[13px] text-ink-2">{`${needsInputCount} item${needsInputCount === 1 ? "" : "s"}`}</span>
           </div>
-          {needsInputCount === 0 ? (
-            <p className="max-w-[60ch] border-t border-rule pt-4 text-ink-2">
-              Nothing is waiting on you. When a document is ambiguous, the question shows up here.
-            </p>
-          ) : (
+          {
             <div className="border-t border-rule">
               {reviewQuestions.length > 0 && (
                 <div>
@@ -707,27 +714,49 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 </div>
               )}
             </div>
-          )}
-        </section>
+          }
+        </section>}
 
         <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>
-              {selectedMonth ? monthLabel(selectedMonth) : "Company position"}
+              {selectedMonth ? periodLabel : "Company position"}
             </h2>
             <div className="flex items-center gap-3 text-[13px] text-ink-2">
               {currentForecast?.status && <span className="hidden sm:inline">{isClosed ? "Closed, in ink" : "Open, forecast in pencil"}</span>}
+              <button type="button" className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-ink-2 hover:bg-rule hover:text-ink sm:flex" onClick={() => window.location.reload()}><RefreshCw className="size-3.5" aria-hidden="true" /> Refresh</button>
               {forecast.length > 0 && (
-                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                  <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Month">
-                    <SelectValue placeholder="Month" />
-                  </SelectTrigger>
-                  <SelectContent className="border-rule">
-                    {forecast.map((month) => (
-                      <SelectItem key={month.month} value={month.month}>{monthLabel(month.month)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <>
+                  <Select value={periodPreset} onValueChange={(value) => setPeriodPreset(value as PeriodPreset)}>
+                    <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Reporting period">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-rule">
+                      <SelectItem value="month">Month</SelectItem>
+                      <SelectItem value="quarter">Quarter</SelectItem>
+                      <SelectItem value="ytd">Year to date</SelectItem>
+                      <SelectItem value="year">Calendar year</SelectItem>
+                      <SelectItem value="custom">Custom range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                    <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Anchor month">
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent className="border-rule">
+                      {forecast.map((month) => (
+                        <SelectItem key={month.month} value={month.month}>{monthLabel(month.month)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {periodPreset === "custom" && (
+                    <span className="hidden items-center gap-1.5 lg:flex">
+                      <Input aria-label="Custom period start" type="month" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="h-7 w-[116px] px-2 text-[12px]" />
+                      <span>–</span>
+                      <Input aria-label="Custom period end" type="month" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="h-7 w-[116px] px-2 text-[12px]" />
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -768,31 +797,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             />
           </div>
 
-          {currentPnl && (
-            <Detail title={`Monthly P&L, ${money(currentPnl.operatingIncome)} operating income`}>
-              {Object.entries(currentPnl.byCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => (
-                <span key={category} className="capitalize">{category.replace(/_/g, " ")} <span className="text-ink-2">{money(amount)}</span></span>
-              ))}
-            </Detail>
-          )}
-          {(obligations.some((item) => item.unpaidAmount > 0) || dueFromFunds.length > 0) && (
-            <Detail title="Open commitments">
-              {obligations.filter((item) => item.unpaidAmount > 0).slice(0, 4).map((item) => (
-                <span key={item.id}>{item.label} <span className="text-ink-2">{money(item.unpaidAmount)} unpaid</span></span>
-              ))}
-              {dueFromFunds.map((fund) => (
-                <span key={fund.entityId}>{fund.entityName} <span className="text-ink-2">owes {money(fund.amount)}</span></span>
-              ))}
-            </Detail>
-          )}
-          {currentForecast?.trace?.length ? (
-            <Detail title="Calculated from">
-              {[...new Set(currentForecast.trace.map((entry) => entry.sourceName).filter(Boolean))].map((source) => (
-                <span key={source}>{source}</span>
-              ))}
-            </Detail>
-          ) : null}
-
           {bars.length ? (
             <div className="grid gap-2.5">
               <div className="flex gap-4 text-[13px] text-ink-2">
@@ -821,6 +825,60 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           ) : (
             <p className="max-w-[60ch] text-ink-2">Your forecast builds itself here once there is an opening cash balance and at least one approved agreement or obligation.</p>
           )}
+
+          {currentForecast && (
+            <section className="grid gap-3 border-t border-rule pt-5" aria-label="Financial statements">
+              <h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Financial statements</h3>
+              <div className="flex w-full border-b border-rule" role="tablist" aria-label="Financial statements">
+                {([['income', 'Income statement'], ['cash', 'Cash flow statement'], ['balance', 'Balance sheet']] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={statementTab === value} className={cn("border-b-2 px-3 py-2 text-[13px] text-ink-2", statementTab === value ? "border-ink text-ink" : "border-transparent hover:text-ink")} onClick={() => setStatementTab(value)}>{label}</button>)}
+              </div>
+              <div className="w-full rounded-lg border border-rule p-4">
+                {statementTab === "income" && <div>
+                  <div className="text-[13px] text-ink-2">Income statement</div>
+                  <div className="mt-2 grid gap-1 text-[13px]">
+                    <span>Revenue <span className="float-right">{money(currentPnl?.revenue ?? 0)}</span></span>
+                    <span>Expenses <span className="float-right">{money(currentPnl?.expenses ?? 0)}</span></span>
+                    <span className="border-t border-rule pt-1 font-medium">Operating income <span className="float-right">{money(currentPnl?.operatingIncome ?? 0)}</span></span>
+                  </div>
+                  {currentPnl && <div className="mt-3 grid gap-1 border-t border-rule pt-2 text-[12px] text-ink-2"><span className="text-[11px] uppercase tracking-wide text-pencil">Revenue breakdown</span>{Object.entries(currentPnl.revenueByCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={`revenue-${category}`} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}<span className="mt-1 text-[11px] uppercase tracking-wide text-pencil">Expense breakdown</span>{Object.entries(currentPnl.byCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={category} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}</div>}
+                  {currentPnl?.trace?.length ? <details className="mt-3 min-w-0 border-t border-rule pt-2 text-[12px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({currentPnl.trace.length})</summary><div className="mt-2 grid max-h-40 min-w-0 gap-1 overflow-x-auto overflow-y-auto">{currentPnl.trace.map((line, index) => <span key={`${line.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{line.description ?? line.category}</span><span className="shrink-0">{line.direction === "spend" ? "−" : "+"}{money(line.amount)}</span></span>)}</div></details> : null}
+                  {periodPnlRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Revenue</th><th className="pb-2 text-right font-normal">Expenses</th><th className="pb-2 text-right font-normal">Operating income</th></tr></thead><tbody>{periodPnlRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.revenue)}</td><td className="py-2 text-right">{money(row.expenses)}</td><td className="py-2 text-right">{money(row.operatingIncome)}</td></tr>)}</tbody></table></div>}
+                </div>}
+                {statementTab === "cash" && <div>
+                  <div className="text-[13px] text-ink-2">Cash flow statement</div>
+                  <div className="mt-2 grid gap-1 text-[13px]">
+                    <span>Beginning period cash <span className="float-right">{money(currentForecast.openingCash ?? (currentForecast.endingCash - (isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending)))}</span></span>
+                    <span>Cash from operations <span className="float-right">{money(isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending)}</span></span>
+                    <span>Cash from financing <span className="float-right">{money(0)}</span></span>
+                    <span>Cash from investing <span className="float-right">{money(0)}</span></span>
+                    <span className="border-t border-rule pt-1 font-medium">Ending cash <span className="float-right">{money(currentForecast.endingCash)}</span></span>
+                  </div>
+                  {currentForecast.trace && <div className="mt-3 grid max-h-36 min-w-0 gap-1 overflow-x-auto overflow-y-auto border-t border-rule pt-2 text-[12px] text-ink-2">{currentForecast.trace.filter((entry) => entry.amount).map((entry, index) => <span key={`${entry.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{entry.description}</span><span className="shrink-0">{entry.kind === "spend" ? "−" : "+"}{money(entry.amount ?? 0)}</span></span>)}</div>}
+                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.actualReceipts - row.actualSpending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
+                </div>}
+                {statementTab === "balance" && <div>
+                  <div className="text-[13px] text-ink-2">Balance sheet snapshot</div>
+                  <div className="mt-2 grid gap-1 text-[13px]">
+                    <span>Cash and equivalents <span className="float-right">{money(currentForecast.endingCash)}</span></span>
+                    <span>Period <span className="float-right">{monthLabel(currentForecast.month)}</span></span>
+                    <span className="border-t border-rule pt-1 font-medium">Position <span className="float-right">{currentForecast.endingCash < 0 ? "Deficit" : "Positive"}</span></span>
+                  </div>
+                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Total assets / cash</th><th className="pb-2 text-right font-normal">Position</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.endingCash)}</td><td className="py-2 text-right">{row.endingCash < 0 ? "Deficit" : "Positive"}</td></tr>)}</tbody></table></div>}
+                </div>}
+              </div>
+            </section>
+          )}
+
+          {currentForecast?.trace?.length ? (
+            <details className="border-b border-rule pb-4 text-[13px]">
+              <summary className="cursor-pointer list-none text-ink-2 [&::-webkit-details-marker]:hidden">Calculated from <span className="ml-1 text-pencil">({new Set(currentForecast.trace.map((entry) => entry.sourceName).filter(Boolean)).size} sources)</span></summary>
+              <div className="mt-2 grid gap-1 text-ink">
+                {[...new Set(currentForecast.trace.map((entry) => entry.sourceName).filter(Boolean))].map((source) => (
+                  <span key={source}>{source}</span>
+                ))}
+              </div>
+            </details>
+          ) : null}
         </section>
       </main>
 
