@@ -8,8 +8,9 @@ import { getDatabase, cashEvents, economicItems, evidence, factRecords, knowledg
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
-import { expandFinancialFactDates, extractPdfText } from "@nevermodel/ingestion";
-import { isDetailedFinancialEvent } from "@/lib/financial-events";
+import { expandFinancialFactDates, extractPdfText, parseCsvRows } from "@nevermodel/ingestion";
+import { classifyCashActivity, isDetailedFinancialEvent } from "@/lib/financial-events";
+import { uniqueReviewQuestions } from "@/lib/review-questions";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -19,13 +20,10 @@ const inputSchema = modelRequestSchema.extend({
 const reviewSchema = z.object({ id: z.string().uuid(), status: z.enum(["pending", "approved", "rejected"]).optional(), extractedJson: z.string().optional() });
 
 function normalizeCsv(text: string) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return text;
-  const headers = lines[0]!.split(",").map((header) => header.trim());
-  return lines.slice(1).map((line) => {
-    const values = line.split(",").map((value) => value.trim());
-    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
-  });
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return text;
+  const headers = rows[0]!;
+  return rows.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
 }
 
 function monthFromFact(value: string) {
@@ -118,7 +116,7 @@ export async function POST(request: Request) {
       },
       required: ["summary", "facts", "questions"],
     },
-    instructions: `Extract only explicit financial facts. Do not invent numbers. Use questions for ambiguity or missing context. Apply these standing CFO policies when relevant:\n${activePolicies.map((policy) => `- ${policy.name}: ${policy.rule}`).join("\n") || "- No standing policies have been recorded."}${userInstructions ? `\n\nThe user supplied these instructions with the file. Follow them when they are consistent with extracting explicit evidence:\n${userInstructions}` : ""}`,
+    instructions: `Extract only explicit financial facts. Do not invent numbers. Use questions for ambiguity or missing context. Return one question per distinct unresolved issue; combine questions that are duplicative or closely related into one CFO-friendly question. Apply these standing CFO policies when relevant:\n${activePolicies.map((policy) => `- ${policy.name}: ${policy.rule}`).join("\n") || "- No standing policies have been recorded."}${userInstructions ? `\n\nThe user supplied these instructions with the file. Follow them when they are consistent with extracting explicit evidence:\n${userInstructions}` : ""}`,
     messages: [{ role: "user", content: typeof csv === "string" ? csv : JSON.stringify(csv) }],
   });
   const sourceDate = sourceName.match(/(?:^|[-_])dt-(20\d{2}-\d{2}-\d{2})(?:[-_.]|$)/i)?.[1] ?? (reportingMonth ? `${reportingMonth}-01` : undefined);
@@ -172,7 +170,8 @@ export async function GET() {
     const [existing] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion))).limit(1);
     if (!existing) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: source.id, question: breakoutQuestion });
   }
-  const openReviews = await getDatabase().select({ id: reviewItems.id, evidenceId: reviewItems.evidenceId, question: reviewItems.question, answer: reviewItems.answer, status: reviewItems.status }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt));
+  const openReviewRows = await getDatabase().select({ id: reviewItems.id, evidenceId: reviewItems.evidenceId, question: reviewItems.question, answer: reviewItems.answer, status: reviewItems.status }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt));
+  const openReviews = uniqueReviewQuestions(openReviewRows);
   const facts = await getDatabase().select({ id: factRecords.id, evidenceId: factRecords.evidenceId, label: factRecords.label, value: factRecords.value, confidence: factRecords.confidence, status: factRecords.status }).from(factRecords).where(eq(factRecords.companyId, context.company.id)).orderBy(desc(factRecords.createdAt));
 
   return NextResponse.json({
@@ -244,7 +243,7 @@ export async function PATCH(request: Request) {
       if (!match) return [];
       const factText = `${fact.label} ${fact.value}`;
       const direction = /debit|withdraw|outflow|payment|paid|payroll|expense|spend|cost|\(\s*\$|[-−]\s*\$/i.test(factText) ? "spend" as const : "receipt" as const;
-      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: match[1]!.replace(/,/g, ""), direction, isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
+      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: match[1]!.replace(/,/g, ""), direction, category: classifyCashActivity(description, direction), isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
     });
     const eventMonths = [...new Set(events.map((event) => event.month))];
     if (eventMonths.length) {

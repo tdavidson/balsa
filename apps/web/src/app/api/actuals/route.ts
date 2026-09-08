@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import { requireCompanyAccess } from "@/lib/auth";
 import { normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
+import { classifyCashActivity } from "@/lib/financial-events";
 
 export async function POST(request: Request) {
   await auth.protect();
@@ -35,7 +36,8 @@ export async function POST(request: Request) {
   if (duplicate) return NextResponse.json({ imported: 0, duplicate: true, sourceName: file.name });
   const events = parsedTransactions.map((transaction) => {
     const externalKey = transactionExternalKey(transaction);
-    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description: transaction.description || file.name, amount: String(transaction.amount), direction: transaction.direction, isActual: "Y" as const, externalKey };
+    const description = transaction.description || file.name;
+    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description, amount: String(transaction.amount), direction: transaction.direction, category: classifyCashActivity(description, transaction.direction), isActual: "Y" as const, externalKey };
   });
   const months = [...new Set(events.map((event) => event.month))];
   let importedCount = 0;

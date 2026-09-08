@@ -33,6 +33,16 @@ export type ModelOptions = {
   effort?: ReasoningEffort | undefined;
 };
 
+function parseStructuredContent<T>(content: string, schema: ZodType<T>) {
+  const candidate = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  try {
+    return schema.parse(JSON.parse(candidate));
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error(`Model returned malformed structured JSON${error.message.match(/position \d+/)?.[0] ? ` (${error.message.match(/position \d+/)![0]})` : ""}. Please retry with a shorter request.`);
+    throw error;
+  }
+}
+
 export interface ModelProvider {
   readonly name: "openai" | "openrouter";
   readonly model: string;
@@ -103,7 +113,7 @@ export class OpenAIProvider implements ModelProvider {
     });
     this.lastUsage = { model: this.model, inputTokens: response.usage?.input_tokens, outputTokens: response.usage?.output_tokens, totalTokens: response.usage?.total_tokens, latencyMs: Date.now() - started };
 
-    return request.schema.parse(JSON.parse(response.output_text));
+    return parseStructuredContent(response.output_text, request.schema);
   }
 
   getLastUsage() { return this.lastUsage; }
@@ -181,7 +191,7 @@ export class OpenRouterProvider implements ModelProvider {
       },
     });
 
-    return request.schema.parse(JSON.parse(content));
+    return parseStructuredContent(content, request.schema);
   }
 }
 

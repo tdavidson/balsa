@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { cashEvents, getDatabase } from "@finance/database";
 import { buildMonthlyProfitAndLoss, type FinancialLine } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
-import { financialEventKey, inferFinancialDirection, isDetailedFinancialEvent } from "@/lib/financial-events";
+import { classifyCashActivity, financialEventKey, inferFinancialDirection, isDetailedFinancialEvent } from "@/lib/financial-events";
 
 function categoryFor(description: string): FinancialLine["category"] {
   if (/management|fee/i.test(description)) return "management_fee";
@@ -16,12 +16,16 @@ function categoryFor(description: string): FinancialLine["category"] {
   return "other";
 }
 
+function cashActivityCategory(category: string | null, description: string, direction: "receipt" | "spend") {
+  return category === "transfer" || category === "investment" ? category : classifyCashActivity(description, direction);
+}
+
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const rows = await getDatabase().select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, description: cashEvents.description, amount: cashEvents.amount, direction: cashEvents.direction, evidenceId: cashEvents.evidenceId, accountingTreatment: cashEvents.accountingTreatment, recognitionStart: cashEvents.recognitionStart, recognitionEnd: cashEvents.recognitionEnd }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id));
+  const rows = await getDatabase().select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, description: cashEvents.description, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, evidenceId: cashEvents.evidenceId, accountingTreatment: cashEvents.accountingTreatment, recognitionStart: cashEvents.recognitionStart, recognitionEnd: cashEvents.recognitionEnd }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id));
   const seen = new Set<string>();
-  const lines: FinancialLine[] = rows.filter((row) => isDetailedFinancialEvent(row.description)).flatMap((row) => {
+  const lines: FinancialLine[] = rows.filter((row) => isDetailedFinancialEvent(row.description) && !["transfer", "investment"].includes(cashActivityCategory(row.category, row.description, row.direction))).flatMap((row) => {
     const key = financialEventKey(row);
     if (seen.has(key)) return [];
     seen.add(key);
