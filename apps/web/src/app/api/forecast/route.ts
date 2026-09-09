@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getDatabase, cashEvents, economicItems, evidence, reportingPeriods } from "@finance/database";
 import { buildMonthlyCash } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
-import { classifyCashActivity, financialEventKey, inferFinancialDirection, isDetailedFinancialEvent } from "@/lib/financial-events";
+import { classifyCashActivity, financialEventKey, inferFinancialDirection, isDetailedFinancialEvent, isSweepCounterpartActivity } from "@/lib/financial-events";
 
 function addMonths(month: string, count: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -28,7 +28,8 @@ export async function GET() {
     return Array.from({ length: 12 }, (_, index) => index).filter((index) => index % cadence === 0).map((index) => ({ month: addMonths(currentMonth, index), amount, kind: item.direction, actual: false, trace: { description: "Recurring confirmed item", evidenceId: item.id, sourceName: item.sourceName } }));
   });
   const seenEvents = new Set<string>();
-  const persistedEvents = persisted.filter((event) => isDetailedFinancialEvent(event.description) && event.category !== "transfer" && event.category !== "investment" && classifyCashActivity(event.description, event.direction) !== "transfer" && classifyCashActivity(event.description, event.direction) !== "investment").flatMap((event) => {
+  const monthsWithCashFlowView = new Set(persisted.filter((event) => /^(?:Cash Flow Activity\b|\d{4}-\d{2}-\d{2}.*(?:Automated Payment|Wired Funds|Bank Product Withdrawal))/i.test(event.description)).map((event) => event.month));
+  const persistedEvents = persisted.filter((event) => !(monthsWithCashFlowView.has(event.month) && isSweepCounterpartActivity(event.description)) && isDetailedFinancialEvent(event.description) && event.category !== "transfer" && event.category !== "investment" && classifyCashActivity(event.description, event.direction) !== "transfer" && classifyCashActivity(event.description, event.direction) !== "investment").flatMap((event) => {
     const key = financialEventKey(event);
     if (seenEvents.has(key)) return [];
     seenEvents.add(key);
@@ -62,8 +63,10 @@ export async function GET() {
       const facts = extraction.facts ?? [];
       const periodFacts = facts.filter((fact) => !/year-to-date|this year|account\s+\d/i.test(fact.label));
       const pick = (pattern: RegExp) => periodFacts.filter((fact) => pattern.test(fact.label)).sort((a, b) => Number(Boolean(sourceDate && b.label.includes(sourceDate))) - Number(Boolean(sourceDate && a.label.includes(sourceDate))))[0];
-      const opening = pick(/(?:beginning|opening)\s+(?:total\s+)?value/i);
-      const ending = pick(/total\s+assets/i) ?? pick(/(?:ending|closing)\s+(?:total\s+)?value/i);
+      // Portfolio totals and asset values are balances, not cash movements.
+      // Only use explicitly labeled cash balances for the cash roll-forward.
+      const opening = pick(/(?:beginning|opening|starting)\s+(?:cash|cash\s+balance)/i);
+      const ending = pick(/(?:ending|closing)\s+(?:cash|cash\s+balance)/i);
       const month = sourceMonth;
       if (month && opening) {
         const amount = opening.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
