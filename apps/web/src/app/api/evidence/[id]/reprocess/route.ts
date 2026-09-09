@@ -12,6 +12,7 @@ import { readSourceBlob } from "@/lib/blob-store";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { matchStatementAccount } from "@/lib/account-matching";
 import { parseFinancialAmount } from "@/lib/financial-events";
+import { compareEvidenceFacts, type EvidenceFact } from "@/lib/evidence-diff";
 import { z } from "zod";
 
 const extractionSchema = z.object({
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const context = await requireCompanyAccess();
   const { id } = await params;
   const choice = modelRequestSchema.safeParse(await request.json().catch(() => ({})));
-  const [source] = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, sourceMime: evidence.sourceMime, sourceHash: sources.hash, storageReference: sources.storageReference }).from(evidence).innerJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
+  const [source] = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, sourceMime: evidence.sourceMime, sourceHash: sources.hash, storageReference: sources.storageReference, previousExtractedJson: evidence.extractedJson }).from(evidence).innerJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
   if (!source?.storageReference) return NextResponse.json({ error: "This source has no retained original file" }, { status: 404 });
   const db = getDatabase();
   await db.update(sources).set({ ingestionStatus: "extracting", ingestionError: null, processedAt: null }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
@@ -64,6 +65,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: message }, { status: 502 });
   }
   const extraction = { ...extracted, facts: extracted.facts };
+  const previousFacts = (() => { try { const parsed = source.previousExtractedJson ? JSON.parse(source.previousExtractedJson) as { facts?: EvidenceFact[] } : {}; return parsed.facts ?? []; } catch { return []; } })();
+  const changes = compareEvidenceFacts(previousFacts, extraction.facts);
   const statementMetadata = extraction.statementMetadata;
   let accountEntityId: string | null | undefined;
   let accountQuestion: string | undefined;
@@ -95,6 +98,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const questions = uniqueReviewQuestions([...extraction.questions, ...(accountQuestion ? [accountQuestion] : [])].filter((question) => question.trim()).map((question, index) => ({ id: `${id}-${index}`, evidenceId: id, question: question.trim() })));
   if (extraction.facts.length) await db.insert(factRecords).values(extraction.facts.map((fact) => ({ companyId: context.company.id, evidenceId: id, label: fact.label, value: fact.value, confidence: String(fact.confidence) })));
   if (questions.length) await db.insert(reviewItems).values(questions.map((question) => ({ companyId: context.company.id, evidenceId: id, question: question.question })));
-  await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "review", status: "waiting", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true, facts: extraction.facts.length, questions: questions.length }) });
+  await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "review", status: "waiting", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true, facts: extraction.facts.length, questions: questions.length, changes, reconciliation: "pending", forecast: "pending" }) });
   return NextResponse.json({ id, status: "pending", extraction });
 }

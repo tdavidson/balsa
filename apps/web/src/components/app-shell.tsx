@@ -91,6 +91,12 @@ function repeatsSummary(excerpt: string, summary: string | undefined) {
   return a.length === 0 || a === b || a.includes(b) || b.includes(a);
 }
 
+function processingChanges(runs: EvidenceItem["ingestionRuns"] | undefined) {
+  const latest = [...(runs ?? [])].reverse().find((run) => run.stage === "review" && run.metadata.includes('"changes"'));
+  if (!latest) return null;
+  try { return JSON.parse(latest.metadata) as { changes?: { added: { label: string; value: string }[]; removed: { label: string; value: string }[]; changed: { label: string; before: string; after: string }[] }; reconciliation?: string; forecast?: string }; } catch { return null; }
+}
+
 function renderInlineMarkdown(text: string): ReactNode[] {
   const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^\)]+\)|\*[^*]+\*|_[^_]+_)/g).filter(Boolean);
   return tokens.map((token, index) => {
@@ -218,6 +224,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [activeReviewQuestionId, setActiveReviewQuestionId] = useState<string | null>(null);
   const [activeReviewQuestion, setActiveReviewQuestion] = useState<ReviewQuestion | null>(null);
+  const [activeDecision, setActiveDecision] = useState<AgentDecision | null>(null);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
@@ -354,7 +361,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       ...(signal ? { signal } : {}),
-      body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, attachments: attachmentNames, reviewQuestionId: activeReviewQuestionId ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
+      body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, attachments: attachmentNames, reviewQuestionId: activeReviewQuestionId ?? undefined, decisionId: activeDecision?.id ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
     });
     const payload = await readJson(response);
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
@@ -364,6 +371,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       setActiveReviewQuestionId(null);
       setActiveReviewQuestion(null);
     }
+    if (payload.resolvedDecisionIds?.length) setAgentDecisions((current) => current.map((decision) => payload.resolvedDecisionIds.includes(decision.id) ? { ...decision, status: payload.resolvedDecisions?.find((resolution: { id: string }) => resolution.id === decision.id)?.status ?? decision.status } : decision));
+    if (payload.resolvedDecisionIds?.includes(activeDecision?.id)) setActiveDecision(null);
     setPendingQuestion(null);
     const [refreshedEvidence, refreshedDecisions] = await Promise.all([fetch("/api/evidence"), fetch("/api/decisions")]);
     if (refreshedEvidence.ok) {
@@ -390,6 +399,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setPendingQuestion(null);
     setActiveReviewQuestionId(null);
     setActiveReviewQuestion(null);
+    setActiveDecision(null);
   }
 
   function clearCurrentThread() {
@@ -399,6 +409,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setNotice(null);
     setActiveReviewQuestion(null);
     setActiveReviewQuestionId(null);
+    setActiveDecision(null);
   }
 
   function answerInChat(item: ReviewQuestion) {
@@ -418,6 +429,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setPendingQuestion(null);
     setActiveReviewQuestionId(item.id);
     setActiveReviewQuestion(item);
+    setActiveDecision(null);
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
@@ -434,7 +446,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setPendingQuestion(null);
     setActiveReviewQuestionId(null);
     setActiveReviewQuestion(null);
-    setMessage(`Please help me review this proposed decision.\nQuestion: ${decision.question}\nProposed answer: ${decision.answer}`);
+    setActiveDecision(decision);
+    setMessage("");
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
@@ -447,9 +460,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     event.preventDefault();
     const submittedMessage = message.trim();
     if (!submittedMessage && files.length === 0) return;
-    const contextualQuestion = activeReviewQuestion ? `Regarding “${activeReviewQuestion.question}”: ${submittedMessage}` : submittedMessage;
+    const contextualQuestion = activeReviewQuestion ? `Regarding “${activeReviewQuestion.question}”: ${submittedMessage}` : activeDecision ? `Regarding proposed decision “${activeDecision.question}”: ${submittedMessage}` : submittedMessage;
     const requestThreadId = activeThreadId;
-    setActiveReviewQuestion(null);
     const abortController = new AbortController();
     requestAbortController.current = abortController;
     setIsSubmitting(true);
@@ -639,7 +651,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">
         <section className="grid gap-5" aria-label="Conversation">
           {Object.keys(threads).length > 1 && <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-rule pb-1" role="tablist" aria-label="Chat threads">
-            {Object.entries(threads).map(([id, thread], index) => <span key={id} className={cn("inline-flex shrink-0 items-center rounded-md", id === activeThreadId && "bg-rule")}><button type="button" role="tab" aria-selected={id === activeThreadId} className={cn("rounded-md px-3 py-1.5 text-[13px] text-ink-2 hover:bg-rule", id === activeThreadId && "text-ink")} onClick={() => { setActiveThreadId(id); setMessage(""); setActiveReviewQuestion(null); setActiveReviewQuestionId(null); }}>{id === "main" ? "Chat" : `Chat ${index + 1}`}{thread.length ? <span className="ml-1 text-pencil">· {thread.length}</span> : null}</button><button type="button" aria-label={`Clear ${id === "main" ? "chat" : `Chat ${index + 1}`}`} className="px-1.5 text-ink-2 hover:text-ink" onClick={() => { if (submittingThreadId === id) requestAbortController.current?.abort(); setThreads((current) => { const next = { ...current }; delete next[id]; const remaining = Object.keys(next); if (!remaining.length) next.main = []; if (activeThreadId === id) setActiveThreadId(remaining[0] ?? "main"); return next; }); }}>×</button></span>)}
+            {Object.entries(threads).map(([id, thread], index) => <span key={id} className={cn("inline-flex shrink-0 items-center rounded-md", id === activeThreadId && "bg-rule")}><button type="button" role="tab" aria-selected={id === activeThreadId} className={cn("rounded-md px-3 py-1.5 text-[13px] text-ink-2 hover:bg-rule", id === activeThreadId && "text-ink")} onClick={() => { setActiveThreadId(id); setMessage(""); setActiveReviewQuestion(null); setActiveReviewQuestionId(null); setActiveDecision(null); }}>{id === "main" ? "Chat" : `Chat ${index + 1}`}{thread.length ? <span className="ml-1 text-pencil">· {thread.length}</span> : null}</button><button type="button" aria-label={`Clear ${id === "main" ? "chat" : `Chat ${index + 1}`}`} className="px-1.5 text-ink-2 hover:text-ink" onClick={() => { if (submittingThreadId === id) requestAbortController.current?.abort(); setThreads((current) => { const next = { ...current }; delete next[id]; const remaining = Object.keys(next); if (!remaining.length) next.main = []; if (activeThreadId === id) setActiveThreadId(remaining[0] ?? "main"); return next; }); }}>×</button></span>)}
           </div>}
           {turns.length > 0 && (
             <ol className="grid gap-6">
@@ -675,6 +687,13 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             <div className="grid gap-1 rounded-[12px] border border-rule bg-rule/35 px-4 py-3" aria-label="Question being answered">
               <span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">Answering waiting question</span>
               <p className="text-[15px] leading-[1.45] text-ink">Regarding “{activeReviewQuestion.question}”</p>
+            </div>
+          )}
+          {activeDecision && (
+            <div className="grid gap-1 rounded-[12px] border border-rule bg-rule/35 px-4 py-3" aria-label="Decision being reviewed">
+              <span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">Reviewing proposed decision</span>
+              <p className="text-[15px] leading-[1.45] text-ink">{activeDecision.question}</p>
+              <p className="text-[13px] leading-[1.45] text-ink-2">Proposed answer: {activeDecision.answer}</p>
             </div>
           )}
           <form
@@ -799,14 +818,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
         {needsInputCount > 0 && <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
-            <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Waiting on you</h2>
+            <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Needs your input</h2>
             <span className="text-[13px] text-ink-2">{`${needsInputCount} item${needsInputCount === 1 ? "" : "s"}`}</span>
           </div>
           {
             <div className="border-t border-rule">
               {reviewQuestions.length > 0 && (
                 <div>
-                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Questions for you · answer in chat</div>
+                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Clarifications · answer in chat</div>
                   {reviewQuestions.map((item) => (
                     <div className="grid gap-0.5 border-b border-rule py-3.5" key={`question-${item.id}`}>
                       <button className="w-fit max-w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" onClick={() => answerInChat(item)}>
@@ -820,7 +839,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               )}
               {pendingEvidence.length > 0 && (
                 <div>
-                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Evidence to review · edit, approve, or reject</div>
+                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Evidence review · edit, approve, or reject</div>
                   {pendingEvidence.slice(0, 4).map((item) => (
                     <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`evidence-${item.id}`}>
                       <div className="min-w-0">
@@ -857,7 +876,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               )}
               {proposed.length > 0 && (
                 <div>
-                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Decisions to review · apply or reject</div>
+                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Proposed treatments · apply, reject, or discuss</div>
                   {proposed.map((decision) => (
                     <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`decision-${decision.id}`}>
                       <div className="min-w-0">
@@ -1081,12 +1100,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               {(() => {
                 const item = evidence.find((entry) => entry.id === selectedEvidenceId) ?? evidence[0];
                 if (!item) return <Empty className="border-0 py-16"><EmptyHeader><EmptyTitle>Select a document</EmptyTitle></EmptyHeader></Empty>;
+                const changes = processingChanges(item.ingestionRuns);
                 return <div className="grid gap-5 p-6">
                   <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div></div>
                   {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
                   <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence)</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question) => <div key={`${item.id}-${question}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing history</h3>{item.ingestionRuns?.length ? <div className="grid gap-2">{item.ingestionRuns.map((run) => <div className="flex items-start justify-between gap-3 text-[13px]" key={run.id}><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("text-right", run.status === "failed" ? "text-red-ink" : "text-ink-2")}>{run.status}{run.error ? ` · ${run.error}` : ""}</span></div>)}</div> : <p className="text-[13px] text-ink-2">No processing history recorded.</p>}</section>
+                  {changes?.changes && (changes.changes.added.length || changes.changes.removed.length || changes.changes.changed.length) ? <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">What changed</h3><div className="grid gap-1 text-[13px] text-ink-2"><span>{changes.changes.added.length} added · {changes.changes.removed.length} removed · {changes.changes.changed.length} changed</span>{changes.changes.changed.map((change) => <span key={`changed-${change.label}`}><span className="text-ink">{change.label}:</span> {change.before} → {change.after}</span>)}{changes.changes.added.map((fact) => <span key={`added-${fact.label}`}><span className="text-ink">Added {fact.label}:</span> {fact.value}</span>)}{changes.changes.removed.map((fact) => <span key={`removed-${fact.label}`}><span className="text-ink">Removed {fact.label}:</span> {fact.value}</span>)}</div><span className="text-[12px] text-pencil">Reconciliation and forecast impact: pending refresh.</span></section> : null}
                 </div>;
               })()}
             </ScrollArea>
