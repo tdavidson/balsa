@@ -93,6 +93,7 @@ output or an unverified browser parameter.
 
 ## Reference
 
+The multi-tenant hosted plan lives in `docs/plans/multi-tenant-hosted.md`.
 The V0 build specification and its authentication additions live in
 `docs/specs/`. The design language is documented in `docs/design-language.html`.
 The in-app version of the manifesto is at `/about`.
