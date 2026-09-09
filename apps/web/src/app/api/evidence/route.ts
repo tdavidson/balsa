@@ -9,7 +9,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { expandFinancialFactDates, extractPdfText, parseCsvRows } from "@nevermodel/ingestion";
-import { classifyCashActivity, isDetailedFinancialEvent } from "@/lib/financial-events";
+import { classifyCashActivity, inferFinancialDirection, isDetailedFinancialEvent, parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 
 const inputSchema = modelRequestSchema.extend({
@@ -143,7 +143,7 @@ export async function POST(request: Request) {
   }
   if (row?.id && extraction.facts.length) {
     await getDatabase().insert(factRecords).values(extraction.facts.map((fact) => ({ companyId: context.company.id, evidenceId: row.id, label: fact.label, value: fact.value, confidence: String(fact.confidence) })));
-    if (source?.id) await getDatabase().insert(observations).values(extraction.facts.map((fact) => ({ companyId: context.company.id, sourceId: source.id, type: "financial_fact", amount: fact.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, ""), attributes: JSON.stringify({ label: fact.label, value: fact.value }), confidence: String(fact.confidence) })));
+    if (source?.id) await getDatabase().insert(observations).values(extraction.facts.map((fact) => ({ companyId: context.company.id, sourceId: source.id, type: "financial_fact", amount: parseFinancialAmount(fact.value)?.toString(), attributes: JSON.stringify({ label: fact.label, value: fact.value }), confidence: String(fact.confidence) })));
   }
 
   return NextResponse.json({ id: row?.id, extraction });
@@ -207,7 +207,8 @@ export async function PATCH(request: Request) {
     const isOpening = (fact: { label: string; value: string }) => /opening|beginning|starting\s+cash|cash\s+balance/i.test(`${fact.label} ${fact.value}`);
     const openingFacts = facts.filter(isOpening);
     for (const fact of openingFacts) {
-      const amount = fact.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
+      const parsedAmount = parseFinancialAmount(fact.value);
+      const amount = parsedAmount === undefined ? undefined : String(Math.abs(parsedAmount));
       if (amount) {
         const month = monthFromFact(fact.value);
         const [period] = await getDatabase().select({ status: reportingPeriods.status }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), eq(reportingPeriods.month, month)));
@@ -239,11 +240,11 @@ export async function PATCH(request: Request) {
     const events = financialFacts.flatMap((fact) => {
       const description = `${fact.label}: ${fact.value}`;
       if (!isDetailedFinancialEvent(description)) return [];
-      const match = fact.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i);
-      if (!match) return [];
+      const parsedAmount = parseFinancialAmount(fact.value);
+      if (parsedAmount === undefined) return [];
       const factText = `${fact.label} ${fact.value}`;
-      const direction = /debit|withdraw|outflow|payment|paid|payroll|expense|spend|cost|\(\s*\$|[-−]\s*\$/i.test(factText) ? "spend" as const : "receipt" as const;
-      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: match[1]!.replace(/,/g, ""), direction, category: classifyCashActivity(description, direction), isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
+      const direction = inferFinancialDirection(parsedAmount < 0 ? "spend" : "receipt", factText);
+      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: String(Math.abs(parsedAmount)), direction, category: classifyCashActivity(description, direction), isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
     });
     const eventMonths = [...new Set(events.map((event) => event.month))];
     if (eventMonths.length) {

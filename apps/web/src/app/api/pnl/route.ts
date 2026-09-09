@@ -25,7 +25,7 @@ export async function GET() {
   const context = await requireCompanyAccess();
   const rows = await getDatabase().select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, description: cashEvents.description, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, evidenceId: cashEvents.evidenceId, accountingTreatment: cashEvents.accountingTreatment, recognitionStart: cashEvents.recognitionStart, recognitionEnd: cashEvents.recognitionEnd }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id));
   const seen = new Set<string>();
-  const lines: FinancialLine[] = rows.filter((row) => isDetailedFinancialEvent(row.description) && !["transfer", "investment"].includes(cashActivityCategory(row.category, row.description, row.direction))).flatMap((row) => {
+  const lines: FinancialLine[] = rows.filter((row) => isDetailedFinancialEvent(row.description) && ["revenue", "expense"].includes(cashActivityCategory(row.category, row.description, row.direction))).flatMap((row) => {
     const key = financialEventKey(row);
     if (seen.has(key)) return [];
     seen.add(key);

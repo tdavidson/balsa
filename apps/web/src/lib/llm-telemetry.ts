@@ -14,9 +14,10 @@ export async function recordLlmRun({ db, provider, companyId, userId, operation,
   return run?.id;
 }
 
-export async function recordConversation(db: Database, values: { companyId: string; userId: string; runId?: string | undefined; question: string; response: string; model: string }) {
+export async function recordConversation(db: Database, values: { companyId: string; userId: string; runId?: string | undefined; question: string; response: string; model: string; attachments?: string[] }) {
+  const metadata = values.attachments?.length ? JSON.stringify({ attachments: values.attachments }) : undefined;
   await db.insert(llmMessages).values([
-    { companyId: values.companyId, userId: values.userId, runId: values.runId, role: "user", content: values.question, model: values.model, sequence: "0" },
+    { companyId: values.companyId, userId: values.userId, runId: values.runId, role: "user", content: values.question, model: values.model, sequence: "0", metadata },
     { companyId: values.companyId, userId: values.userId, runId: values.runId, role: "assistant", content: values.response, model: values.model, sequence: "1" },
   ]);
 }

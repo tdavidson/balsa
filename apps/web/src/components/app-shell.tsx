@@ -27,6 +27,13 @@ function money(amount: number, currency = "$") {
   return amount < 0 ? `−${currency}${formatted}` : `${currency}${formatted}`;
 }
 
+function shortFileName(name: string, maxLength = 48) {
+  if (name.length <= maxLength) return name;
+  const extension = name.match(/\.[^.]+$/)?.[0] ?? "";
+  const prefixLength = Math.max(12, maxLength - extension.length - 1);
+  return `${name.slice(0, prefixLength)}…${extension}`;
+}
+
 type Effort = "auto" | "low" | "medium" | "high";
 const efforts: { value: Effort; label: string }[] = [
   { value: "auto", label: "Auto effort" },
@@ -180,6 +187,7 @@ type ChatEvidence = {
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
 type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; status?: "open" | "closed"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean }[] };
+type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string }[] };
 type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string }[] };
 type PeriodPreset = "month" | "quarter" | "ytd" | "year" | "custom";
 
@@ -193,6 +201,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [threads, setThreads] = useState<Record<string, ConversationTurn[]>>({ main: [] });
   const [history, setHistory] = useState<ConversationTurn[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [documentsOpen, setDocumentsOpen] = useState(false);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -206,6 +216,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
+  const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [pnl, setPnl] = useState<PnlMonth[]>([]);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("month");
@@ -281,6 +292,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const pnlResponse = await fetch("/api/pnl");
       const pnlPayload = pnlResponse.ok ? await readJson(pnlResponse) : null;
       if (pnlPayload?.months) setPnl(pnlPayload.months);
+      const reconciliationResponse = await fetch("/api/reconciliation");
+      const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
+      if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
     }
     loadForecast().catch(() => undefined);
   }, []);
@@ -298,7 +312,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     return { model, ...(effort === "auto" ? {} : { effort }) };
   }
 
-  async function askAgent(question: string, newEvidence: ChatEvidence[] = [], signal?: AbortSignal) {
+  async function refreshReconciliation() {
+    const response = await fetch("/api/reconciliation");
+    if (response.ok) {
+      const payload = await readJson(response);
+      if (payload.months) setReconciliation(payload.months);
+    }
+  }
+
+  async function askAgent(question: string, newEvidence: ChatEvidence[] = [], signal?: AbortSignal, attachmentNames: string[] = []) {
     const requestThreadId = activeThreadId;
     const conversationHistory = turns.slice(-10).flatMap((turn) => [
       { role: "user" as const, content: turn.question },
@@ -308,12 +330,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       ...(signal ? { signal } : {}),
-      body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, reviewQuestionId: activeReviewQuestionId ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
+      body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, attachments: attachmentNames, reviewQuestionId: activeReviewQuestionId ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
     });
     const payload = await readJson(response);
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
     const answer = [payload.answer, payload.forecastExplanation].filter(Boolean).join(" ").trim();
-    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
+    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, ...(attachmentNames.length ? { attachments: attachmentNames } : {}), model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
     if (activeReviewQuestionId && payload.resolvedQuestions?.some((resolution: { id: string }) => resolution.id === activeReviewQuestionId)) {
       setActiveReviewQuestionId(null);
       setActiveReviewQuestion(null);
@@ -455,7 +477,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         if (refreshedEvidence.ok) {
           const evidencePayload = await readJson(refreshedEvidence);
           setEvidence(evidencePayload.evidence);
-          setReviewQuestions(evidencePayload.reviewItems ?? []);
+          setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? []));
         }
         return;
       }
@@ -506,7 +528,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           }
         }
       }
-      setEvidence((current) => [...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]);
+      setEvidence((current) => uniqueById([...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]));
       const question = contextualQuestion || `I uploaded ${files.join(", ")}. Review what I shared, tell me what you found, and ask me about anything that needs clarification.`;
       const chatEvidence = payloads.map((payload) => ({
         id: payload.id,
@@ -516,7 +538,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         questions: payload.extraction?.questions ?? [],
       }));
       setSubmissionStatus("Considering the files and preparing a response…");
-      await askAgent(question, chatEvidence, abortController.signal);
+      await askAgent(question, chatEvidence, abortController.signal, selectedFiles.map((file) => file.name));
       setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} processed${importedActuals ? `; ${importedActuals} actual transactions imported` : duplicateActuals ? `; ${duplicateActuals} actual file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}${failedFiles.length ? `; ${failedFiles.length} failed: ${failedFiles.join(" · ")}` : "."}`);
       setFiles([]);
       setSelectedFiles([]);
@@ -524,8 +546,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       if (refreshedEvidence.ok) {
         const evidencePayload = await readJson(refreshedEvidence);
         setEvidence(evidencePayload.evidence);
-        setReviewQuestions(evidencePayload.reviewItems ?? []);
+        setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? []));
       }
+      await refreshReconciliation();
       if (importedActuals) {
         const refreshed = await request("/api/forecast");
         if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
@@ -600,7 +623,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               {turns.map((turn) => (
                 <li key={turn.id} className="grid gap-3">
                   <div className="flex justify-end">
-                    <p className="max-w-[82%] rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink sm:max-w-[70%]">{turn.question}</p>
+                    <div className="grid max-w-[82%] justify-items-end gap-1.5 sm:max-w-[70%]">
+                      <p className="rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink">{turn.question}</p>
+                      {turn.attachments?.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{turn.attachments.map((name) => <span key={`${turn.id}-${name}`} title={name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(name)}</span></span>)}</div> : null}
+                    </div>
                   </div>
                   <div className="flex justify-start">
                     <div className="prose-serif max-w-[70ch] text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }}><MarkdownMessage content={turn.answer} /></div>
@@ -612,7 +638,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           {isSubmitting && submittingThreadId === activeThreadId && pendingQuestion && submissionStatus && (
             <div className="grid gap-3" aria-live="polite">
               <div className="flex justify-end">
-                <p className="max-w-[82%] rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink sm:max-w-[70%]">{pendingQuestion}</p>
+                <div className="grid max-w-[82%] justify-items-end gap-1.5 sm:max-w-[70%]">
+                  <p className="rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink">{pendingQuestion}</p>
+                  {selectedFiles.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{selectedFiles.map((file) => <span key={`pending-${file.name}`} title={file.name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(file.name)}</span></span>)}</div> : null}
+                </div>
               </div>
               <p className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
                 <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> {submissionStatus}
@@ -658,8 +687,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             {files.length > 0 && (
               <div className="flex flex-wrap gap-1.5" aria-label="Selected files">
                 {files.map((file) => (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2" key={file}>
-                    <FileText className="size-3.5" aria-hidden="true" /> {file}
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2" key={file} title={file}>
+                    <FileText className="size-3.5 shrink-0" aria-hidden="true" /> <span className="truncate">{shortFileName(file)}</span>
                   </span>
                 ))}
               </div>
@@ -727,6 +756,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               <button className={quietButton} type="button" onClick={openHistory}>
                 <History className="size-3.5" aria-hidden="true" /> History
               </button>
+              <button className={quietButton} type="button" onClick={() => { setDocumentsOpen(true); setSelectedEvidenceId(evidence[0]?.id ?? null); }}>
+                <FileText className="size-3.5" aria-hidden="true" /> Documents
+              </button>
               <Link href="/usage" rel="noopener noreferrer" className={quietButton}>
                 <ChartColumn className="size-3.5" aria-hidden="true" /> Usage
               </Link>
@@ -735,7 +767,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               </Link>
             </div>
             <Link href="/about" className={quietButton}>
-              <CircleHelp className="size-3.5" aria-hidden="true" /> Hints on how to use
+              <CircleHelp className="size-3.5" aria-hidden="true" /> How to use
             </Link>
           </div>
           {notice && (
@@ -783,9 +815,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                             “{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”
                           </div>
                         )}
-                        {item.extraction?.questions.length ? (
-                          <div className="mt-1 text-[13px]"><span className="mark">{item.extraction.questions[0]}</span></div>
-                        ) : null}
                         {item.extraction?.facts.length ? (
                           <div className="mt-1 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-ink-2">
                             {item.extraction.facts.slice(0, 3).map((fact) => (
@@ -798,9 +827,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                         ) : null}
                       </div>
                       <span className="flex gap-1">
-                        <button className={actionButton} type="button" aria-label="Edit extracted evidence" onClick={() => editItem(item)}><Pencil /></button>
-                        <button className={actionButton} type="button" aria-label="Approve extracted evidence" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
-                        <button className={actionButton} type="button" aria-label="Reject extracted evidence" onClick={() => reviewItem(item.id, "rejected")}><Trash2 /></button>
+                        <button className={actionButton} type="button" aria-label="Approve extracted evidence" title="Accept" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
+                        <button className={actionButton} type="button" aria-label="Reject extracted evidence" title="Delete" onClick={() => reviewItem(item.id, "rejected")}><Trash2 /></button>
+                        <button className={actionButton} type="button" aria-label="Edit extracted evidence" title="Edit" onClick={() => editItem(item)}><Pencil /></button>
                       </span>
                     </div>
                   ))}
@@ -827,6 +856,20 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             </div>
           }
         </section>}
+
+        {reconciliation.length > 0 && (() => {
+          const row = reconciliation.find((entry) => entry.month === selectedMonth) ?? reconciliation.at(-1)!;
+          return <section className="grid gap-3.5" aria-label="Reconciliation">
+            <div className="flex items-baseline justify-between gap-4"><h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Reconciliation</h2><span className={cn("text-[13px]", row.status === "reconciled" ? "text-ink" : "text-red-ink")}>{row.status === "reconciled" ? "Reconciled" : `${row.exceptions.length} exception${row.exceptions.length === 1 ? "" : "s"}`}</span></div>
+            <div className="grid gap-3 border-t border-rule pt-3">
+              <div className="grid grid-cols-2 gap-4 text-[13px] sm:grid-cols-4"><div><span className="block text-ink-2">Opening</span><span className="mt-1 block text-ink">{row.opening === undefined ? "Not found" : money(row.opening)}</span></div><div><span className="block text-ink-2">Detailed activity</span><span className="mt-1 block text-ink">{money(row.net)}</span></div><div><span className="block text-ink-2">Calculated ending</span><span className="mt-1 block text-ink">{row.expectedEnding === undefined ? "—" : money(row.expectedEnding)}</span></div><div><span className="block text-ink-2">Statement ending</span><span className="mt-1 block text-ink">{row.ending === undefined ? "Not found" : money(row.ending)}</span></div></div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-rule pt-3 text-[12px] text-ink-2"><span>{row.transactionCount} unique transactions</span><span>{row.sourceNames.length} source{row.sourceNames.length === 1 ? "" : "s"}</span><span>{row.duplicateCount} duplicate match{row.duplicateCount === 1 ? "" : "es"}</span>{row.difference !== undefined && <span>Difference {money(row.difference)}</span>}</div>
+              {row.exceptions.length > 0 && <div className="grid gap-1 border-t border-rule pt-3 text-[13px] text-red-ink">{row.exceptions.map((exception) => <div key={exception}>{exception}</div>)}</div>}
+              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Sources and coverage</summary><div className="mt-2 grid gap-1 text-ink">{row.sourceNames.map((source) => <span key={source}>{source}</span>)}{row.pendingSources.map((source) => <span className="text-red-ink" key={source}>Pending: {source}</span>)}</div></details>
+              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({row.transactions.length})</summary><div className="mt-2 grid max-h-64 gap-1 overflow-auto">{row.transactions.map((transaction) => <div className="grid min-w-max grid-cols-[100px_minmax(220px,1fr)_auto] gap-3 border-b border-rule py-1.5 text-[12px]" key={transaction.id}><span className="text-ink-2">{transaction.date ?? row.month}</span><span><span className="block text-ink">{transaction.description}</span><span className="text-pencil">{transaction.category} · {transaction.sourceName}</span></span><span className="text-right text-ink">{transaction.direction === "spend" ? "−" : "+"}{money(transaction.amount)}</span></div>)}</div></details>
+            </div>
+          </section>;
+        })()}
 
         <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
@@ -1040,6 +1083,41 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               )}
             </div>
           </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
+        <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[1080px]">
+          <DialogHeader className="border-b border-rule px-6 py-6 pr-14 text-left">
+            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Documents</DialogTitle>
+            <DialogDescription>Every loaded source, what it established, and the facts extracted from it.</DialogDescription>
+          </DialogHeader>
+          <div className="grid min-h-0 md:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
+            <ScrollArea className="max-h-[64vh] border-b border-rule md:border-b-0 md:border-r">
+              <div className="grid p-3">
+                {evidence.length === 0 ? (
+                  <Empty className="border-0 py-16"><EmptyHeader><EmptyMedia variant="icon"><FileText aria-hidden="true" /></EmptyMedia><EmptyTitle>No documents loaded</EmptyTitle><EmptyDescription>Uploaded statements and other evidence will appear here.</EmptyDescription></EmptyHeader></Empty>
+                ) : evidence.map((item) => (
+                  <button key={item.id} type="button" onClick={() => setSelectedEvidenceId(item.id)} className={cn("grid gap-1 rounded-lg px-3 py-3 text-left transition-colors hover:bg-background", selectedEvidenceId === item.id && "bg-background shadow-sm")}>
+                    <span className="line-clamp-2 text-[14px] text-ink">{item.sourceName}</span>
+                    <span className="text-[12px] text-ink-2">{item.status} · {item.extraction?.facts.length ?? 0} facts · {item.extraction?.questions.length ?? 0} source questions</span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+            <ScrollArea className="max-h-[64vh]">
+              {(() => {
+                const item = evidence.find((entry) => entry.id === selectedEvidenceId) ?? evidence[0];
+                if (!item) return <Empty className="border-0 py-16"><EmptyHeader><EmptyTitle>Select a document</EmptyTitle></EmptyHeader></Empty>;
+                return <div className="grid gap-5 p-6">
+                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="text-[12px] text-ink-2">{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.status}</div></div>
+                  {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
+                  <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence)</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
+                  <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question) => <div key={`${item.id}-${question}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>
+                </div>;
+              })()}
+            </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
 

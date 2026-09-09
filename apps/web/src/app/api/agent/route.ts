@@ -28,6 +28,7 @@ const inputSchema = modelRequestSchema.extend({
   month: z.string().regex(/^20\d{2}-\d{2}$/).optional(),
   history: z.array(conversationMessageSchema).max(20).default([]),
   evidence: z.array(evidenceContextSchema).max(20).default([]),
+  attachments: z.array(z.string().trim().min(1).max(255)).max(20).default([]),
   reviewQuestionId: z.string().uuid().optional(),
 });
 
@@ -164,6 +165,6 @@ export async function POST(request: Request) {
     await db.insert(decisions).values(result.proposedDecisions.map((proposal) => ({ companyId: context.company.id, question: proposal.question, answer: proposal.answer, status: "proposed" })));
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
-  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), question: body.data.message, response: responseText, model: provider.model });
+  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });
   return NextResponse.json({ ...result, resolvedQuestionCount });
 }
