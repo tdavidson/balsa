@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, getDatabase } from "@finance/database";
+import { cashEvents, evidence, getDatabase, sources as sourceTable } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { financialEventKey, isDetailedFinancialEvent, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
 
@@ -21,12 +21,12 @@ export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
   const db = getDatabase();
-  const [sources, events] = await Promise.all([
-    db.select({ id: evidence.id, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, status: evidence.status }).from(evidence).where(eq(evidence.companyId, context.company.id)),
+  const [evidenceRows, events] = await Promise.all([
+    db.select({ id: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, status: evidence.status }).from(evidence).where(eq(evidence.companyId, context.company.id)),
     db.select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, description: cashEvents.description, evidenceId: cashEvents.evidenceId, evidenceStatus: evidence.status, sourceName: evidence.sourceName }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, context.company.id)),
   ]);
 
-  const approvedSources = sources.filter((source) => source.status === "approved");
+  const approvedSources = evidenceRows.filter((source) => source.status === "approved");
   const balances = new Map<string, { opening: Balance[]; ending: Balance[] }>();
   for (const source of approvedSources) {
     if (!source.extractedJson) continue;
@@ -79,7 +79,7 @@ export async function GET() {
     const expectedEnding = opening === undefined ? undefined : opening + receipts - spending;
     const difference = ending === undefined || expectedEnding === undefined ? undefined : ending - expectedEnding;
     const duplicateEvents = [...seen.values()].filter((event) => event.count > 1 && [...event.sources].some((source) => monthEvents.some((candidate) => candidate.sourceName === source))).length;
-    const pendingSources = sources.filter((source) => source.status !== "approved" && monthFromSource(source) === month).map((source) => source.sourceName);
+    const pendingSources = evidenceRows.filter((source) => source.status !== "approved" && monthFromSource(source) === month).map((source) => source.sourceName);
     const sourceNames = [...new Set(rows.map((event) => event.sourceName).filter(Boolean))] as string[];
     const exceptions: string[] = [];
     if (opening === undefined || ending === undefined) exceptions.push("A unique opening and ending balance was not found in approved evidence.");
@@ -106,5 +106,11 @@ export async function GET() {
       transactions: rows.map((event) => ({ id: event.id, date: event.transactionDate, description: event.description, amount: Number(event.amount), direction: event.direction, category: event.category, sourceName: event.sourceName ?? "Unknown source" })),
     };
   });
+  const statusByMonth = new Map(months.map((month) => [month.month, month.status]));
+  const sourceIds = evidenceRows.flatMap((source) => source.sourceId ? [{ id: source.sourceId, month: monthFromSource(source), evidenceStatus: source.status }] : []);
+  await Promise.all(sourceIds.map(({ id, month, evidenceStatus }) => {
+    const status = evidenceStatus === "approved" && month && statusByMonth.get(month) === "reconciled" ? "reconciled" : "review";
+    return db.update(sourceTable).set({ ingestionStatus: status, ingestionError: null, processedAt: new Date() }).where(eq(sourceTable.id, id));
+  }));
   return NextResponse.json({ months });
 }

@@ -97,11 +97,32 @@ export const sources = pgTable("sources", {
   type: text("type").notNull(),
   filename: text("filename"),
   mimeType: text("mime_type"),
-  storageReference: text("storage_reference"),
+    storageReference: text("storage_reference"),
+    byteSize: text("byte_size"),
+  ingestionStatus: text("ingestion_status").default("stored").notNull(),
+  ingestionError: text("ingestion_error"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
   hash: text("hash"),
   metadata: text("metadata").default("{}").notNull(),
   ...timestamps,
 }, (table) => [index("sources_company_index").on(table.companyId, table.createdAt), index("sources_hash_index").on(table.companyId, table.hash)]);
+
+export const ingestionRuns = pgTable(
+  "ingestion_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id").notNull().references(() => sources.id, { onDelete: "cascade" }),
+    stage: text("stage").notNull(),
+    status: text("status").notNull(),
+    error: text("error"),
+    metadata: text("metadata").default("{}").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [index("ingestion_runs_company_index").on(table.companyId, table.createdAt), index("ingestion_runs_source_index").on(table.sourceId, table.createdAt)],
+);
 
 export const observations = pgTable("observations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -201,12 +222,19 @@ export const evidence = pgTable(
     sourceMime: text("source_mime"),
     sourceSize: text("source_size"),
     sourceHash: text("source_hash"),
+    accountHolder: text("account_holder"),
+    accountIdentifier: text("account_identifier"),
+    statementPeriodStart: date("statement_period_start"),
+    statementPeriodEnd: date("statement_period_end"),
+    openingBalance: text("opening_balance"),
+    endingBalance: text("ending_balance"),
+    accountEntityId: uuid("account_entity_id").references(() => entities.id, { onDelete: "set null" }),
     rawText: text("raw_text").notNull(),
     extractedJson: text("extracted_json"),
     status: evidenceStatus("status").default("pending").notNull(),
     ...timestamps,
   },
-  (table) => [index("evidence_company_index").on(table.companyId, table.createdAt)],
+  (table) => [index("evidence_company_index").on(table.companyId, table.createdAt), index("evidence_account_entity_index").on(table.accountEntityId)],
 );
 
 export const reviewItems = pgTable(

@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getDatabase, cashEvents, economicItems, evidence, reportingPeriods } from "@finance/database";
 import { buildMonthlyCash } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
-import { classifyCashActivity, financialEventKey, inferFinancialDirection, isDetailedFinancialEvent, isSweepCounterpartActivity } from "@/lib/financial-events";
+import { classifyCashActivity, financialEventKey, inferFinancialDirection, isDetailedFinancialEvent, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
 
 function addMonths(month: string, count: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -15,7 +15,7 @@ function addMonths(month: string, count: number) {
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const sourceRows = await getDatabase().select({ sourceName: evidence.sourceName, rawText: evidence.rawText, extractedJson: evidence.extractedJson, reportingMonth: evidence.reportingMonth, status: evidence.status }).from(evidence).where(eq(evidence.companyId, context.company.id));
+  const sourceRows = await getDatabase().select({ sourceName: evidence.sourceName, extractedJson: evidence.extractedJson, reportingMonth: evidence.reportingMonth, status: evidence.status, statementPeriodEnd: evidence.statementPeriodEnd, openingBalance: evidence.openingBalance, endingBalance: evidence.endingBalance, accountEntityId: evidence.accountEntityId, accountIdentifier: evidence.accountIdentifier }).from(evidence).where(eq(evidence.companyId, context.company.id));
   const persisted = await getDatabase().select({ month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId, sourceName: evidence.sourceName, evidenceStatus: evidence.status }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, context.company.id));
   const confirmedItems = await getDatabase().select({ id: economicItems.id, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, sourceName: evidence.sourceName }).from(economicItems).leftJoin(evidence, eq(economicItems.evidenceId, evidence.id)).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.status, "confirmed")));
   const periods = await getDatabase().select({ month: reportingPeriods.month, openingCash: reportingPeriods.openingCash, status: reportingPeriods.status }).from(reportingPeriods).where(eq(reportingPeriods.companyId, context.company.id));
@@ -51,31 +51,17 @@ export async function GET() {
   const calculated = buildMonthlyCash(openingCash, paddedEvents);
   const statementOpeningCash = new Map<string, number>();
   const statementEndingCash = new Map<string, number>();
-  const companyMarker = /advisory/i.test(context.company.name) ? { text: /Synthetic Example Company\s+advisory/i, file: /14\.56\.00/i } : /venture\s+asset|Synthetic Example Company\s+venture/i.test(context.company.name) ? { text: /Synthetic Example Company\s+venture|venture\s+asset/i, file: /15\.58\.02/i } : null;
-  const consolidatedSources = sourceRows.filter((candidate) => /15\.58\.02/i.test(candidate.sourceName));
-  const scopedSources = consolidatedSources.length ? consolidatedSources : companyMarker ? sourceRows.filter((candidate) => companyMarker.text.test(candidate.rawText ?? "") || companyMarker.text.test(candidate.extractedJson ?? "") || companyMarker.file.test(candidate.sourceName)) : sourceRows;
-  for (const source of scopedSources) {
+  for (const source of sourceRows) {
     if (source.status !== "approved" || !source.extractedJson) continue;
     try {
       const extraction = JSON.parse(source.extractedJson) as { facts?: { label: string; value: string }[] };
-      const sourceMonth = source.reportingMonth ?? source.sourceName.match(/dt-(20\d{2}-\d{2})-\d{2}/i)?.[1];
-      const sourceDate = source.sourceName.match(/dt-(20\d{2}-\d{2}-\d{2})/i)?.[1];
-      const facts = extraction.facts ?? [];
-      const periodFacts = facts.filter((fact) => !/year-to-date|this year|account\s+\d/i.test(fact.label));
-      const pick = (pattern: RegExp) => periodFacts.filter((fact) => pattern.test(fact.label)).sort((a, b) => Number(Boolean(sourceDate && b.label.includes(sourceDate))) - Number(Boolean(sourceDate && a.label.includes(sourceDate))))[0];
-      // Portfolio totals and asset values are balances, not cash movements.
-      // Only use explicitly labeled cash balances for the cash roll-forward.
-      const opening = pick(/(?:beginning|opening|starting)\s+(?:cash|cash\s+balance)/i);
-      const ending = pick(/(?:ending|closing)\s+(?:cash|cash\s+balance)/i);
-      const month = sourceMonth;
-      if (month && opening) {
-        const amount = opening.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
-        if (amount) statementOpeningCash.set(month, (statementOpeningCash.get(month) ?? 0) + Number(amount));
-      }
-      if (month && ending) {
-        const amount = ending.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
-        if (amount) statementEndingCash.set(month, (statementEndingCash.get(month) ?? 0) + Number(amount));
-      }
+      const sourceMonth = source.reportingMonth ?? source.statementPeriodEnd?.slice(0, 7) ?? source.sourceName.match(/dt-(20\d{2}-\d{2})-\d{2}/i)?.[1];
+      const facts = (extraction.facts ?? []).filter((fact) => !/year-to-date|this year|this year|account\s+\d/i.test(fact.label));
+      const pick = (pattern: RegExp) => facts.filter((fact) => pattern.test(fact.label)).sort((a, b) => Number(/cash|cash\s+balance/i.test(b.label)) - Number(/cash|cash\s+balance/i.test(a.label)))[0];
+      const opening = source.openingBalance ? Number(source.openingBalance) : parseFinancialAmount(pick(/(?:beginning|opening|starting|total\s+(?:beginning|opening)).*(?:cash|total value|balance)/i)?.value ?? "");
+      const ending = source.endingBalance ? Number(source.endingBalance) : parseFinancialAmount(pick(/(?:ending|closing|total\s+ending).*(?:cash|total value|balance)/i)?.value ?? "");
+      if (sourceMonth && opening !== undefined && Number.isFinite(opening)) statementOpeningCash.set(sourceMonth, (statementOpeningCash.get(sourceMonth) ?? 0) + Math.abs(opening));
+      if (sourceMonth && ending !== undefined && Number.isFinite(ending)) statementEndingCash.set(sourceMonth, (statementEndingCash.get(sourceMonth) ?? 0) + Math.abs(ending));
     } catch { /* ignore malformed historical extraction */ }
   }
   const traceByMonth = new Map<string, { description: string; evidenceId: string | null; sourceName?: string | null }[]>();

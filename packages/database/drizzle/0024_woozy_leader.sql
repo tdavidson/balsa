@@ -1,0 +1,1 @@
+CREATE INDEX "evidence_account_entity_index" ON "evidence" USING btree ("account_entity_id");

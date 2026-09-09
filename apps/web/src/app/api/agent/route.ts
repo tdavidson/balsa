@@ -165,6 +165,6 @@ export async function POST(request: Request) {
     await db.insert(decisions).values(result.proposedDecisions.map((proposal) => ({ companyId: context.company.id, question: proposal.question, answer: proposal.answer, status: "proposed" })));
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
-  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });
+  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });
   return NextResponse.json({ ...result, resolvedQuestionCount });
 }
