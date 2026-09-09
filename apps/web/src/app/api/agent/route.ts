@@ -30,12 +30,14 @@ const inputSchema = modelRequestSchema.extend({
   evidence: z.array(evidenceContextSchema).max(20).default([]),
   attachments: z.array(z.string().trim().min(1).max(255)).max(20).default([]),
   reviewQuestionId: z.string().uuid().optional(),
+  decisionId: z.string().uuid().optional(),
 });
 
 const outputSchema = z.object({
   answer: z.string(),
   questions: z.array(z.string()),
   resolvedQuestions: z.array(z.object({ id: z.string().uuid(), answer: z.string().trim().min(1) })).default([]),
+  resolvedDecisions: z.array(z.object({ id: z.string().uuid(), status: z.enum(["applied", "rejected"]), answer: z.string().trim().min(1) })).default([]),
   proposedDecisions: z.array(z.object({ question: z.string(), answer: z.string() })),
   forecastExplanation: z.string(),
   toolCalls: z.array(z.object({
@@ -58,6 +60,10 @@ const outputJsonSchema = {
         properties: { id: { type: "string" }, answer: { type: "string" } },
         required: ["id", "answer"],
       },
+    },
+    resolvedDecisions: {
+      type: "array",
+      items: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, status: { type: "string", enum: ["applied", "rejected"] }, answer: { type: "string" } }, required: ["id", "status", "answer"] },
     },
     proposedDecisions: {
       type: "array",
@@ -91,12 +97,13 @@ export async function POST(request: Request) {
   if (!body.success) return NextResponse.json({ error: "A message is required" }, { status: 400 });
   const context = await requireCompanyAccess();
   const db = getDatabase();
-  const [items, events, docs, activePolicies, priorDecisions, periods, openReviews, evidenceDocuments] = await Promise.all([
+  const [items, events, docs, activePolicies, priorDecisions, proposedDecisionRows, periods, openReviews, evidenceDocuments] = await Promise.all([
     db.select({ id: economicItems.id, type: economicItems.type, label: economicItems.label, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, status: economicItems.status }).from(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.status, "confirmed"))),
     db.select({ month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, isActual: cashEvents.isActual, description: cashEvents.description, evidenceId: cashEvents.evidenceId }).from(cashEvents).where(eq(cashEvents.companyId, context.company.id)).orderBy(desc(cashEvents.month)).limit(200),
     db.select({ slug: knowledgeDocuments.slug, content: knowledgeDocuments.content }).from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)),
     db.select({ name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y"))),
     db.select({ question: decisions.question, answer: decisions.answer }).from(decisions).where(and(eq(decisions.companyId, context.company.id), eq(decisions.status, "applied"))).orderBy(desc(decisions.createdAt)).limit(20),
+    db.select({ id: decisions.id, question: decisions.question, answer: decisions.answer }).from(decisions).where(and(eq(decisions.companyId, context.company.id), eq(decisions.status, "proposed"))).orderBy(desc(decisions.createdAt)).limit(50),
     db.select({ month: reportingPeriods.month, openingCash: reportingPeriods.openingCash }).from(reportingPeriods).where(eq(reportingPeriods.companyId, context.company.id)),
     db.select({ id: reviewItems.id, question: reviewItems.question, evidenceId: reviewItems.evidenceId }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt)).limit(50),
     db.select({ id: evidence.id, sourceName: evidence.sourceName, rawText: evidence.rawText, extractedJson: evidence.extractedJson }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20),
@@ -107,10 +114,11 @@ export async function POST(request: Request) {
   const provider = getModelProvider(resolveModelOverrides(body.data));
   const conversation = [...body.data.history, { role: "user" as const, content: body.data.message }];
   const focusedReview = body.data.reviewQuestionId ? consolidatedOpenReviews.find((review) => review.id === body.data.reviewQuestionId) : undefined;
+  const focusedDecision = body.data.decisionId ? proposedDecisionRows.find((decision) => decision.id === body.data.decisionId) : undefined;
   const evidenceQuery = [...conversation.map((message) => message.content), focusedReview?.question ?? ""].join("\n");
   const sourceEvidence = relevantEvidenceContext(evidenceDocuments, evidenceQuery, focusedReview?.evidenceId);
   const actualTransactions = events.filter((event) => event.isActual === "Y").map((event) => ({ date: event.transactionDate ?? event.month, amount: event.amount, direction: event.direction, category: event.category, descriptionOrNote: event.description, evidenceId: event.evidenceId }));
-  const baseInstructions = `You are the controlled finance agent for company ${context.company.id}, participating in a continuing conversation with its CFO. Answer naturally from the supplied state and evidence. Uploaded evidence is available below: inspect it before asking the CFO to repeat information. Never say that you cannot access an uploaded source when that source or its extracted transactions are supplied. For bank statements, use the transaction date, amount, and full description or note to identify transactions. Never invent amounts or identities. Apply the universal accounting rules in the Accounting knowledge document first, then apply company-specific Policies and approved decisions; company-specific rules override the universal defaults. Review imported transactions for likely misclassification, especially transfers, investments, financing, opening/ending balances, and operating activity. Ask one grouped CFO-friendly question only for material or ambiguous exceptions. When evidence is genuinely ambiguous after inspection, ask one concise, direct question in both your answer and the questions field so it can be tracked. Consolidate duplicative or closely related questions into one concise CFO-friendly question, both in your answer and in the questions field. Open clarification questions include stable ids. When the latest message clearly answers one, or when the focused uploaded evidence explicitly answers it, include its exact id and the evidence-grounded answer in resolvedQuestions. Do not resolve a question unless the answer is clear. Proposals are suggestions only; do not claim they were applied. You may request at most one supplied controlled tool per turn; tool results will be returned for a subsequent turn. Focused clarification: ${JSON.stringify(focusedReview ?? null)}. Policies: ${JSON.stringify(activePolicies)}. Prior decisions: ${JSON.stringify(priorDecisions)}. Open clarification questions: ${JSON.stringify(consolidatedOpenReviews)}. Uploaded source evidence excerpts: ${JSON.stringify(sourceEvidence)}. Imported actual transactions: ${JSON.stringify(actualTransactions)}. Knowledge: ${JSON.stringify(docs)}. Confirmed items: ${JSON.stringify(items)}. New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}. Deterministic forecast: ${JSON.stringify(calculated.slice(0, 12))}`;
+  const baseInstructions = `You are the controlled finance agent for company ${context.company.id}, participating in a continuing conversation with its CFO. Answer naturally from the supplied state and evidence. Uploaded evidence is available below: inspect it before asking the CFO to repeat information. Never say that you cannot access an uploaded source when that source or its extracted transactions are supplied. For bank statements, use the transaction date, amount, and full description or note to identify transactions. Never invent amounts or identities. Apply the universal accounting rules in the Accounting knowledge document first, then apply company-specific Policies and approved decisions; company-specific rules override the universal defaults. Review imported transactions for likely misclassification, especially transfers, investments, financing, opening/ending balances, and operating activity. Ask one grouped CFO-friendly question only for material or ambiguous exceptions. When evidence is genuinely ambiguous after inspection, ask one concise, direct question in both your answer and the questions field so it can be tracked. Consolidate duplicative or closely related questions into one concise CFO-friendly question, both in your answer and in the questions field. Review every outstanding clarification question and proposed decision against the latest CFO answer. If one answer resolves or changes more than one item, include every clearly affected id in resolvedQuestions or resolvedDecisions; do not resolve an item unless the answer is clear. Open clarification questions include stable ids. When the latest message clearly answers one, or when the focused uploaded evidence explicitly answers it, include its exact id and the evidence-grounded answer in resolvedQuestions. For a focused proposed decision, include its exact id in resolvedDecisions with status applied when the CFO accepts the proposal or rejected when the CFO declines it. Proposals are suggestions only; do not claim they were applied. You may request at most one supplied controlled tool per turn; tool results will be returned for a subsequent turn. Focused clarification: ${JSON.stringify(focusedReview ?? null)}. Focused proposed decision: ${JSON.stringify(focusedDecision ?? null)}. Policies: ${JSON.stringify(activePolicies)}. Prior decisions: ${JSON.stringify(priorDecisions)}. Proposed decisions: ${JSON.stringify(proposedDecisionRows)}. Open clarification questions: ${JSON.stringify(consolidatedOpenReviews)}. Uploaded source evidence excerpts: ${JSON.stringify(sourceEvidence)}. Imported actual transactions: ${JSON.stringify(actualTransactions)}. Knowledge: ${JSON.stringify(docs)}. Confirmed items: ${JSON.stringify(items)}. New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}. Deterministic forecast: ${JSON.stringify(calculated.slice(0, 12))}`;
   let result;
   try {
     result = await provider.generateStructured({
@@ -149,6 +157,13 @@ export async function POST(request: Request) {
     resolvedQuestionCount += 1;
     await db.insert(decisions).values({ companyId: context.company.id, question: review.question, answer: resolution.answer, status: "applied" });
   }
+  const resolvedDecisionIds: string[] = [];
+  for (const resolution of result.resolvedDecisions) {
+    const proposal = proposedDecisionRows.find((decision) => decision.id === resolution.id);
+    if (!proposal) continue;
+    const [updated] = await db.update(decisions).set({ status: resolution.status, updatedAt: new Date() }).where(and(eq(decisions.id, resolution.id), eq(decisions.companyId, context.company.id), eq(decisions.status, "proposed"))).returning({ id: decisions.id });
+    if (updated) resolvedDecisionIds.push(updated.id);
+  }
 
   const normalizeQuestion = (question: string) => question.trim().toLowerCase().replace(/\s+/g, " ");
   const existingQuestions = [...consolidatedOpenReviews.map((review) => ({ question: review.question }))];
@@ -166,5 +181,5 @@ export async function POST(request: Request) {
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
   await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });
-  return NextResponse.json({ ...result, resolvedQuestionCount });
+  return NextResponse.json({ ...result, resolvedQuestionCount, resolvedDecisionIds });
 }
