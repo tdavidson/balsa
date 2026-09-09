@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, History, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AccountMenu } from "@/components/account-menu";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { ConversationTurn } from "@/app/api/conversations/route";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { UsageModal } from "@/components/usage-modal";
 
 const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 const shortMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
@@ -172,10 +173,15 @@ type EvidenceItem = {
   sourceMime?: string | null;
   sourceSize?: string | null;
   sourceHash?: string | null;
+  storageReference?: string | null;
+  ingestionStatus?: string | null;
+  ingestionError?: string | null;
+  processedAt?: string | null;
   sourceExcerpt?: string;
   createdAt?: string;
   status: string;
   extraction: { summary: string; facts: { label: string; value: string; confidence: number }[]; questions: string[] } | null;
+  ingestionRuns?: { id: string; stage: string; status: string; error?: string | null; startedAt: string; completedAt?: string | null; metadata: string }[];
 };
 type ChatEvidence = {
   id?: string;
@@ -199,10 +205,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const effort = storedEffort as Effort;
   const [activeThreadId, setActiveThreadId] = useState("main");
   const [threads, setThreads] = useState<Record<string, ConversationTurn[]>>({ main: [] });
-  const [history, setHistory] = useState<ConversationTurn[] | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [reprocessingEvidenceId, setReprocessingEvidenceId] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -320,6 +326,24 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     }
   }
 
+  async function reprocessEvidence(item: EvidenceItem) {
+    setReprocessingEvidenceId(item.id);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/reprocess`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(modelChoice()) });
+      const payload = await readJson(response);
+      if (response.ok) {
+        setEvidence((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: "pending", extraction: payload.extraction } : entry));
+        const refreshed = await fetch("/api/evidence");
+        if (refreshed.ok) { const data = await readJson(refreshed); setEvidence(data.evidence); setReviewQuestions(uniqueById(data.reviewItems ?? [])); }
+        await refreshReconciliation();
+      } else setNotice(payload.error ?? "Unable to reprocess this document.");
+    } catch {
+      setNotice("Unable to reprocess this document.");
+    } finally {
+      setReprocessingEvidenceId(null);
+    }
+  }
+
   async function askAgent(question: string, newEvidence: ChatEvidence[] = [], signal?: AbortSignal, attachmentNames: string[] = []) {
     const requestThreadId = activeThreadId;
     const conversationHistory = turns.slice(-10).flatMap((turn) => [
@@ -341,7 +365,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       setActiveReviewQuestion(null);
     }
     setPendingQuestion(null);
-    setHistory(null);
     const [refreshedEvidence, refreshedDecisions] = await Promise.all([fetch("/api/evidence"), fetch("/api/decisions")]);
     if (refreshedEvidence.ok) {
       const evidencePayload = await readJson(refreshedEvidence);
@@ -420,13 +443,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setSubmissionStatus("Stopping…");
   }
 
-  async function openHistory() {
-    setHistoryOpen(true);
-    if (history) return;
-    const response = await fetch("/api/conversations");
-    if (response.ok) { const data = await readJson(response); setHistory(data.turns ?? []); } else setHistory([]);
-  }
-
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const submittedMessage = message.trim();
@@ -495,7 +511,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         await askAgent(contextualQuestion, [], abortController.signal);
         return;
       }
-      const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"] }[] = [];
+      const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"]; reprocessEvidenceIds?: string[] }[] = [];
       let importedActuals = 0;
       let duplicateActuals = 0;
       const failedFiles: string[] = [];
@@ -512,7 +528,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             if (actualsResponse.ok) {
               importedActuals += Number(actualsPayload.imported ?? 0);
               if (actualsPayload.duplicate) duplicateActuals += 1;
-              if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "approved", extraction: actualsPayload.extraction });
+              if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "approved", extraction: actualsPayload.extraction, reprocessEvidenceIds: actualsPayload.reprocessEvidenceIds });
               continue;
             }
             if (actualsResponse.status !== 400 || !/no transactions|needs an amount/i.test(String(actualsPayload.error ?? ""))) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
@@ -527,6 +543,13 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             failedFiles.push(`${file.name}: ${error instanceof Error ? error.message : "processing failed"}`);
           }
         }
+      }
+      const affectedEvidenceIds = [...new Set(payloads.flatMap((payload) => payload.reprocessEvidenceIds ?? []))];
+      for (const [index, evidenceId] of affectedEvidenceIds.entries()) {
+        setSubmissionStatus(`Reprocessing related evidence (${index + 1} of ${affectedEvidenceIds.length})…`);
+        const response = await request(`/api/evidence/${evidenceId}/reprocess`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(modelChoice()) });
+        const payload = await readJson(response);
+        if (!response.ok) failedFiles.push(`Related evidence: ${payload.error ?? "reprocessing failed"}`);
       }
       setEvidence((current) => uniqueById([...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]));
       const question = contextualQuestion || `I uploaded ${files.join(", ")}. Review what I shared, tell me what you found, and ask me about anything that needs clarification.`;
@@ -625,7 +648,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   <div className="flex justify-end">
                     <div className="grid max-w-[82%] justify-items-end gap-1.5 sm:max-w-[70%]">
                       <p className="rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink">{turn.question}</p>
-                      {turn.attachments?.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{turn.attachments.map((name) => <span key={`${turn.id}-${name}`} title={name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(name)}</span></span>)}</div> : null}
+                      {turn.attachments?.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{turn.attachments.map((name, index) => <span key={`${turn.id}-attachment-${index}`} title={name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(name)}</span></span>)}</div> : null}
                     </div>
                   </div>
                   <div className="flex justify-start">
@@ -640,7 +663,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               <div className="flex justify-end">
                 <div className="grid max-w-[82%] justify-items-end gap-1.5 sm:max-w-[70%]">
                   <p className="rounded-[18px] bg-rule px-4 py-2.5 text-[15px] leading-[1.45] text-ink">{pendingQuestion}</p>
-                  {selectedFiles.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{selectedFiles.map((file) => <span key={`pending-${file.name}`} title={file.name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(file.name)}</span></span>)}</div> : null}
+                  {selectedFiles.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{selectedFiles.map((file, index) => <span key={`pending-attachment-${index}`} title={file.name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(file.name)}</span></span>)}</div> : null}
                 </div>
               </div>
               <p className="flex items-center gap-2 text-[13px] text-ink-2" role="status">
@@ -686,8 +709,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             />
             {files.length > 0 && (
               <div className="flex flex-wrap gap-1.5" aria-label="Selected files">
-                {files.map((file) => (
-                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2" key={file} title={file}>
+                {files.map((file, index) => (
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2" key={`selected-file-${index}`} title={file}>
                     <FileText className="size-3.5 shrink-0" aria-hidden="true" /> <span className="truncate">{shortFileName(file)}</span>
                   </span>
                 ))}
@@ -753,15 +776,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <Plus className="size-3.5" aria-hidden="true" /> New chat
               </button>
               {turns.length > 0 && <button className={quietButton} type="button" onClick={clearCurrentThread}>Clear chat</button>}
-              <button className={quietButton} type="button" onClick={openHistory}>
-                <History className="size-3.5" aria-hidden="true" /> History
-              </button>
               <button className={quietButton} type="button" onClick={() => { setDocumentsOpen(true); setSelectedEvidenceId(evidence[0]?.id ?? null); }}>
                 <FileText className="size-3.5" aria-hidden="true" /> Documents
               </button>
-              <Link href="/usage" rel="noopener noreferrer" className={quietButton}>
+              <button className={quietButton} type="button" onClick={() => setUsageOpen(true)}>
                 <ChartColumn className="size-3.5" aria-hidden="true" /> Usage
-              </Link>
+              </button>
               <Link href="/knowledge" className={quietButton}>
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
@@ -788,7 +808,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <div>
                   <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Questions for you · answer in chat</div>
                   {reviewQuestions.map((item) => (
-                    <div className="grid gap-0.5 border-b border-rule py-3.5" key={item.id}>
+                    <div className="grid gap-0.5 border-b border-rule py-3.5" key={`question-${item.id}`}>
                       <button className="w-fit max-w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background" type="button" onClick={() => answerInChat(item)}>
                         <span className="mark">{item.question}</span>
                       </button>
@@ -802,7 +822,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <div>
                   <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Evidence to review · edit, approve, or reject</div>
                   {pendingEvidence.slice(0, 4).map((item) => (
-                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={item.id}>
+                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`evidence-${item.id}`}>
                       <div className="min-w-0">
                         <div>{item.extraction?.summary ?? item.sourceName}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">
@@ -839,7 +859,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <div>
                   <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Decisions to review · apply or reject</div>
                   {proposed.map((decision) => (
-                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={decision.id}>
+                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`decision-${decision.id}`}>
                       <div className="min-w-0">
                         <div>{decision.question}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
@@ -1036,55 +1056,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         </section>
       </main>
 
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-h-[80vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[960px]">
-          <DialogHeader className="border-b border-rule px-6 py-6 pr-14 text-left">
-            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>History</DialogTitle>
-            <DialogDescription>Past conversations for {company.name}. Choose one to continue it.</DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="max-h-[60vh] min-h-0">
-            <div className="p-3">
-              {history === null ? (
-                <div className="grid gap-3 p-2" aria-label="Loading conversation history">
-                  {Array.from({ length: 5 }, (_, index) => (
-                    <div className="grid gap-2 rounded-xl bg-background/70 p-4" key={index}>
-                      <Skeleton className="h-4 w-4/5" />
-                      <Skeleton className="h-3 w-3/5" />
-                    </div>
-                  ))}
-                </div>
-              ) : history.length === 0 ? (
-                <Empty className="border-0 py-20">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon"><MessageSquareText aria-hidden="true" /></EmptyMedia>
-                    <EmptyTitle>No conversations yet</EmptyTitle>
-                    <EmptyDescription>Ask a question in chat and it will appear here.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <ul className="grid gap-1">
-                  {history.map((turn) => (
-                    <li key={turn.id}>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-auto w-full justify-start whitespace-normal rounded-xl px-4 py-3 text-left font-normal hover:bg-background focus-visible:bg-background dark:hover:bg-background/40 dark:focus-visible:bg-background/40"
-                        onClick={() => { setTurns([turn]); setActiveReviewQuestionId(null); setHistoryOpen(false); }}
-                      >
-                        <span className="grid min-w-0 flex-1 gap-1">
-                          <span className="line-clamp-2 text-[15px] leading-5 text-ink">{turn.question}</span>
-                          {turn.answer && <span className="prose-serif line-clamp-2 text-[13px] leading-5 text-ink-2">{turn.answer.replace(/[#*_`]/g, "")}</span>}
-                          <span className="mt-1 text-[12px] text-pencil">{dateFormatter.format(new Date(turn.createdAt))} at {timeFormatter.format(new Date(turn.createdAt))}{turn.model ? ` · ${turn.model}` : ""}</span>
-                        </span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+      <UsageModal open={usageOpen} onOpenChange={setUsageOpen} companyName={company.name} />
 
       <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
         <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[1080px]">
@@ -1100,7 +1072,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 ) : evidence.map((item) => (
                   <button key={item.id} type="button" onClick={() => setSelectedEvidenceId(item.id)} className={cn("grid gap-1 rounded-lg px-3 py-3 text-left transition-colors hover:bg-background", selectedEvidenceId === item.id && "bg-background shadow-sm")}>
                     <span className="line-clamp-2 text-[14px] text-ink">{item.sourceName}</span>
-                    <span className="text-[12px] text-ink-2">{item.status} · {item.extraction?.facts.length ?? 0} facts · {item.extraction?.questions.length ?? 0} source questions</span>
+                    <span className="text-[12px] text-ink-2">{item.ingestionStatus ?? item.status} · {item.extraction?.facts.length ?? 0} facts · {item.extraction?.questions.length ?? 0} source questions</span>
                   </button>
                 ))}
               </div>
@@ -1110,10 +1082,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 const item = evidence.find((entry) => entry.id === selectedEvidenceId) ?? evidence[0];
                 if (!item) return <Empty className="border-0 py-16"><EmptyHeader><EmptyTitle>Select a document</EmptyTitle></EmptyHeader></Empty>;
                 return <div className="grid gap-5 p-6">
-                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="text-[12px] text-ink-2">{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.status}</div></div>
+                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div></div>
                   {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
                   <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence)</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question) => <div key={`${item.id}-${question}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>
+                  <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing history</h3>{item.ingestionRuns?.length ? <div className="grid gap-2">{item.ingestionRuns.map((run) => <div className="flex items-start justify-between gap-3 text-[13px]" key={run.id}><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("text-right", run.status === "failed" ? "text-red-ink" : "text-ink-2")}>{run.status}{run.error ? ` · ${run.error}` : ""}</span></div>)}</div> : <p className="text-[13px] text-ink-2">No processing history recorded.</p>}</section>
                 </div>;
               })()}
             </ScrollArea>

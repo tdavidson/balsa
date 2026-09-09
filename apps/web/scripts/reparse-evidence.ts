@@ -122,7 +122,7 @@ for (const row of candidates) {
       },
       required: ["summary", "facts", "questions"],
     },
-    instructions: `Re-extract only explicit financial facts from this retained source. Preserve every full transaction date, amount, sender or beneficiary name, and description, memo, or note field. Use note fields to identify counterparties or funds such as Klingenstein. Do not collapse exact dates to months. Do not ask the user for information already present in the source. Do not invent details. Active CFO policies: ${JSON.stringify(activePolicies)}`,
+    instructions: `Re-extract only explicit financial facts from this retained source. Preserve every full transaction date, amount, sender or beneficiary name, and description, memo, or note field. Use note fields to identify counterparties, accounts, funds, and entities. Do not collapse exact dates to months. Do not ask the user for information already present in the source. Do not invent details. Active CFO policies: ${JSON.stringify(activePolicies)}`,
     messages: [{ role: "user", content: row.rawText.slice(0, 100_000) }],
   });
   const sourceDate = row.sourceName.match(/(?:^|[-_])dt-(20\d{2}-\d{2}-\d{2})(?:[-_.]|$)/i)?.[1] ?? (row.reportingMonth ? `${row.reportingMonth}-01` : undefined);

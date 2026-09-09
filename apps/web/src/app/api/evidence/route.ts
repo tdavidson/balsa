@@ -1,16 +1,18 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import { createHash } from "node:crypto";
-import { getDatabase, cashEvents, economicItems, evidence, factRecords, knowledgeDocuments, observations, policies, reportingPeriods, reviewItems, sources } from "@finance/database";
+import { getDatabase, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, knowledgeDocuments, observations, policies, reportingPeriods, reviewItems, sources } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { expandFinancialFactDates, extractPdfText, parseCsvRows } from "@nevermodel/ingestion";
 import { classifyCashActivity, inferFinancialDirection, isDetailedFinancialEvent, parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
+import { matchStatementAccount } from "@/lib/account-matching";
+import { storeSourceBlob } from "@/lib/blob-store";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -43,6 +45,14 @@ function dateFromFact(value: string) {
 
 const extractionSchema = z.object({
   summary: z.string(),
+  statementMetadata: z.object({
+    accountHolder: z.string().optional(),
+    accountIdentifier: z.string().optional(),
+    statementPeriodStart: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).optional(),
+    statementPeriodEnd: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).optional(),
+    openingBalance: z.string().optional(),
+    endingBalance: z.string().optional(),
+  }).optional(),
   facts: z.array(z.object({ label: z.string(), value: z.string(), confidence: z.number().min(0).max(1) })),
   questions: z.array(z.string()),
 });
@@ -55,6 +65,7 @@ export async function POST(request: Request) {
   let sourceMime: string | undefined;
   let sourceSize: number | undefined;
   let sourceHash: string | undefined;
+  let sourceBytes: Buffer;
   let reportingMonth: string | undefined;
   let userInstructions: string | undefined;
   let modelChoice: z.infer<typeof modelRequestSchema> = {};
@@ -68,6 +79,7 @@ export async function POST(request: Request) {
     const choice = modelRequestSchema.safeParse({ model: String(form.get("model") || "") || undefined, effort: String(form.get("effort") || "") || undefined });
     if (choice.success) modelChoice = choice.data;
     const buffer = Buffer.from(await file.arrayBuffer());
+    sourceBytes = buffer;
     sourceMime = file.type || undefined;
     sourceSize = buffer.byteLength;
     sourceHash = createHash("sha256").update(buffer).digest("hex");
@@ -88,6 +100,7 @@ export async function POST(request: Request) {
     modelChoice = { model: body.data.model, effort: body.data.effort };
     sourceMime = "text/plain";
     sourceSize = Buffer.byteLength(rawText, "utf8");
+    sourceBytes = Buffer.from(rawText, "utf8");
     sourceHash = createHash("sha256").update(rawText).digest("hex");
   }
 
@@ -101,6 +114,13 @@ export async function POST(request: Request) {
     const [period] = await getDatabase().select({ status: reportingPeriods.status }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), eq(reportingPeriods.month, reportingMonth)));
     if (period?.status === "closed") return NextResponse.json({ error: "This reporting month is closed" }, { status: 409 });
   }
+  const storageReference = sourceHash ? await storeSourceBlob(context.company.id, sourceHash, sourceBytes) : undefined;
+  const [source] = await getDatabase().insert(sources).values({ companyId: context.company.id, type: sourceMime?.includes("pdf") ? "file" : sourceName === "conversation context" ? "conversation" : "file", filename: sourceName, mimeType: sourceMime, hash: sourceHash, storageReference, byteSize: sourceSize?.toString(), ingestionStatus: "extracting", metadata: JSON.stringify({ reportingMonth, sourceSize }) }).returning({ id: sources.id });
+  const [row] = await getDatabase().insert(evidence).values({ companyId: context.company.id, sourceId: source?.id, createdByUserId: context.user.id, sourceName, reportingMonth, sourceMime, sourceSize: sourceSize ? String(sourceSize) : undefined, sourceHash, rawText, status: "pending" }).returning({ id: evidence.id, createdAt: evidence.createdAt });
+  if (source?.id) await getDatabase().insert(ingestionRuns).values([
+    { companyId: context.company.id, sourceId: source.id, stage: "storage", status: "succeeded", metadata: JSON.stringify({ storageReference, sourceHash }) },
+    { companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "running", metadata: "{}" },
+  ]);
   const csv = /\.csv$/i.test(sourceName) ? normalizeCsv(rawText) : rawText;
   const provider = getModelProvider(resolveModelOverrides(modelChoice));
   const extracted = await provider.generateStructured({
@@ -111,39 +131,65 @@ export async function POST(request: Request) {
       additionalProperties: false,
       properties: {
         summary: { type: "string" },
+        statementMetadata: { type: "object", additionalProperties: false, properties: { accountHolder: { type: "string" }, accountIdentifier: { type: "string" }, statementPeriodStart: { type: "string" }, statementPeriodEnd: { type: "string" }, openingBalance: { type: "string" }, endingBalance: { type: "string" } } },
         facts: { type: "array", items: { type: "object", additionalProperties: false, properties: { label: { type: "string" }, value: { type: "string" }, confidence: { type: "number" } }, required: ["label", "value", "confidence"] } },
         questions: { type: "array", items: { type: "string" } },
       },
       required: ["summary", "facts", "questions"],
     },
-    instructions: `Extract only explicit financial facts. Do not invent numbers. Use questions for ambiguity or missing context. Return one question per distinct unresolved issue; combine questions that are duplicative or closely related into one CFO-friendly question. Apply these standing CFO policies when relevant:\n${activePolicies.map((policy) => `- ${policy.name}: ${policy.rule}`).join("\n") || "- No standing policies have been recorded."}${userInstructions ? `\n\nThe user supplied these instructions with the file. Follow them when they are consistent with extracting explicit evidence:\n${userInstructions}` : ""}`,
+    instructions: `Extract only explicit financial facts. Do not invent numbers. Use questions for ambiguity or missing context. Return one question per distinct unresolved issue; combine questions that are duplicative or closely related into one CFO-friendly question. If this is a bank or brokerage statement, also return statementMetadata with the explicit account holder, masked account identifier, statement period start/end, and opening/ending cash or account balance. Prefer cash balances for cash statements; do not use total portfolio value as cash unless the source explicitly identifies it as cash. Apply these standing CFO policies when relevant:\n${activePolicies.map((policy) => `- ${policy.name}: ${policy.rule}`).join("\n") || "- No standing policies have been recorded."}${userInstructions ? `\n\nThe user supplied these instructions with the file. Follow them when they are consistent with extracting explicit evidence:\n${userInstructions}` : ""}`,
     messages: [{ role: "user", content: typeof csv === "string" ? csv : JSON.stringify(csv) }],
+  }).catch(async (error) => {
+    const message = error instanceof Error ? error.message : "Source extraction failed";
+    if (source?.id) {
+      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(eq(sources.id, source.id));
+      await getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "failed", error: message, completedAt: new Date(), metadata: "{}" });
+    }
+    throw error;
   });
-  const sourceDate = sourceName.match(/(?:^|[-_])dt-(20\d{2}-\d{2}-\d{2})(?:[-_.]|$)/i)?.[1] ?? (reportingMonth ? `${reportingMonth}-01` : undefined);
+  const statementMetadata = extracted.statementMetadata;
+  const resolvedReportingMonth = reportingMonth ?? statementMetadata?.statementPeriodEnd?.slice(0, 7);
+  const sourceDate = statementMetadata?.statementPeriodStart ?? sourceName.match(/(?:^|[-_])dt-(20\d{2}-\d{2}-\d{2})(?:[-_.]|$)/i)?.[1] ?? (resolvedReportingMonth ? `${resolvedReportingMonth}-01` : undefined);
   const extraction = { ...extracted, facts: expandFinancialFactDates(extracted.facts, sourceDate) };
   await recordLlmRun({ db: getDatabase(), provider, companyId: context.company.id, userId: context.user.id, operation: "evidence_extraction", request: { sourceName, sourceMime, reportingMonth, content: csv }, response: JSON.stringify(extraction) });
 
-  const [source] = await getDatabase().insert(sources).values({ companyId: context.company.id, type: sourceMime?.includes("pdf") ? "file" : sourceName === "conversation context" ? "conversation" : "file", filename: sourceName, mimeType: sourceMime, hash: sourceHash, metadata: JSON.stringify({ reportingMonth, sourceSize }) }).returning({ id: sources.id });
-  const [row] = await getDatabase().insert(evidence).values({
-    companyId: context.company.id,
-    sourceId: source?.id,
-    createdByUserId: context.user.id,
-    sourceName,
-    reportingMonth,
-    sourceMime,
-    sourceSize: sourceSize ? String(sourceSize) : undefined,
-    sourceHash,
-    rawText,
-    extractedJson: JSON.stringify(extraction),
-  }).returning({ id: evidence.id, createdAt: evidence.createdAt });
+  await getDatabase().update(evidence).set({ reportingMonth: resolvedReportingMonth, accountHolder: statementMetadata?.accountHolder, accountIdentifier: statementMetadata?.accountIdentifier, statementPeriodStart: statementMetadata?.statementPeriodStart, statementPeriodEnd: statementMetadata?.statementPeriodEnd, openingBalance: statementMetadata?.openingBalance ? String(parseFinancialAmount(statementMetadata.openingBalance) ?? "") : undefined, endingBalance: statementMetadata?.endingBalance ? String(parseFinancialAmount(statementMetadata.endingBalance) ?? "") : undefined, extractedJson: JSON.stringify(extraction), updatedAt: new Date() }).where(and(eq(evidence.id, row!.id), eq(evidence.companyId, context.company.id)));
+  if (source?.id) {
+    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ reportingMonth: resolvedReportingMonth, sourceSize, statementMetadata }) }).where(eq(sources.id, source.id));
+    await getDatabase().insert(ingestionRuns).values([
+      { companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "succeeded", metadata: JSON.stringify({ facts: extraction.facts.length, questions: extraction.questions.length }) },
+      { companyId: context.company.id, sourceId: source.id, stage: "review", status: "waiting", metadata: JSON.stringify({ evidenceStatus: "pending" }) },
+    ]);
+  }
 
-  const questions = extraction.questions.filter((question) => question.trim().length > 0);
+  let accountQuestion: string | undefined;
+  if (row?.id && statementMetadata && (statementMetadata.accountHolder || statementMetadata.accountIdentifier)) {
+    const accountCandidates = await getDatabase().select({ id: entities.id, name: entities.name, attributes: entities.attributes }).from(entities).where(and(eq(entities.companyId, context.company.id), eq(entities.type, "account")));
+    const matchedAccount = matchStatementAccount(statementMetadata, accountCandidates);
+    if (matchedAccount) {
+      await getDatabase().update(evidence).set({ accountEntityId: matchedAccount.id, updatedAt: new Date() }).where(and(eq(evidence.id, row.id), eq(evidence.companyId, context.company.id)));
+    } else {
+      const holder = statementMetadata.accountHolder ? ` for ${statementMetadata.accountHolder}` : "";
+      const identifier = statementMetadata.accountIdentifier ? ` ending ${statementMetadata.accountIdentifier.replace(/[^0-9A-Za-z]/g, "")}` : "";
+      accountQuestion = `Does this statement${holder}${identifier} belong to a company account? If so, identify the account; otherwise exclude it from company reporting.`;
+    }
+  }
+  const questions = [...extraction.questions, ...(accountQuestion ? [accountQuestion] : [])].filter((question) => question.trim().length > 0);
   if (row?.id && questions.length) {
     await getDatabase().insert(reviewItems).values(questions.map((question) => ({ companyId: context.company.id, evidenceId: row.id, question: question.trim() })));
   }
   if (row?.id && extraction.facts.length) {
     await getDatabase().insert(factRecords).values(extraction.facts.map((fact) => ({ companyId: context.company.id, evidenceId: row.id, label: fact.label, value: fact.value, confidence: String(fact.confidence) })));
     if (source?.id) await getDatabase().insert(observations).values(extraction.facts.map((fact) => ({ companyId: context.company.id, sourceId: source.id, type: "financial_fact", amount: parseFinancialAmount(fact.value)?.toString(), attributes: JSON.stringify({ label: fact.label, value: fact.value }), confidence: String(fact.confidence) })));
+  }
+  if (row?.id && resolvedReportingMonth) {
+    const relatedSources = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId }).from(evidence).where(and(eq(evidence.companyId, context.company.id), ne(evidence.id, row.id), eq(evidence.reportingMonth, resolvedReportingMonth), eq(evidence.status, "approved")));
+    await Promise.all(relatedSources.flatMap((related) => related.sourceId ? [
+      getDatabase().update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date() }).where(eq(sources.id, related.sourceId)),
+      getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: related.sourceId, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ triggeredByEvidenceId: row.id, reportingMonth: resolvedReportingMonth }) }),
+    ] : []));
+    const reprocessEvidenceIds = relatedSources.flatMap((related) => related.evidenceId ? [related.evidenceId] : []);
+    return NextResponse.json({ id: row.id, extraction, reprocessEvidenceIds });
   }
 
   return NextResponse.json({ id: row?.id, extraction });
@@ -158,11 +204,16 @@ export async function GET() {
     sourceMime: evidence.sourceMime,
     sourceSize: evidence.sourceSize,
     sourceHash: evidence.sourceHash,
+    ingestionStatus: sources.ingestionStatus,
+    ingestionError: sources.ingestionError,
+    processedAt: sources.processedAt,
+    sourceId: evidence.sourceId,
+    storageReference: sources.storageReference,
     rawText: evidence.rawText,
     extractedJson: evidence.extractedJson,
     status: evidence.status,
     createdAt: evidence.createdAt,
-  }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20);
+  }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20);
   const breakoutQuestion = "How should these statement transactions be broken out in the financial statements—by revenue stream and expense type, or using another grouping? Please specify any categories you want Hemrock to use consistently.";
   for (const source of rows.filter((item) => item.status === "approved")) {
     const [event] = await getDatabase().select({ id: cashEvents.id }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, source.id))).limit(1);
@@ -170,12 +221,15 @@ export async function GET() {
     const [existing] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion))).limit(1);
     if (!existing) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: source.id, question: breakoutQuestion });
   }
+  const runRows = await getDatabase().select({ id: ingestionRuns.id, sourceId: ingestionRuns.sourceId, stage: ingestionRuns.stage, status: ingestionRuns.status, error: ingestionRuns.error, startedAt: ingestionRuns.startedAt, completedAt: ingestionRuns.completedAt, metadata: ingestionRuns.metadata }).from(ingestionRuns).where(eq(ingestionRuns.companyId, context.company.id)).orderBy(desc(ingestionRuns.createdAt));
+  const runsBySource = new Map<string, typeof runRows>();
+  for (const run of runRows) runsBySource.set(run.sourceId, [...(runsBySource.get(run.sourceId) ?? []), run]);
   const openReviewRows = await getDatabase().select({ id: reviewItems.id, evidenceId: reviewItems.evidenceId, question: reviewItems.question, answer: reviewItems.answer, status: reviewItems.status }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt));
   const openReviews = uniqueReviewQuestions(openReviewRows);
   const facts = await getDatabase().select({ id: factRecords.id, evidenceId: factRecords.evidenceId, label: factRecords.label, value: factRecords.value, confidence: factRecords.confidence, status: factRecords.status }).from(factRecords).where(eq(factRecords.companyId, context.company.id)).orderBy(desc(factRecords.createdAt));
 
   return NextResponse.json({
-    evidence: rows.map((row) => ({ ...row, sourceExcerpt: row.rawText.slice(0, 280), rawText: undefined, extraction: row.extractedJson ? JSON.parse(row.extractedJson) : null })),
+    evidence: rows.map((row) => ({ ...row, sourceExcerpt: row.rawText.slice(0, 280), rawText: undefined, extraction: row.extractedJson ? JSON.parse(row.extractedJson) : null, ingestionRuns: row.sourceId ? runsBySource.get(row.sourceId) ?? [] : [] })),
     reviewItems: openReviews,
     factRecords: facts,
   });

@@ -7,5 +7,6 @@ coverage
 .env.*.local
 !.env.example
 .DS_Store
+.data/files/
 *.tsbuildinfo
 packages/database/drizzle/meta
