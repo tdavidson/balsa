@@ -22,6 +22,19 @@ export function isCategory(value: unknown): value is Category { return typeof va
 
 export type Provenance = { evidenceId?: string; sourceName?: string; decisionId?: string; policyId?: string; assumptionId?: string };
 
+/** Balance sheet ledgers the engine derives from lines and opening positions. */
+export const ledgers = ["cash", "accounts_receivable", "prepaid_expenses", "due_from_affiliates", "investments", "accounts_payable", "accrued_liabilities", "deferred_revenue", "due_to_affiliates", "financing", "opening_equity", "retained_earnings", "eliminations"] as const;
+export type Ledger = (typeof ledgers)[number];
+export const assetLedgers: readonly Ledger[] = ["cash", "accounts_receivable", "prepaid_expenses", "due_from_affiliates", "investments"];
+export const liabilityLedgers: readonly Ledger[] = ["accounts_payable", "accrued_liabilities", "deferred_revenue", "due_to_affiliates"];
+export const equityLedgers: readonly Ledger[] = ["opening_equity", "financing", "retained_earnings", "eliminations"];
+export function isLedger(value: unknown): value is Ledger { return typeof value === "string" && (ledgers as readonly string[]).includes(value); }
+
+export type EntityDef = { id: string; name: string; consolidated?: boolean };
+export type AccountDef = { id: string; name: string; entityId?: string };
+/** An absolute balance for one ledger at the start of a month; the engine posts the difference against opening equity. */
+export type OpeningPosition = { month: Month; ledger: Ledger; amount: number; entityId?: string; accountId?: string };
+
 export type ScheduleItem = {
   id: string;
   label: string;
@@ -38,6 +51,7 @@ export type ScheduleItem = {
   recognitionEnd?: Month;
   basis: Basis;
   scenarioId?: string;
+  entityId?: string;
   provenance: Provenance;
 };
 
@@ -55,6 +69,8 @@ export type ActualEvent = {
   accountingTreatment?: Treatment;
   recognitionStart?: Month;
   recognitionEnd?: Month;
+  entityId?: string;
+  accountId?: string;
   provenance: Provenance;
 };
 
@@ -82,6 +98,11 @@ export type EngineInput = {
   closedMonths?: Month[];
   scenarioId?: string;
   statementBalances?: StatementBalance[];
+  entities?: EntityDef[];
+  accounts?: AccountDef[];
+  openingPositions?: OpeningPosition[];
+  /** Treat counterparties that are consolidated group entities as intercompany and eliminate their P&L. */
+  consolidate?: boolean;
 };
 
 export type ExpectedEvent = {
@@ -119,6 +140,13 @@ export type TraceLine = {
   bearerEntityId?: string;
   bearerName?: string;
   counterpartyEntityId?: string;
+  entityId?: string;
+  accountId?: string;
+  /** Working-capital key: the expectation this line belongs to or settles, or the actual itself. */
+  key?: string;
+  treatment?: Treatment;
+  /** Consolidated view: the counterparty is a group entity, so the line is eliminated from the P&L. */
+  intercompany?: boolean;
   /** True when the line moves cash in its month. */
   cash: boolean;
   /** True when the line is recognized in the month's P&L. */
@@ -160,7 +188,45 @@ export type MonthResult = {
   outstanding: { receivables: OutstandingItem[]; payables: OutstandingItem[] };
   intercompany: { entityId: string; name?: string; balance: number }[];
   statement?: { opening?: number; ending?: number; difference?: number };
+  balanceSheet: BalanceSheet;
+  cashFlow: CashFlowStatement;
   lines: TraceLine[];
+};
+
+export type BalanceSheet = {
+  month: Month;
+  /** False before any opening position or opening cash exists; balances are then flows only. */
+  hasOpening: boolean;
+  balances: Record<Ledger, number>;
+  /** Cash by account from account-stamped lines and positions; the unassigned bucket absorbs whatever is not stamped, including transfers to accounts that are not imported. */
+  cashByAccount: { accountId: string | null; name: string; balance: number }[];
+  assets: number;
+  liabilities: number;
+  equity: number;
+  /** assets − liabilities − equity; zero when every line posted two sides. */
+  check: number;
+  balanced: boolean;
+};
+
+export type CashFlowStatement = {
+  month: Month;
+  netIncome: number;
+  eliminations: number;
+  changes: { accountsReceivable: number; prepaidExpenses: number; dueFromAffiliates: number; accountsPayable: number; accruedLiabilities: number; deferredRevenue: number; dueToAffiliates: number };
+  /** Net income adjusted for working-capital changes. */
+  operatingIndirect: number;
+  /** Operating cash lines summed directly. */
+  operating: number;
+  investing: number;
+  financing: number;
+  transfers: number;
+  /** Opening position adjustments to cash at the start of this month; already inside openingCash. */
+  adjustments: number;
+  /** operating + investing + financing; openingCash + netChange = endingCash. */
+  netChange: number;
+  openingCash?: number;
+  endingCash?: number;
+  ties: boolean;
 };
 
 export type EngineOutput = {
@@ -297,18 +363,24 @@ function emptyByCategory(): Record<Category, number> {
 // ---------------------------------------------------------------------------
 // Engine
 
+function emptyLedgers(): Record<Ledger, number> { return Object.fromEntries(ledgers.map((ledger) => [ledger, 0])) as Record<Ledger, number>; }
+
 export function runEngine(input: EngineInput): EngineOutput {
   const horizon = input.horizon;
   const months = monthRange(horizon.start, horizon.end);
   const closed = new Set(input.closedMonths ?? []);
   const items = input.items.filter((item) => !item.scenarioId || item.scenarioId === input.scenarioId);
   const expected = items.flatMap((item) => expandScheduleItem(item, horizon));
+  const itemEntity = new Map(items.map((item) => [item.id, item.entityId]));
   const actuals = input.actuals.filter((actual) => actual.month >= horizon.start && actual.month <= horizon.end && Number.isFinite(actual.amount) && actual.amount > 0);
   const matches = matchActualsToExpected(expected, actuals);
   const settledItemByActual = new Map<string, ExpectedEvent>();
   const expectedByKey = new Map(expected.map((event) => [event.key, event]));
   for (const match of matches) { const event = expectedByKey.get(match.expectedKey); if (event) settledItemByActual.set(match.actualId, event); }
   const isHistory = (month: Month) => month < input.asOfMonth || closed.has(month);
+  const groupEntities = new Set(input.consolidate ? (input.entities ?? []).filter((entity) => entity.consolidated).map((entity) => entity.id) : []);
+  const isIntercompany = (counterpartyEntityId?: string) => Boolean(counterpartyEntityId && groupEntities.has(counterpartyEntityId));
+  const accountNames = new Map((input.accounts ?? []).map((account) => [account.id, account.name]));
 
   // Recognized P&L lines, keyed by the month they are recognized in.
   const recognizedByMonth = new Map<Month, TraceLine[]>();
@@ -322,45 +394,120 @@ export function runEngine(input: EngineInput): EngineOutput {
     }
   };
 
-  // Actual events recognize in P&L unless they settle an accrual/prepaid expectation, which recognizes on its own schedule.
+  // Recognition follows the schedule: an expectation recognizes in its own month whether or not it has been
+  // settled, and the actual that settles it is cash only. Unmatched actuals recognize themselves.
   for (const actual of actuals) {
     if (actual.activity !== "operating") continue;
     const settles = settledItemByActual.get(actual.id);
-    if (settles && settles.treatment !== "cash") continue;
+    if (settles) continue;
     const treatment = actual.accountingTreatment ?? "cash";
-    const base = { kind: "recognized" as const, direction: actual.direction, ...(actual.category ? { category: actual.category } : {}), activity: actual.activity, description: actual.description, eventId: actual.id, ...(actual.counterpartyEntityId ? { counterpartyEntityId: actual.counterpartyEntityId } : {}), ...(settles ? { settles: settles.key, itemId: settles.itemId, basis: settles.basis, category: settles.category } : {}), provenance: actual.provenance };
+    const base = { kind: "recognized" as const, direction: actual.direction, ...(actual.category ? { category: actual.category } : {}), activity: actual.activity, description: actual.description, eventId: actual.id, ...(actual.counterpartyEntityId ? { counterpartyEntityId: actual.counterpartyEntityId } : {}), key: `actual:${actual.id}`, treatment, ...(actual.entityId ? { entityId: actual.entityId } : {}), ...(actual.accountId ? { accountId: actual.accountId } : {}), ...(isIntercompany(actual.counterpartyEntityId) ? { intercompany: true } : {}), provenance: actual.provenance };
     spread(base, `actual:${actual.id}`, actual.month, actual.amount, treatment, actual.recognitionStart, actual.recognitionEnd);
   }
-  // Expected events: accrual/prepaid always recognize on schedule; cash-basis expectations recognize only while unsettled in an open month.
+  // Expected events recognize on their schedule: cash-basis in their month, accrual and prepaid over their range.
+  // An unsettled expectation in a history month therefore becomes a payable or receivable.
   for (const event of expected) {
-    const base = { kind: "recognized" as const, direction: event.direction, category: event.category, description: event.label, basis: event.basis, itemId: event.itemId, ...(event.counterpartyEntityId ? { counterpartyEntityId: event.counterpartyEntityId } : {}), settledBy: event.settledBy, provenance: event.provenance };
-    if (event.treatment !== "cash") spread(base, `expected:${event.key}`, event.month, event.amount, event.treatment, event.recognitionStart, event.recognitionEnd);
-    else if (!event.settledBy.length && !isHistory(event.month)) spread(base, `expected:${event.key}`, event.month, event.amount, "cash");
+    const entityId = itemEntity.get(event.itemId);
+    const base = { kind: "recognized" as const, direction: event.direction, category: event.category, description: event.label, basis: event.basis, itemId: event.itemId, ...(event.counterpartyEntityId ? { counterpartyEntityId: event.counterpartyEntityId } : {}), settledBy: event.settledBy, key: event.key, treatment: event.treatment, ...(entityId ? { entityId } : {}), ...(isIntercompany(event.counterpartyEntityId) ? { intercompany: true } : {}), provenance: event.provenance };
+    spread(base, `expected:${event.key}`, event.month, event.amount, event.treatment, event.recognitionStart, event.recognitionEnd);
   }
 
   const allocationRules = input.allocations ?? [];
   const ruleFor = (line: TraceLine) => allocationRules.filter((rule) => (rule.eventId && rule.eventId === line.eventId) || (rule.itemId && rule.itemId === line.itemId) || (rule.counterpartyEntityId && rule.counterpartyEntityId === line.counterpartyEntityId));
   const statementByMonth = new Map((input.statementBalances ?? []).map((balance) => [balance.month, balance]));
+  const positionsByMonth = new Map<Month, OpeningPosition[]>();
+  for (const position of input.openingPositions ?? []) positionsByMonth.set(position.month, [...(positionsByMonth.get(position.month) ?? []), position]);
 
+  // Running balances.
   let cash: number | undefined;
+  let flowCash = 0; // cumulative cash lines excluding transfers, before any opening adjustment
+  const cashByAccount = new Map<string, number>(); // assigned accounts only
+  const workingCapital = new Map<string, { direction: Direction; treatment: Treatment; recognized: number; cash: number; intercompany: boolean }>();
+  const ledgerFlows = emptyLedgers(); // investments, financing, due_from (allocations), opening_equity, eliminations, retained_earnings
+  let hasOpening = false;
   const intercompany = new Map<string, { entityId: string; name?: string; balance: number }>();
   const outstandingReceivables: OutstandingItem[] = [];
   const outstandingPayables: OutstandingItem[] = [];
+  let previousBalances: Record<Ledger, number> | undefined;
+
+  const workingCapitalBalances = () => {
+    const balances = emptyLedgers();
+    for (const entry of workingCapital.values()) {
+      const gap = round(entry.recognized - entry.cash);
+      if (gap === 0) continue;
+      if (entry.direction === "spend") {
+        if (gap > 0) balances[entry.intercompany ? "due_to_affiliates" : entry.treatment === "cash" ? "accounts_payable" : "accrued_liabilities"] += gap;
+        else balances[entry.intercompany ? "due_from_affiliates" : "prepaid_expenses"] += -gap;
+      } else if (gap > 0) balances[entry.intercompany ? "due_from_affiliates" : "accounts_receivable"] += gap;
+      else balances[entry.intercompany ? "due_to_affiliates" : "deferred_revenue"] += -gap;
+    }
+    return balances;
+  };
+  const currentBalances = (): Record<Ledger, number> => {
+    const balances = workingCapitalBalances();
+    for (const ledger of ledgers) balances[ledger] = round(balances[ledger] + ledgerFlows[ledger]);
+    balances.cash = round(cash ?? flowCash);
+    return balances;
+  };
+  const moveBucket = (accountId: string | undefined, delta: number) => { if (accountId) cashByAccount.set(accountId, round((cashByAccount.get(accountId) ?? 0) + delta)); };
+  /** An opening adjustment sets cash to a known level; the difference is opening equity. */
+  const adjustCash = (delta: number) => { if (delta === 0) return; cash = round((cash ?? flowCash) + delta); ledgerFlows.opening_equity = round(ledgerFlows.opening_equity + delta); hasOpening = true; };
 
   const results: MonthResult[] = months.map((month) => {
     const history = isHistory(month);
-    if (input.openingCash && input.openingCash.month === month) cash = input.openingCash.amount;
+    let adjustments = 0;
+    // Opening positions are absolute balances at the start of the month; the difference posts against opening equity.
+    for (const position of positionsByMonth.get(month) ?? []) {
+      if (position.ledger === "cash") {
+        if (position.accountId) {
+          const delta = round(position.amount - (cashByAccount.get(position.accountId) ?? 0));
+          moveBucket(position.accountId, delta);
+          adjustCash(delta); adjustments += delta;
+        } else {
+          const delta = round(position.amount - (cash ?? flowCash));
+          adjustCash(delta); adjustments += delta;
+        }
+        hasOpening = true;
+        continue;
+      }
+      if (position.ledger === "opening_equity" || position.ledger === "retained_earnings" || position.ledger === "eliminations") continue;
+      const balances = currentBalances();
+      const delta = round(position.amount - balances[position.ledger]);
+      hasOpening = true;
+      if (delta === 0) continue;
+      ledgerFlows[position.ledger] = round(ledgerFlows[position.ledger] + delta);
+      ledgerFlows.opening_equity = round(ledgerFlows.opening_equity + ((assetLedgers as readonly string[]).includes(position.ledger) ? delta : -delta));
+    }
+    if (input.openingCash && input.openingCash.month === month) {
+      const delta = round(input.openingCash.amount - (cash ?? flowCash));
+      adjustCash(delta); adjustments += delta;
+      hasOpening = true;
+      if (cash === undefined) cash = input.openingCash.amount;
+    }
     const openingCash = cash;
+    const openingBalances = previousBalances ?? currentBalances();
     const lines: TraceLine[] = [];
     const monthActuals = actuals.filter((actual) => actual.month === month);
     const monthExpected = expected.filter((event) => event.month === month);
 
     let actualReceipts = 0; let actualSpending = 0;
+    let operatingCash = 0; let investing = 0; let financing = 0; let transfers = 0;
     for (const actual of monthActuals) {
       const settles = settledItemByActual.get(actual.id);
       const movesCash = actual.activity !== "transfer";
-      if (movesCash) { if (actual.direction === "receipt") actualReceipts += actual.amount; else actualSpending += actual.amount; }
-      lines.push({ id: `actual:${actual.id}`, kind: "actual", month, amount: actual.amount, direction: actual.direction, ...(actual.category ? { category: actual.category } : {}), activity: actual.activity, description: actual.description, eventId: actual.id, ...(actual.counterpartyEntityId ? { counterpartyEntityId: actual.counterpartyEntityId } : {}), ...(settles ? { settles: settles.key, itemId: settles.itemId, basis: settles.basis } : {}), cash: movesCash, recognized: false, provenance: actual.provenance });
+      const signed = actual.direction === "receipt" ? actual.amount : -actual.amount;
+      if (movesCash) { if (actual.direction === "receipt") actualReceipts += actual.amount; else actualSpending += actual.amount; flowCash = round(flowCash + signed); }
+      moveBucket(actual.accountId, signed);
+      if (actual.activity === "operating") {
+        operatingCash += signed;
+        const key = settles?.key ?? `actual:${actual.id}`;
+        const entry = workingCapital.get(key) ?? { direction: actual.direction, treatment: settles?.treatment ?? actual.accountingTreatment ?? "cash", recognized: 0, cash: 0, intercompany: isIntercompany(actual.counterpartyEntityId) };
+        entry.cash = round(entry.cash + actual.amount);
+        workingCapital.set(key, entry);
+      } else if (actual.activity === "investment") { investing += signed; ledgerFlows.investments = round(ledgerFlows.investments - signed); }
+      else if (actual.activity === "financing") { financing += signed; ledgerFlows.financing = round(ledgerFlows.financing + signed); }
+      else transfers += signed;
+      lines.push({ id: `actual:${actual.id}`, kind: "actual", month, amount: actual.amount, direction: actual.direction, ...(actual.category ? { category: actual.category } : {}), activity: actual.activity, description: actual.description, eventId: actual.id, ...(actual.counterpartyEntityId ? { counterpartyEntityId: actual.counterpartyEntityId } : {}), ...(settles ? { settles: settles.key, itemId: settles.itemId, basis: settles.basis } : {}), key: settles?.key ?? `actual:${actual.id}`, ...(actual.entityId ? { entityId: actual.entityId } : {}), ...(actual.accountId ? { accountId: actual.accountId } : {}), ...(isIntercompany(actual.counterpartyEntityId) ? { intercompany: true } : {}), cash: movesCash, recognized: false, provenance: actual.provenance });
     }
 
     let expectedReceipts = 0; let expectedSpending = 0; let unsettledReceipts = 0; let unsettledSpending = 0;
@@ -370,12 +517,21 @@ export function runEngine(input: EngineInput): EngineOutput {
       if (event.direction === "receipt") { expectedReceipts += event.amount; if (event.basis === "assumed") assumedReceipts += event.amount; else contractualReceipts += event.amount; }
       else { expectedSpending += event.amount; if (event.basis === "assumed") assumedSpending += event.amount; else contractualSpending += event.amount; }
       const projects = unsettled && !history;
-      if (projects) { if (event.direction === "receipt") unsettledReceipts += event.amount; else unsettledSpending += event.amount; }
+      if (projects) {
+        const signed = event.direction === "receipt" ? event.amount : -event.amount;
+        if (event.direction === "receipt") unsettledReceipts += event.amount; else unsettledSpending += event.amount;
+        flowCash = round(flowCash + signed);
+        operatingCash += signed;
+        const entry = workingCapital.get(event.key) ?? { direction: event.direction, treatment: event.treatment, recognized: 0, cash: 0, intercompany: isIntercompany(event.counterpartyEntityId) };
+        entry.cash = round(entry.cash + event.amount);
+        workingCapital.set(event.key, entry);
+      }
       if (unsettled && history) {
         const outstanding: OutstandingItem = { itemId: event.itemId, label: event.label, month, amount: event.amount, direction: event.direction, category: event.category, basis: event.basis, ...(event.counterparty ? { counterparty: event.counterparty } : {}), provenance: event.provenance };
         (event.direction === "receipt" ? outstandingReceivables : outstandingPayables).push(outstanding);
       }
-      lines.push({ id: `expected:${event.key}`, kind: "expected", month, amount: event.amount, direction: event.direction, category: event.category, description: event.label, basis: event.basis, itemId: event.itemId, ...(event.counterpartyEntityId ? { counterpartyEntityId: event.counterpartyEntityId } : {}), settledBy: event.settledBy, cash: projects, recognized: false, provenance: event.provenance });
+      const entityId = itemEntity.get(event.itemId);
+      lines.push({ id: `expected:${event.key}`, kind: "expected", month, amount: event.amount, direction: event.direction, category: event.category, description: event.label, basis: event.basis, itemId: event.itemId, ...(event.counterpartyEntityId ? { counterpartyEntityId: event.counterpartyEntityId } : {}), settledBy: event.settledBy, key: event.key, treatment: event.treatment, ...(entityId ? { entityId } : {}), ...(isIntercompany(event.counterpartyEntityId) ? { intercompany: true } : {}), cash: projects, recognized: false, provenance: event.provenance });
     }
 
     const receipts = round(actualReceipts + unsettledReceipts);
@@ -385,9 +541,15 @@ export function runEngine(input: EngineInput): EngineOutput {
     // P&L
     const revenueByCategory = emptyByCategory();
     const byCategory = emptyByCategory();
-    let uncategorized = 0; let allocatedOut = 0;
+    let uncategorized = 0; let allocatedOut = 0; let eliminated = 0;
     for (const line of recognizedByMonth.get(month) ?? []) {
       lines.push(line);
+      if (line.key) {
+        const entry = workingCapital.get(line.key) ?? { direction: line.direction, treatment: line.treatment ?? "cash", recognized: 0, cash: 0, intercompany: Boolean(line.intercompany) };
+        entry.recognized = round(entry.recognized + line.amount);
+        workingCapital.set(line.key, entry);
+      }
+      if (line.intercompany) { eliminated += line.direction === "receipt" ? line.amount : -line.amount; continue; }
       const category = line.category ?? "other";
       if (!line.category) uncategorized += line.amount;
       if (line.direction === "receipt") revenueByCategory[category] += line.amount;
@@ -400,13 +562,33 @@ export function runEngine(input: EngineInput): EngineOutput {
           const balance = intercompany.get(rule.bearerEntityId) ?? { entityId: rule.bearerEntityId, ...(rule.bearerName ? { name: rule.bearerName } : {}), balance: 0 };
           balance.balance = round(balance.balance + share);
           intercompany.set(rule.bearerEntityId, balance);
-          lines.push({ id: `allocation:${rule.id}:${line.id}`, kind: "allocation", month, amount: share, direction: "receipt", category, description: `${line.description} allocated to ${rule.bearerName ?? rule.bearerEntityId}`, bearerEntityId: rule.bearerEntityId, ...(rule.bearerName ? { bearerName: rule.bearerName } : {}), ...(line.itemId ? { itemId: line.itemId } : {}), ...(line.eventId ? { eventId: line.eventId } : {}), cash: false, recognized: true, provenance: line.provenance });
+          ledgerFlows.due_from_affiliates = round(ledgerFlows.due_from_affiliates + share);
+          lines.push({ id: `allocation:${rule.id}:${line.id}`, kind: "allocation", month, amount: share, direction: "receipt", category, description: `${line.description} allocated to ${rule.bearerName ?? rule.bearerEntityId}`, bearerEntityId: rule.bearerEntityId, ...(rule.bearerName ? { bearerName: rule.bearerName } : {}), ...(line.itemId ? { itemId: line.itemId } : {}), ...(line.eventId ? { eventId: line.eventId } : {}), ...(line.entityId ? { entityId: line.entityId } : {}), cash: false, recognized: true, provenance: line.provenance });
         }
       }
     }
     for (const key of categories) { revenueByCategory[key] = round(revenueByCategory[key]); byCategory[key] = round(byCategory[key]); }
     const revenue = round(Object.values(revenueByCategory).reduce((sum, value) => sum + value, 0));
     const expenses = round(Object.values(byCategory).reduce((sum, value) => sum + value, 0));
+    const operatingIncome = round(revenue - expenses);
+    ledgerFlows.retained_earnings = round(ledgerFlows.retained_earnings + operatingIncome);
+    ledgerFlows.eliminations = round(ledgerFlows.eliminations + eliminated);
+
+    // Balance sheet and cash flow
+    const balances = currentBalances();
+    const assets = round(assetLedgers.reduce((sum, ledger) => sum + balances[ledger], 0));
+    const liabilities = round(liabilityLedgers.reduce((sum, ledger) => sum + balances[ledger], 0));
+    const equity = round(equityLedgers.reduce((sum, ledger) => sum + balances[ledger], 0));
+    const check = round(assets - liabilities - equity);
+    const change = (ledger: Ledger) => round(balances[ledger] - openingBalances[ledger]);
+    const changes = { accountsReceivable: change("accounts_receivable"), prepaidExpenses: change("prepaid_expenses"), dueFromAffiliates: round(change("due_from_affiliates")), accountsPayable: change("accounts_payable"), accruedLiabilities: change("accrued_liabilities"), deferredRevenue: change("deferred_revenue"), dueToAffiliates: change("due_to_affiliates") };
+    const operatingIndirect = round(operatingIncome + eliminated - changes.accountsReceivable - changes.prepaidExpenses - changes.dueFromAffiliates + changes.accountsPayable + changes.accruedLiabilities + changes.deferredRevenue + changes.dueToAffiliates);
+    const netChange = round(operatingCash + investing + financing);
+    const cashFlow: CashFlowStatement = { month, netIncome: operatingIncome, eliminations: round(eliminated), changes, operatingIndirect, operating: round(operatingCash), investing: round(investing), financing: round(financing), transfers: round(transfers), adjustments: round(adjustments), netChange, ...(openingCash !== undefined ? { openingCash } : {}), ...(cash !== undefined ? { endingCash: cash } : {}), ties: Math.abs(operatingIndirect - operatingCash) < 0.05 && (cash === undefined || openingCash === undefined || Math.abs(openingCash + netChange - cash) < 0.05) };
+    const assigned = [...cashByAccount.entries()].map(([accountId, balance]) => ({ accountId, name: accountNames.get(accountId) ?? accountId, balance }));
+    const unassigned = round(balances.cash - assigned.reduce((sum, account) => sum + account.balance, 0));
+    const balanceSheet: BalanceSheet = { month, hasOpening, balances, cashByAccount: [...assigned, ...(unassigned !== 0 || !assigned.length ? [{ accountId: null, name: "Unassigned", balance: unassigned }] : [])], assets, liabilities, equity, check, balanced: Math.abs(check) < 0.05 };
+    previousBalances = balances;
 
     const statement = statementByMonth.get(month);
     const actualNet = round(actualReceipts - actualSpending);
@@ -420,10 +602,12 @@ export function runEngine(input: EngineInput): EngineOutput {
       actualReceipts: round(actualReceipts), actualSpending: round(actualSpending), actualNet,
       variance: round(actualNet - (expectedReceipts - expectedSpending)),
       contractualReceipts: round(contractualReceipts), contractualSpending: round(contractualSpending), assumedReceipts: round(assumedReceipts), assumedSpending: round(assumedSpending),
-      pnl: { revenue, expenses, operatingIncome: round(revenue - expenses), revenueByCategory, byCategory, allocatedOut: round(allocatedOut), uncategorized: round(uncategorized) },
+      pnl: { revenue, expenses, operatingIncome, revenueByCategory, byCategory, allocatedOut: round(allocatedOut), uncategorized: round(uncategorized) },
       outstanding: { receivables: [...outstandingReceivables], payables: [...outstandingPayables] },
       intercompany: [...intercompany.values()].map((entry) => ({ ...entry })),
       ...(statement ? { statement: { ...(statement.opening !== undefined ? { opening: statement.opening } : {}), ...(statement.ending !== undefined ? { ending: statement.ending } : {}), ...(statement.ending !== undefined && cash !== undefined ? { difference: round(statement.ending - cash) } : {}) } } : {}),
+      balanceSheet,
+      cashFlow,
       lines,
     };
   });
@@ -449,6 +633,8 @@ export function summarizeMonths(output: EngineOutput, start?: Month, end?: Month
     revenue: month.pnl.revenue, expenses: month.pnl.expenses, operatingIncome: month.pnl.operatingIncome,
     outstandingReceivables: round(month.outstanding.receivables.reduce((sum, item) => sum + item.amount, 0)), outstandingPayables: round(month.outstanding.payables.reduce((sum, item) => sum + item.amount, 0)),
     intercompany: month.intercompany,
+    assets: month.balanceSheet.assets, liabilities: month.balanceSheet.liabilities, equity: month.balanceSheet.equity,
+    operatingCashFlow: month.cashFlow.operating, investingCashFlow: month.cashFlow.investing, financingCashFlow: month.cashFlow.financing,
     ...(month.statement ? { statement: month.statement } : {}),
   }));
 }

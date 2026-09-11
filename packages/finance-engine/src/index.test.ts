@@ -91,9 +91,9 @@ describe("runEngine P&L", () => {
       actual({ id: "fee", month: "2026-10", amount: 5000, direction: "receipt", category: "management_fee" }),
     ] });
     const expenses = output.months.map((month) => [month.month, month.pnl.expenses]);
-    // September: insurance 300 + accrued legal 300 (the contractor expectation is history and unsettled, so outstanding only)
+    // September: insurance 300 + accrued legal 300 + the unpaid September contractor retainer 3200 (accrued as a payable)
     // October: insurance 300 + legal 300 + contractor 3200 projected; November and December: insurance 300 + contractor 3200
-    expect(expenses).toEqual([["2026-09", 600], ["2026-10", 3800], ["2026-11", 3500], ["2026-12", 3500]]);
+    expect(expenses).toEqual([["2026-09", 3800], ["2026-10", 3800], ["2026-11", 3500], ["2026-12", 3500]]);
     expect(output.months[1]!.pnl).toMatchObject({ revenue: 5000, revenueByCategory: expect.objectContaining({ management_fee: 5000 }), byCategory: expect.objectContaining({ professional_services: 300, contractor: 3200, insurance: 300 }) });
     expect(output.months[0]!.outstanding.payables.map((item) => item.label)).toEqual(["Contractor retainer"]);
     expect(output.months[0]!.lines.some((line) => line.kind === "actual" && line.settles === "ins:2026-09")).toBe(true);
@@ -108,5 +108,81 @@ describe("runEngine P&L", () => {
   it("summarizes months for prompts", () => {
     const output = runEngine({ openingCash: { month: "2026-09", amount: 100 }, asOfMonth: "2026-09", horizon: { start: "2026-09", end: "2026-10" }, items: [fee], actuals: [] });
     expect(summarizeMonths(output, "2026-10", "2026-10")).toEqual([expect.objectContaining({ month: "2026-10", endingCash: 25100, revenue: 12500, contractualReceipts: 12500 })]);
+  });
+});
+
+describe("runEngine statements", () => {
+  const balanced = (output: ReturnType<typeof runEngine>) => output.months.every((month) => month.balanceSheet.balanced && month.cashFlow.ties);
+
+  it("carries a prepaid asset down as it is recognized and an accrued liability until payment", () => {
+    const insurance: ScheduleItem = { id: "ins", label: "D&O insurance", direction: "spend", amount: 1200, category: "insurance", cadence: "once", effectiveFrom: "2026-09", accountingTreatment: "prepaid", recognitionStart: "2026-09", recognitionEnd: "2026-12", basis: "contractual", provenance: {} };
+    const output = runEngine({ openingCash: { month: "2026-08", amount: 10000 }, asOfMonth: "2026-11", horizon: { start: "2026-08", end: "2026-12" }, items: [insurance], actuals: [
+      actual({ id: "pay-ins", month: "2026-09", amount: 1200, direction: "spend", settlesItemId: "ins" }),
+      actual({ id: "legal", month: "2026-10", amount: 900, direction: "spend", category: "professional_services", accountingTreatment: "accrual", recognitionStart: "2026-08", recognitionEnd: "2026-10" }),
+    ] });
+    expect(output.months.map((month) => [month.month, month.balanceSheet.balances.prepaid_expenses, month.balanceSheet.balances.accrued_liabilities])).toEqual([
+      ["2026-08", 0, 300], ["2026-09", 900, 600], ["2026-10", 600, 0], ["2026-11", 300, 0], ["2026-12", 0, 0],
+    ]);
+    expect(balanced(output)).toBe(true);
+    expect(output.months[4]).toMatchObject({ endingCash: 7900 });
+    expect(output.months[4]!.balanceSheet).toMatchObject({ assets: 7900, liabilities: 0, equity: 7900, balances: expect.objectContaining({ opening_equity: 10000, retained_earnings: -2100 }) });
+  });
+
+  it("accrues an unpaid fee as revenue and a receivable, then clears it when paid", () => {
+    const output = runEngine({ openingCash: { month: "2026-07", amount: 0 }, asOfMonth: "2026-10", horizon: { start: "2026-07", end: "2026-10" }, items: [{ ...fee, cadence: "once", effectiveFrom: "2026-08" }], actuals: [actual({ id: "late", month: "2026-10", amount: 12500, direction: "receipt" })] });
+    const receivable = output.months.map((month) => month.balanceSheet.balances.accounts_receivable);
+    expect(receivable).toEqual([0, 12500, 12500, 0]);
+    expect(output.months[1]!.pnl.revenue).toBe(12500);
+    expect(output.months[3]!.pnl.revenue).toBe(0);
+    expect(output.months[3]!.cashFlow).toMatchObject({ operating: 12500, netIncome: 0, changes: expect.objectContaining({ accountsReceivable: -12500 }) });
+    expect(balanced(output)).toBe(true);
+  });
+
+  it("posts investment, financing, transfer, and allocation activity to the right ledgers", () => {
+    const legal: ScheduleItem = { id: "legal", label: "Smith LLP", direction: "spend", amount: 10000, category: "professional_services", cadence: "once", effectiveFrom: "2026-09", accountingTreatment: "cash", basis: "contractual", provenance: {} };
+    const output = runEngine({ asOfMonth: "2026-10", horizon: { start: "2026-09", end: "2026-09" }, items: [legal], openingPositions: [{ month: "2026-09", ledger: "cash", amount: 50000, accountId: "ops" }], actuals: [
+      actual({ id: "buy", month: "2026-09", amount: 20000, direction: "spend", activity: "investment", accountId: "ops" }),
+      actual({ id: "loan", month: "2026-09", amount: 5000, direction: "receipt", activity: "financing", accountId: "ops" }),
+      actual({ id: "sweep", month: "2026-09", amount: 4000, direction: "spend", activity: "transfer", accountId: "ops" }),
+      actual({ id: "pay-legal", month: "2026-09", amount: 10000, direction: "spend", settlesItemId: "legal", accountId: "ops" }),
+    ], accounts: [{ id: "ops", name: "Operating" }], allocations: [{ id: "a1", itemId: "legal", bearerEntityId: "fund-1", bearerName: "Fund I", percentage: 40 }] });
+    const month = output.months[0]!;
+    expect(month.balanceSheet.balances).toMatchObject({ cash: 25000, investments: 20000, due_from_affiliates: 4000, financing: 5000, opening_equity: 50000, retained_earnings: -6000 });
+    expect(month.balanceSheet.cashByAccount).toEqual([{ accountId: "ops", name: "Operating", balance: 21000 }, { accountId: null, name: "Unassigned", balance: 4000 }]);
+    expect(month.cashFlow).toMatchObject({ operating: -10000, investing: -20000, financing: 5000, transfers: -4000, netChange: -25000, ties: true });
+    expect(balanced(output)).toBe(true);
+  });
+
+  it("applies opening positions as balances at the start of their month", () => {
+    const output = runEngine({ asOfMonth: "2026-10", horizon: { start: "2026-09", end: "2026-10" }, items: [], actuals: [actual({ id: "r", month: "2026-10", amount: 100, direction: "receipt", category: "other_revenue", accountId: "ops" })], accounts: [{ id: "ops", name: "Operating", entityId: "mgmt" }], openingPositions: [
+      { month: "2026-09", ledger: "cash", amount: 1000, accountId: "ops" },
+      { month: "2026-09", ledger: "prepaid_expenses", amount: 600 },
+      { month: "2026-09", ledger: "accounts_payable", amount: 250 },
+      { month: "2026-09", ledger: "investments", amount: 5000 },
+    ] });
+    const [september, october] = output.months;
+    expect(september!.balanceSheet).toMatchObject({ hasOpening: true, assets: 6600, liabilities: 250, equity: 6350, balances: expect.objectContaining({ cash: 1000, opening_equity: 6350 }) });
+    expect(september).toMatchObject({ openingCash: 1000, endingCash: 1000 });
+    expect(october!.balanceSheet).toMatchObject({ assets: 6700, balances: expect.objectContaining({ cash: 1100, retained_earnings: 100 }) });
+    expect(october!.balanceSheet.cashByAccount).toEqual([{ accountId: "ops", name: "Operating", balance: 1100 }]);
+    expect(balanced(output)).toBe(true);
+  });
+
+  it("eliminates intercompany P&L in the consolidated view and reports the elimination", () => {
+    const entities = [{ id: "mgmt", name: "Management Co", consolidated: true }, { id: "fund", name: "Fund I", consolidated: true }];
+    const feeFromFund: ScheduleItem = { ...fee, id: "fee-in", counterpartyEntityId: "fund", entityId: "mgmt", cadence: "once", effectiveFrom: "2026-09" };
+    const feeToMgmt: ScheduleItem = { id: "fee-out", label: "Management fee to manager", direction: "spend", amount: 12500, category: "other", cadence: "once", effectiveFrom: "2026-09", accountingTreatment: "cash", basis: "contractual", counterpartyEntityId: "mgmt", entityId: "fund", provenance: {} };
+    const entityView = runEngine({ openingCash: { month: "2026-09", amount: 0 }, asOfMonth: "2026-10", horizon: { start: "2026-09", end: "2026-09" }, items: [feeFromFund], actuals: [], entities });
+    expect(entityView.months[0]!.pnl.revenue).toBe(12500);
+    const consolidated = runEngine({ openingCash: { month: "2026-09", amount: 0 }, asOfMonth: "2026-10", horizon: { start: "2026-09", end: "2026-09" }, items: [feeFromFund, feeToMgmt], actuals: [], entities, consolidate: true });
+    const month = consolidated.months[0]!;
+    expect(month.pnl).toMatchObject({ revenue: 0, expenses: 0 });
+    expect(month.balanceSheet.balances).toMatchObject({ due_from_affiliates: 12500, due_to_affiliates: 12500, eliminations: 0, accounts_receivable: 0 });
+    expect(month.lines.filter((line) => line.intercompany)).toHaveLength(4);
+    expect(balanced(consolidated)).toBe(true);
+    // Only one side present: the elimination shows what is missing instead of unbalancing the sheet.
+    const oneSided = runEngine({ openingCash: { month: "2026-09", amount: 0 }, asOfMonth: "2026-10", horizon: { start: "2026-09", end: "2026-09" }, items: [feeFromFund], actuals: [], entities, consolidate: true });
+    expect(oneSided.months[0]!.balanceSheet.balances).toMatchObject({ due_from_affiliates: 12500, eliminations: 12500 });
+    expect(balanced(oneSided)).toBe(true);
   });
 });
