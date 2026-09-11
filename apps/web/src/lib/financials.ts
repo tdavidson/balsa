@@ -14,7 +14,7 @@ export type FinancialOptions = {
   /** Hypothetical items layered on top of persisted state, for simulations. */
   extraItems?: ScheduleItem[];
   /** Persisted item ids to drop, or to end at a month, for simulations. */
-  itemOverrides?: { itemId: string; effectiveTo?: string; amount?: number; remove?: boolean }[];
+  itemOverrides?: { itemId: string; effectiveTo?: string; amount?: number; amountFrom?: string; remove?: boolean }[];
 };
 
 export type DuplicateEvent = { key: string; description: string; month: string; sourceNames: string[]; eventIds: string[] };
@@ -99,13 +99,13 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
     itemRows.set(item.id, { ...item, sourceName, reportingMonth });
     const override = overrides.get(item.id);
     if (override?.remove) continue;
-    const amount = override?.amount ?? Number(item.amount);
+    const splitFrom = override?.amount !== undefined && override.amountFrom && isValidMonth(override.amountFrom) ? override.amountFrom : undefined;
+    const amount = override?.amount !== undefined && !splitFrom ? override.amount : Number(item.amount);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const effectiveFrom = [item.effectiveFrom, item.recognitionStart, reportingMonth, monthOf(item.createdAt)].find((candidate) => candidate && isValidMonth(candidate));
     if (!effectiveFrom) continue;
-    const effectiveTo = override?.effectiveTo ?? item.effectiveTo ?? undefined;
-    items.push({
-      id: item.id,
+    const effectiveTo = splitFrom ? addMonths(splitFrom, -1) : override?.effectiveTo ?? item.effectiveTo ?? undefined;
+    const base: Omit<ScheduleItem, "id"> = {
       label: item.label,
       ...(item.counterparty ? { counterparty: item.counterparty } : {}),
       ...(item.counterpartyEntityId ? { counterpartyEntityId: item.counterpartyEntityId } : {}),
@@ -121,7 +121,10 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
       basis: item.basis === "assumed" ? "assumed" : "contractual",
       ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}),
       provenance: { ...(item.evidenceId ? { evidenceId: item.evidenceId } : {}), ...(sourceName ? { sourceName } : {}), ...(item.decisionId ? { decisionId: item.decisionId } : {}), ...(item.policyId ? { policyId: item.policyId } : {}), ...(item.assumptionId ? { assumptionId: item.assumptionId } : {}) },
-    });
+    };
+    if (splitFrom && effectiveTo && effectiveTo < effectiveFrom) { /* the change starts before the item does: apply the new amount throughout */ items.push({ ...base, id: item.id, amount: override!.amount!, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}) }); continue; }
+    items.push({ ...base, id: item.id });
+    if (splitFrom) items.push({ ...base, id: `${item.id}:from:${splitFrom}`, amount: override!.amount!, effectiveFrom: splitFrom, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), basis: "assumed" });
   }
   for (const extra of options.extraItems ?? []) items.push(extra);
 
