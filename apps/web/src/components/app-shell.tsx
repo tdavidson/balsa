@@ -198,6 +198,7 @@ type ChatEvidence = {
 };
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
+type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null };
 type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
 type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; activity?: string; category: string | null; sourceName: string }[] };
 type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; allocatedOut?: number; uncategorized?: number; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string; kind?: string; basis?: string | null }[] };
@@ -228,6 +229,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
+  const [proposedItems, setProposedItems] = useState<ProposedItem[]>([]);
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [pnl, setPnl] = useState<PnlMonth[]>([]);
@@ -269,7 +271,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, allocatedOut: periodPnlRows.reduce((sum, row) => sum + (row.allocatedOut ?? 0), 0), uncategorized: periodPnlRows.reduce((sum, row) => sum + (row.uncategorized ?? 0), 0), revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
   const periodLabel = periodPreset === "quarter" ? `Q${Math.floor((anchorMonth - 1) / 3) + 1} ${anchorYear}` : periodPreset === "ytd" ? `YTD ${monthLabel(selectedMonth)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${monthLabel(periodStart)} – ${monthLabel(periodEnd)}` : monthLabel(selectedMonth);
   const pendingEvidence = evidence.filter((item) => item.status === "pending");
-  const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length;
+  const draftItems = proposedItems.filter((item) => item.status === "draft");
+  const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length + draftItems.length;
   useEffect(() => {
     const updatePlaceholder = () => setComposerPlaceholder(composerCallToAction(new Date(), { needsInputCount, hasConversation: turns.length > 0, hasFiles: files.length > 0 }));
     updatePlaceholder();
@@ -285,7 +288,27 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   useEffect(() => {
     fetch("/api/decisions").then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.decisions) setAgentDecisions(payload.decisions); }).catch(() => undefined);
+    refreshProposedItems().catch(() => undefined);
   }, []);
+
+  async function refreshProposedItems() {
+    const response = await fetch("/api/items");
+    if (response.ok) { const payload = await readJson(response); if (payload.items) setProposedItems(payload.items); }
+  }
+
+  async function refreshFinancials() {
+    const [forecastResponse, pnlResponse, reconciliationResponse] = await Promise.all([fetch("/api/forecast"), fetch("/api/pnl"), fetch("/api/reconciliation")]);
+    if (forecastResponse.ok) { const payload = await readJson(forecastResponse); if (payload.months) setForecast(payload.months); }
+    if (pnlResponse.ok) { const payload = await readJson(pnlResponse); if (payload.months) setPnl(payload.months); }
+    if (reconciliationResponse.ok) { const payload = await readJson(reconciliationResponse); if (payload.months) setReconciliation(payload.months); }
+  }
+
+  async function reviewProposedItems(ids: string[], status: "confirmed" | "rejected") {
+    const response = await fetch("/api/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, status }) });
+    if (!response.ok) { setNotice("Unable to update the proposed items."); return; }
+    setProposedItems((current) => current.map((item) => ids.includes(item.id) ? { ...item, status } : item));
+    await refreshFinancials();
+  }
 
   async function updateAgentDecision(id: string, status: AgentDecision["status"]) {
     const response = await fetch("/api/decisions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
@@ -611,8 +634,18 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   }
 
   async function reviewItem(id: string, status: "approved" | "rejected") {
-    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
-    if (response.ok) setEvidence((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status, ...modelChoice() }) });
+    const payload = await readJson(response);
+    if (response.ok) {
+      setEvidence((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+      if (payload.interpretation) {
+        const counts = payload.interpretation as { items: number; transactions: number; questions: number };
+        setNotice(`${counts.items} proposed item${counts.items === 1 ? "" : "s"} to confirm, ${counts.transactions} transaction${counts.transactions === 1 ? "" : "s"} recorded${counts.questions ? `, ${counts.questions} question${counts.questions === 1 ? "" : "s"}` : ""}.`);
+      }
+      await Promise.all([refreshProposedItems(), refreshFinancials()]);
+      const refreshed = await fetch("/api/evidence");
+      if (refreshed.ok) { const data = await readJson(refreshed); setEvidence(data.evidence); setReviewQuestions(uniqueById(data.reviewItems ?? [])); }
+    } else setNotice(payload.error ?? "Unable to update this evidence.");
   }
 
   async function editItem(item: EvidenceItem) {
@@ -872,6 +905,30 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                         <button className={actionButton} type="button" aria-label="Approve extracted evidence" title="Accept" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
                         <button className={actionButton} type="button" aria-label="Reject extracted evidence" title="Delete" onClick={() => reviewItem(item.id, "rejected")}><Trash2 /></button>
                         <button className={actionButton} type="button" aria-label="Edit extracted evidence" title="Edit" onClick={() => editItem(item)}><Pencil /></button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {draftItems.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2"><span>Interpreted items · confirm before they enter the forecast</span>{draftItems.length > 1 && <button type="button" className="normal-case tracking-normal text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={() => reviewProposedItems(draftItems.map((item) => item.id), "confirmed")}>Confirm all {draftItems.length}</button>}</div>
+                  {draftItems.map((item) => (
+                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`item-${item.id}`}>
+                      <div className="min-w-0">
+                        <div>{item.label}{item.counterpartyName || item.counterparty ? <span className="text-ink-2"> · {item.counterpartyName ?? item.counterparty}</span> : null}</div>
+                        <div className="mt-0.5 text-[13px] text-ink-2">
+                          <span className={cn("font-medium", item.direction === "spend" ? "text-ink" : "text-ink")}>{item.direction === "spend" ? "−" : "+"}{money(item.amount ?? 0)}</span>
+                          {` ${item.cadence ?? "once"}`}{item.effectiveFrom ? ` from ${monthLabel(item.effectiveFrom)}` : ""}{item.effectiveTo ? ` to ${monthLabel(item.effectiveTo)}` : ""}
+                          {item.category ? ` · ${item.category.replace(/_/g, " ")}` : ""}{item.accountingTreatment !== "cash" ? ` · ${item.accountingTreatment}` : ""}{item.basis === "assumed" ? " · assumption" : ""}
+                          {item.confidence !== null && item.confidence !== undefined && item.confidence < 0.8 ? <span className="text-pencil"> · {Math.round(item.confidence * 100)}% confident</span> : null}
+                        </div>
+                        {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
+                        {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
+                      </div>
+                      <span className="flex gap-1">
+                        <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
+                        <button className={actionButton} type="button" aria-label="Reject interpreted item" title="Reject" onClick={() => reviewProposedItems([item.id], "rejected")}><Trash2 /></button>
                       </span>
                     </div>
                   ))}

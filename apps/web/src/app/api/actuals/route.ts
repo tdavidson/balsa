@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, getDatabase, ingestionRuns, reportingPeriods, sources, observations } from "@finance/database";
+import { cashEvents, decisions, entities, evidence, getDatabase, ingestionRuns, policies, reportingPeriods, reviewItems, sources, observations } from "@finance/database";
 import { and, eq, inArray, desc, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
@@ -8,6 +8,9 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
 import { classifyCashActivity } from "@/lib/financial-events";
 import { storeSourceBlob } from "@/lib/blob-store";
+import { categorizeTransactions, resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
+import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { recordLlmRun } from "@/lib/llm-telemetry";
 
 export async function POST(request: Request) {
   await auth.protect();
@@ -59,7 +62,36 @@ export async function POST(request: Request) {
     const closed = await getDatabase().select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, months), eq(reportingPeriods.status, "closed")));
     if (closed.length) return failImport(`Closed reporting month: ${closed[0]!.month}`, 409);
     evidenceId = placeholder?.id;
-    const inserted = await getDatabase().insert(cashEvents).values(events.map(({ postedDate, ...event }) => ({ ...event, transactionDate: postedDate, evidenceId: placeholder!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id });
+    const inserted = await getDatabase().insert(cashEvents).values(events.map(({ postedDate, ...event }) => ({ ...event, transactionDate: postedDate, evidenceId: placeholder!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id, externalKey: cashEvents.externalKey });
+    // Categorize the new rows: known counterparties resolve locally, the rest go to the model in batches.
+    const insertedKeys = new Set(inserted.map((row) => row.externalKey));
+    const toCategorize = events.map((event, index) => ({ index, date: event.postedDate, description: event.description, amount: Number(event.amount), direction: event.direction, externalKey: event.externalKey })).filter((event) => insertedKeys.has(event.externalKey));
+    if (toCategorize.length) {
+      const db = getDatabase();
+      const [entityRows, policyRows, decisionRows] = await Promise.all([
+        db.select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes }).from(entities).where(eq(entities.companyId, context.company.id)),
+        db.select({ name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y"))),
+        db.select({ question: decisions.question, answer: decisions.answer }).from(decisions).where(and(eq(decisions.companyId, context.company.id), eq(decisions.status, "applied"))),
+      ]);
+      const candidates: KnownEntity[] = entityRows;
+      const choice = modelRequestSchema.safeParse({ model: String(form.get("model") || "") || undefined, effort: String(form.get("effort") || "") || undefined });
+      const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
+      const categorized = await categorizeTransactions({ provider, transactions: toCategorize, entities: candidates, policies: policyRows, decisions: decisionRows, activityOf: classifyCashActivity });
+      const modelResults = categorized.filter((entry) => entry.source === "model");
+      if (modelResults.length) await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "transaction_categorization", request: { sourceName: file.name, transactions: toCategorize.length, sentToModel: modelResults.length }, response: JSON.stringify(modelResults.slice(0, 200)) });
+      const byIndex = new Map(toCategorize.map((event) => [event.index, event]));
+      for (const entry of categorized) {
+        const event = byIndex.get(entry.index);
+        if (!event) continue;
+        const entity = entry.counterparty && entry.activity === "operating" ? await resolveCounterparty(db, context.company.id, { name: entry.counterparty, alias: event.description, category: entry.category, direction: event.direction, candidates }) : undefined;
+        await db.update(cashEvents).set({ category: entry.activity, financialCategory: entry.category ?? undefined, counterpartyEntityId: entity?.id, updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.externalKey, event.externalKey)));
+      }
+      const uncertain = categorized.filter((entry) => entry.activity === "operating" && (!entry.category || entry.confidence < 0.6));
+      if (uncertain.length) {
+        const names = [...new Set(uncertain.map((entry) => entry.counterparty ?? byIndex.get(entry.index)?.description ?? "").filter(Boolean))].slice(0, 8);
+        await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, question: `${uncertain.length} imported transaction${uncertain.length === 1 ? "" : "s"} from ${file.name} could not be categorized with confidence (${names.join(", ")}${uncertain.length > names.length ? ", …" : ""}). Which income statement line should each counterparty use?` });
+      }
+    }
     if (canonicalSource?.id) {
       const keys = events.map((event) => event.externalKey).filter((key): key is string => Boolean(key));
       const canonicalEvents = await getDatabase().select({ id: cashEvents.id, externalKey: cashEvents.externalKey }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), inArray(cashEvents.externalKey, keys)));

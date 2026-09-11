@@ -1,15 +1,16 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import { createHash } from "node:crypto";
-import { getDatabase, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, knowledgeDocuments, observations, policies, reportingPeriods, reviewItems, sources } from "@finance/database";
+import { getDatabase, cashEvents, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sources } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { expandFinancialFactDates, extractPdfText, parseCsvRows } from "@nevermodel/ingestion";
-import { classifyCashActivity, inferFinancialDirection, isSummaryDescription, parseFinancialAmount } from "@/lib/financial-events";
+import { parseFinancialAmount } from "@/lib/financial-events";
+import { applyApprovedEvidence } from "@/lib/apply-evidence";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { matchStatementAccount } from "@/lib/account-matching";
 import { storeSourceBlob } from "@/lib/blob-store";
@@ -19,7 +20,7 @@ const inputSchema = modelRequestSchema.extend({
   sourceName: z.string().trim().min(1).max(255).default("conversation"),
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
 });
-const reviewSchema = z.object({ id: z.string().uuid(), status: z.enum(["pending", "approved", "rejected"]).optional(), extractedJson: z.string().optional() });
+const reviewSchema = modelRequestSchema.extend({ id: z.string().uuid(), status: z.enum(["pending", "approved", "rejected"]).optional(), extractedJson: z.string().optional() });
 
 function normalizeCsv(text: string) {
   const rows = parseCsvRows(text);
@@ -28,20 +29,7 @@ function normalizeCsv(text: string) {
   return rows.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
 }
 
-function monthFromFact(value: string) {
-  const exactDate = dateFromFact(value);
-  if (exactDate) return exactDate.slice(0, 7);
-  const yearMonth = value.match(/\b(20\d{2}-\d{2})\b/)?.[1];
-  if (yearMonth) return yearMonth;
-  return new Date().toISOString().slice(0, 7);
-}
 
-function dateFromFact(value: string) {
-  const raw = value.match(/\b20\d{2}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/20\d{2}\b|\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+20\d{2}\b/i)?.[0];
-  if (!raw) return undefined;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
-}
 
 const extractionSchema = z.object({
   summary: z.string(),
@@ -214,13 +202,6 @@ export async function GET() {
     status: evidence.status,
     createdAt: evidence.createdAt,
   }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20);
-  const breakoutQuestion = "How should these statement transactions be broken out in the financial statements—by revenue stream and expense type, or using another grouping? Please specify any categories you want Hemrock to use consistently.";
-  for (const source of rows.filter((item) => item.status === "approved")) {
-    const [event] = await getDatabase().select({ id: cashEvents.id }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, source.id))).limit(1);
-    if (!event) continue;
-    const [existing] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion))).limit(1);
-    if (!existing) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: source.id, question: breakoutQuestion });
-  }
   const runRows = await getDatabase().select({ id: ingestionRuns.id, sourceId: ingestionRuns.sourceId, stage: ingestionRuns.stage, status: ingestionRuns.status, error: ingestionRuns.error, startedAt: ingestionRuns.startedAt, completedAt: ingestionRuns.completedAt, metadata: ingestionRuns.metadata }).from(ingestionRuns).where(eq(ingestionRuns.companyId, context.company.id)).orderBy(desc(ingestionRuns.createdAt));
   const runsBySource = new Map<string, typeof runRows>();
   for (const run of runRows) runsBySource.set(run.sourceId, [...(runsBySource.get(run.sourceId) ?? []), run]);
@@ -256,71 +237,10 @@ export async function PATCH(request: Request) {
   }
   const rebuildApproved = Boolean(row.extractedJson && (body.data.status === "approved" || (body.data.extractedJson && row.status === "approved")));
   if (rebuildApproved && row.extractedJson) {
-    const extraction = JSON.parse(row.extractedJson) as { facts?: { label: string; value: string }[] };
-    const facts = extraction.facts ?? [];
-    const isOpening = (fact: { label: string; value: string }) => /opening|beginning|starting\s+cash|cash\s+balance/i.test(`${fact.label} ${fact.value}`);
-    const openingFacts = facts.filter(isOpening);
-    for (const fact of openingFacts) {
-      const parsedAmount = parseFinancialAmount(fact.value);
-      const amount = parsedAmount === undefined ? undefined : String(Math.abs(parsedAmount));
-      if (amount) {
-        const month = monthFromFact(fact.value);
-        const [period] = await getDatabase().select({ status: reportingPeriods.status }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), eq(reportingPeriods.month, month)));
-        if (period?.status === "closed") {
-          await getDatabase().update(evidence).set({ status: "pending", updatedAt: new Date() }).where(eq(evidence.id, body.data.id));
-          return NextResponse.json({ error: `Evidence references closed reporting month: ${month}` }, { status: 409 });
-        }
-        await getDatabase().insert(reportingPeriods).values({ companyId: context.company.id, month, openingCash: amount }).onConflictDoUpdate({ target: [reportingPeriods.companyId, reportingPeriods.month], set: { openingCash: amount, updatedAt: new Date() } });
-      }
-    }
-    const financialFacts = facts.filter((fact) => !isOpening(fact));
-    const policyRows = await getDatabase().select({ id: policies.id, name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")));
-    const policyFor = (fact: { label: string; value: string }) => {
-      const words = `${fact.label} ${fact.value}`.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 4);
-      return policyRows.find((policy) => words.some((word) => `${policy.name} ${policy.rule}`.toLowerCase().includes(word)))?.id;
-    };
-    const [forecastDocument] = await getDatabase().select({ content: knowledgeDocuments.content }).from(knowledgeDocuments).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, "forecast")));
-    if (financialFacts.length && !forecastDocument?.content.includes(`source:${body.data.id}`)) {
-      const additions = financialFacts.map((fact) => `- [source:${body.data.id}] ${fact.label}: ${fact.value}`).join("\n");
-      const content = `${forecastDocument?.content.trim() ?? "# Forecast\n\nForecast assumptions and scenarios."}\n\n## Reviewed evidence\n${additions}\n`;
-      if (forecastDocument) await getDatabase().update(knowledgeDocuments).set({ content, updatedAt: new Date() }).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, "forecast")));
-      else await getDatabase().insert(knowledgeDocuments).values({ companyId: context.company.id, slug: "forecast", title: "Forecast", content });
-    }
-    const items = financialFacts.map((fact) => {
-      const amount = fact.value.match(/(?:\$|USD\s*)([\d,]+(?:\.\d+)?)/i)?.[1]?.replace(/,/g, "");
-      const spend = /pay|spend|cost|expense|owe|vendor|bill/i.test(`${fact.label} ${fact.value}`);
-      return { companyId: context.company.id, evidenceId: body.data.id, type: spend ? "obligation" as const : "agreement" as const, direction: spend ? "spend" as const : "receipt" as const, label: fact.label, amount, cadence: /month|quarter|annual|year|weekly/i.exec(fact.value)?.[0], policyId: policyFor(fact), status: "confirmed" as const };
-    });
-    const events = financialFacts.flatMap((fact) => {
-      const description = `${fact.label}: ${fact.value}`;
-      if (isSummaryDescription(description)) return [];
-      const parsedAmount = parseFinancialAmount(fact.value);
-      if (parsedAmount === undefined) return [];
-      const factText = `${fact.label} ${fact.value}`;
-      const direction = inferFinancialDirection(parsedAmount < 0 ? "spend" : "receipt", factText);
-      return [{ companyId: context.company.id, evidenceId: body.data.id, month: monthFromFact(fact.value), transactionDate: dateFromFact(fact.value), description, amount: String(Math.abs(parsedAmount)), direction, category: classifyCashActivity(description, direction), isActual: row.status === "approved" ? "Y" as const : "N" as const, policyId: policyFor(fact) }];
-    });
-    const eventMonths = [...new Set(events.map((event) => event.month))];
-    if (eventMonths.length) {
-      const closed = await getDatabase().select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, eventMonths), eq(reportingPeriods.status, "closed")));
-      if (closed.length) {
-        await getDatabase().update(evidence).set({ status: "pending", updatedAt: new Date() }).where(eq(evidence.id, body.data.id));
-        return NextResponse.json({ error: `Evidence references closed reporting month: ${closed[0]!.month}` }, { status: 409 });
-      }
-    }
-    if (body.data.extractedJson && row.status === "approved") {
-      await getDatabase().delete(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id)));
-      await getDatabase().delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, body.data.id)));
-    }
-    const existingItems = await getDatabase().select({ id: economicItems.id }).from(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, body.data.id)));
-    if (!existingItems.length && items.length) await getDatabase().insert(economicItems).values(items);
-    const existingEvents = await getDatabase().select({ id: cashEvents.id }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id)));
-    if (!existingEvents.length && events.length) await getDatabase().insert(cashEvents).values(events);
-    if (events.length) {
-      const breakoutQuestion = "How should these statement transactions be broken out in the financial statements—by revenue stream and expense type, or using another grouping? Please specify any categories you want Hemrock to use consistently.";
-      const [existingQuestion] = await getDatabase().select({ id: reviewItems.id }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, breakoutQuestion)));
-      if (!existingQuestion) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: body.data.id, question: breakoutQuestion });
-    }
+    const extraction = JSON.parse(row.extractedJson) as { summary?: string; facts?: { label: string; value: string; confidence?: number }[] };
+    const result = await applyApprovedEvidence({ context, evidenceId: body.data.id, evidenceStatus: row.status, extraction, modelChoice: body.data, replace: Boolean(body.data.extractedJson && row.status === "approved") });
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json({ ...row, interpretation: result });
   }
   return NextResponse.json(row);
 }
