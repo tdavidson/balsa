@@ -197,7 +197,7 @@ type ChatEvidence = {
   questions: string[];
 };
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
-type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
+type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected"; effectSummary?: string | null };
 type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null };
 type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
 type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; activity?: string; category: string | null; sourceName: string }[] };
@@ -312,7 +312,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   async function updateAgentDecision(id: string, status: AgentDecision["status"]) {
     const response = await fetch("/api/decisions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
-    if (response.ok) setAgentDecisions((current) => current.map((decision) => decision.id === id ? { ...decision, status } : decision));
+    const payload = await readJson(response);
+    if (response.ok) {
+      setAgentDecisions((current) => current.map((decision) => decision.id === id ? { ...decision, status } : decision));
+      if (payload.mutation?.applied) setNotice(`Applied: ${payload.mutation.applied}`);
+      await Promise.all([refreshFinancials(), refreshProposedItems()]);
+    } else setNotice(payload.error ?? "Unable to update this decision.");
   }
 
   useEffect(() => {
@@ -942,6 +947,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       <div className="min-w-0">
                         <div>{decision.question}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
+                        {decision.effectSummary && <div className="mt-0.5 text-[13px] text-pencil">If applied: {decision.effectSummary}</div>}
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
