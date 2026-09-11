@@ -23,14 +23,27 @@ monthly close loop:
 - PDF text extraction, CSV transaction normalization, XLSX worksheet parsing, and QuickBooks/OFX transaction bootstrap
 - Source metadata, SHA-256 lineage, raw source retention, and linked cash events
 - Evidence review with confidence, unresolved questions, and approve/edit/reject actions
-- Confirmed agreement/obligation normalization and deterministic forecast vs. actuals
-- Categorized monthly P&L endpoint with calculation traces
-- Rolling 12-month forecast, opening cash, new actual imports, and closed-period guards
+- An interpretation step that turns approved facts into typed agreements and
+  obligations (dates, cadence, category, treatment, counterparty), drafted for
+  CFO confirmation
+- Bank imports categorized against known counterparties first and the model
+  second, with counterparties remembered as entities
+- A deterministic engine (`packages/finance-engine`) that expands confirmed
+  items on their own calendar, settles them with matching actuals, rolls cash
+  from the opening balance's month, and produces P&L by category, outstanding
+  receivables and payables, intercompany balances from allocations, and a
+  trace for every figure
+- Rolling 12-month forecast with contractual and assumed lines shown apart,
+  closed-period guards, and reconciliation against statement balances
+- Decisions with structured effects (add, end, or change an item; categorize a
+  counterparty) that run when applied, and an in-memory simulation for
+  what-if questions
 
-The controlled agent can read authorized state, query forecasts, trace values,
-and propose decisions for review. Canonical state writes include allocation
-records and policy provenance. Profile/settings surfaces remain future
-milestones.
+The controlled agent reads a summary from the engine and uses engine-backed
+tools: financials by month, a trace for any figure, obligations, allocations,
+and simulation. It proposes decisions with effects; nothing changes until the
+CFO applies them. The plan behind this layer is in
+`docs/plans/financial-engine.md`.
 
 ## Local setup
 
@@ -55,18 +68,30 @@ internal application user, a company, and an `owner` membership.
 2. Attach one or more evidence files (`.pdf`, `.xlsx`, `.xls`, `.csv`, `.md`,
    `.txt`, or notes). Files are processed independently, even when they cover
    different months.
-3. Review extracted facts, confidence, questions, and source metadata. Approve
-   facts to create normalized agreements/obligations and forecast events.
+3. Review extracted facts, confidence, questions, and source metadata. Approving
+   runs the interpretation step: agreements and obligations appear under
+   **Interpreted items** for confirmation, transactions and balances are
+   recorded directly. Confirmed items drive the forecast.
 4. Attach a bank or transaction CSV/XLSX/QBO/OFX. Rows use their own dates; debit and
-   credit columns are normalized. Re-uploading the same file is ignored by hash.
+   credit columns are normalized, each row is categorized, and known
+   counterparties are reused. Re-uploading the same file is ignored by hash.
 5. Select a month to inspect forecast versus actuals. To close a period, type
    `close month 2026-09`; later imports or approvals referencing that month are
    rejected. Use `open month 2026-09` to reopen a period for correction.
    Persist CFO judgment with `decision: How should contractor invoices be treated? => Cash basis` or
    `policy: Contractor timing => Recognize on payment date`.
 6. Ask `How much cash will we have in December?` to run the controlled agent.
-   Any proposed decision appears in Needs your input and must be explicitly
-   applied or rejected.
+   Ask `Why is professional services $18,500 in October?` for a trace, or
+   `What if Fund II stops paying next year?` for a simulation. Tell it
+   `Assume we hire a finance contractor at $6,000 a month from January` and it
+   proposes a decision with an effect; applying it adds an assumed line to
+   the forecast. Any proposed decision appears in Needs your input and must
+   be explicitly applied or rejected.
+
+Migration `0028` adds the schedule, category, and settlement columns. The
+`drizzle/meta` snapshots are not committed, so run `pnpm db:migrate` to apply
+the checked-in SQL, or `pnpm db:generate` on a machine with the snapshots to
+regenerate an equivalent migration.
 
 Reusable Company Zero examples are in `fixtures/company-zero/`.
 
@@ -93,7 +118,8 @@ output or an unverified browser parameter.
 
 ## Reference
 
-The multi-tenant hosted plan lives in `docs/plans/multi-tenant-hosted.md`.
+The financial engine plan lives in `docs/plans/financial-engine.md` and the
+multi-tenant hosted plan in `docs/plans/multi-tenant-hosted.md`.
 The V0 build specification and its authentication additions live in
 `docs/specs/`. The design language is documented in `docs/design-language.html`.
 The in-app version of the manifesto is at `/about`.

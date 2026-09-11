@@ -94,7 +94,7 @@ export function simulationOptions(effects: DecisionEffect[], scenarioId = "simul
   effects.forEach((effect, index) => {
     if (effect.kind === "add_item") extraItems.push({ id: `${scenarioId}:${index}`, label: effect.item.label, ...(effect.item.counterparty ? { counterparty: effect.item.counterparty } : {}), direction: effect.item.direction, amount: effect.item.amount, category: effect.item.category, cadence: effect.item.cadence, effectiveFrom: effect.item.effectiveFrom, ...(effect.item.effectiveTo ? { effectiveTo: effect.item.effectiveTo } : {}), accountingTreatment: effect.item.accountingTreatment, ...(effect.item.recognitionStart ? { recognitionStart: effect.item.recognitionStart } : {}), ...(effect.item.recognitionEnd ? { recognitionEnd: effect.item.recognitionEnd } : {}), basis: "assumed", provenance: {} });
     else if (effect.kind === "end_item") itemOverrides.push({ itemId: effect.itemId, effectiveTo: effect.effectiveTo });
-    else if (effect.kind === "change_amount") itemOverrides.push({ itemId: effect.itemId, amount: effect.amount });
+    else if (effect.kind === "change_amount") itemOverrides.push({ itemId: effect.itemId, amount: effect.amount, amountFrom: effect.effectiveFrom });
   });
   return { extraItems, itemOverrides };
 }
