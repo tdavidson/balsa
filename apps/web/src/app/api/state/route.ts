@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { allocations, assumptions, cashEvents, decisions, economicItems, entities, factRecords, getDatabase, observations, policies, relationships, reviewItems, scenarios, sources } from "@finance/database";
+import { allocations, assumptions, cashEvents, decisions, economicItems, entities, evidence, factRecords, getDatabase, observations, policies, relationships, reviewItems, scenarios, sources } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 
 const json = (value: string | null | undefined, fallback: unknown) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
@@ -16,7 +16,7 @@ export async function GET() {
     db.select().from(entities).where(eq(entities.companyId, context.company.id)),
     db.select().from(relationships).where(eq(relationships.companyId, context.company.id)),
     db.select().from(economicItems).where(eq(economicItems.companyId, context.company.id)),
-    db.select().from(cashEvents).where(eq(cashEvents.companyId, context.company.id)),
+    db.select().from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.isActual, "Y"), or(isNull(cashEvents.currency), eq(cashEvents.currency, context.company.baseCurrency)), or(eq(evidence.status, "approved"), isNull(cashEvents.evidenceId)))).then((rows) => rows.map((row) => row.cash_events)),
     db.select().from(factRecords).where(eq(factRecords.companyId, context.company.id)),
     db.select().from(decisions).where(eq(decisions.companyId, context.company.id)),
     db.select().from(policies).where(eq(policies.companyId, context.company.id)),

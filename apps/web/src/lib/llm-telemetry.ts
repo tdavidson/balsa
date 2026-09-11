@@ -1,6 +1,15 @@
 import { llmMessages, llmRuns, type Database } from "@finance/database";
 import type { ModelProvider } from "@finance/model-providers";
 
+/** LLM telemetry is for cost and operational debugging, never a second document store. */
+function redactRequest(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === "boolean" || typeof value === "number") return value;
+  if (typeof value === "string") return { redacted: true, characters: value.length };
+  if (Array.isArray(value)) return { redacted: true, items: value.length };
+  if (typeof value !== "object" || depth >= 3) return { redacted: true };
+  return Object.fromEntries(Object.keys(value).map((key) => [key, redactRequest((value as Record<string, unknown>)[key], depth + 1)]));
+}
+
 export async function recordLlmRun({ db, provider, companyId, userId, operation, request, response, status = "succeeded", error }: {
   db: Database; provider: ModelProvider; companyId?: string; userId?: string; operation: string;
   request: unknown; response?: string; status?: string; error?: string;
@@ -9,7 +18,7 @@ export async function recordLlmRun({ db, provider, companyId, userId, operation,
   const [run] = await db.insert(llmRuns).values({
     companyId, userId, provider: provider.name, model: usage?.model ?? provider.model, operation,
     inputTokens: usage?.inputTokens?.toString(), outputTokens: usage?.outputTokens?.toString(), totalTokens: usage?.totalTokens?.toString(), cost: usage?.cost?.toString(), latencyMs: usage?.latencyMs?.toString(), status,
-    requestJson: JSON.stringify(request), responseText: response, error,
+    requestJson: JSON.stringify(redactRequest(request)), responseText: response, error,
   }).returning({ id: llmRuns.id });
   return run?.id;
 }

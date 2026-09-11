@@ -1,0 +1,1 @@
+ALTER TABLE "fact_records" ADD COLUMN "accounting_role" text;

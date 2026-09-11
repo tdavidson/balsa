@@ -9,6 +9,7 @@ export type ConversationTurn = {
   question: string;
   answer: string;
   attachments?: string[];
+  reviewContext?: { type: "question" | "decision"; text: string };
   model: string | null;
   createdAt: string;
 };

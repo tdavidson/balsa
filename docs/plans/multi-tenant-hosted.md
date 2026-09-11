@@ -483,6 +483,19 @@ call picks up anything the kick missed. If a very large PDF exceeds the
 Vercel duration limit even in the worker route, the fallback is a managed
 queue such as Inngest, but don't add that dependency until it's needed.
 
+### Required gate before multi-instance deployment
+
+The current request limits are intentionally process-local: they protect the
+single-player, single-instance application but cannot coordinate a limit across
+several servers or survive a restart. Before deploying more than one web or
+worker instance, replace them with a shared, atomic rate limiter (Redis is the
+preferred option; a dedicated Postgres rate-limit table is acceptable). It
+must key limits by company, user, and route; return a retry time; enforce limits
+for uploads, reprocessing, model calls, and worker-triggering endpoints; and
+be covered by a multi-instance integration test. This is a deployment gate,
+not optional hardening, because model cost and upload limits otherwise multiply
+by the number of instances.
+
 ## Delivery order
 
 Ship the work as a sequence of pull requests. Each one is independently

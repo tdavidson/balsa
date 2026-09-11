@@ -1,9 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, asc, eq, like } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDatabase, knowledgeDocuments } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
-import { defaultKnowledgeDocuments, knowledgeTemplates, universalAccountingRules } from "@/lib/knowledge-templates";
+import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
+import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
 
 const appliedIdsFor = (documents: { slug: string; content: string }[]) => [...new Set(documents.flatMap((document) => {
   const match = document.slug.match(/^template:([^:]+):/);
@@ -15,17 +16,7 @@ const appliedIdsFor = (documents: { slug: string; content: string }[]) => [...ne
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  let documents = await getDatabase().select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)).orderBy(asc(knowledgeDocuments.slug));
-  if (!documents.length) {
-    await getDatabase().insert(knowledgeDocuments).values(defaultKnowledgeDocuments.map(({ slug, title, content }) => ({ companyId: context.company.id, slug, title, content })));
-    documents = await getDatabase().select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)).orderBy(asc(knowledgeDocuments.slug));
-  }
-  const accounting = documents.find((document) => document.slug === "accounting");
-  if (accounting && !accounting.content.includes("## Universal cash-activity rules")) {
-    const content = `${accounting.content.trim()}\n\n${universalAccountingRules}`;
-    await getDatabase().update(knowledgeDocuments).set({ content, updatedAt: new Date() }).where(eq(knowledgeDocuments.id, accounting.id));
-    documents = documents.map((document) => document.id === accounting.id ? { ...document, content } : document);
-  }
+  const documents = await ensureCompanyKnowledgeDocuments(getDatabase(), context.company.id);
   return NextResponse.json({ documents, appliedTemplateIds: appliedIdsFor(documents) });
 }
 
@@ -36,11 +27,7 @@ export async function POST(request: Request) {
   const template = knowledgeTemplates.find((candidate) => candidate.id === body.templateId);
   if (!template) return NextResponse.json({ error: "Unknown knowledge template" }, { status: 400 });
   const db = getDatabase();
-  let documents = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id));
-  if (!documents.length) {
-    await db.insert(knowledgeDocuments).values(defaultKnowledgeDocuments.map(({ slug, title, content }) => ({ companyId: context.company.id, slug, title, content })));
-    documents = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id));
-  }
+  const documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
   const templatePrefix = `template:${template.id}:`;
   const legacyMarker = `Hemrock knowledge template: ${template.id} v${template.version}`;
   const applied: string[] = [];
@@ -98,6 +85,7 @@ export async function PATCH(request: Request) {
   const context = await requireCompanyAccess();
   const body = (await request.json()) as { slug?: string; content?: string };
   if (!body.slug || typeof body.content !== "string") return NextResponse.json({ error: "slug and content are required" }, { status: 400 });
+  if (body.slug === "core-accounting") return NextResponse.json({ error: "Core accounting is platform-managed and cannot be changed in company knowledge." }, { status: 403 });
   const [document] = await getDatabase().update(knowledgeDocuments).set({ content: body.content, updatedAt: new Date() }).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, body.slug))).returning();
   return document ? NextResponse.json({ document }) : NextResponse.json({ error: "Knowledge document not found" }, { status: 404 });
 }
