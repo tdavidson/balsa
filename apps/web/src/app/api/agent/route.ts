@@ -36,7 +36,7 @@ const inputSchema = modelRequestSchema.extend({
   decisionId: z.string().uuid().optional(),
 });
 
-const toolNames = ["get_financials", "trace_value", "get_obligations", "get_allocations", "simulate", "read_policies", "read_company_state", "read_evidence"] as const;
+const toolNames = ["get_financials", "get_statements", "trace_value", "get_obligations", "get_allocations", "simulate", "read_policies", "read_company_state", "read_evidence"] as const;
 
 const outputSchema = z.object({
   answer: z.string(),
@@ -76,6 +76,13 @@ async function runTool(tool: (typeof toolNames)[number], rawInput: string, conte
       const start = typeof input.start === "string" && isValidMonth(input.start) ? input.start : typeof input.month === "string" && isValidMonth(input.month) ? input.month : asOf;
       const end = typeof input.end === "string" && isValidMonth(input.end) ? input.end : typeof input.month === "string" && isValidMonth(input.month) ? input.month : financials.input.horizon.end;
       return summarizeMonths(financials.output, start, end).map((month) => ({ ...month, pnl: financials.output.months.find((entry) => entry.month === month.month)?.pnl }));
+    }
+    case "get_statements": {
+      const entity = typeof input.entity === "string" && input.entity !== "consolidated" ? input.entity : undefined;
+      const view = entity ? await computeFinancials(context.companyId, { entity }) : financials;
+      const start = typeof input.start === "string" && isValidMonth(input.start) ? input.start : typeof input.month === "string" && isValidMonth(input.month) ? input.month : asOf;
+      const end = typeof input.end === "string" && isValidMonth(input.end) ? input.end : typeof input.month === "string" && isValidMonth(input.month) ? input.month : start;
+      return { view: view.view, entities: view.structure.legalEntities, months: view.output.months.filter((month) => month.month >= start && month.month <= end).map((month) => ({ month: month.month, status: month.status, incomeStatement: { revenue: month.pnl.revenue, expenses: month.pnl.expenses, operatingIncome: month.pnl.operatingIncome, revenueByCategory: month.pnl.revenueByCategory, byCategory: month.pnl.byCategory, allocatedOut: month.pnl.allocatedOut }, balanceSheet: month.balanceSheet, cashFlow: month.cashFlow })) };
     }
     case "trace_value": {
       const month = typeof input.month === "string" && isValidMonth(input.month) ? input.month : asOf;
@@ -145,6 +152,7 @@ How the engine works: confirmed items (agreements and obligations) expand into e
 
 Tools (request at most one per turn as toolCalls; results come back on the next turn; input is a JSON string):
 - get_financials {"start":"YYYY-MM","end":"YYYY-MM"}: cash, P&L, outstanding items, intercompany balances per month.
+- get_statements {"entity":"<legal entity id or consolidated>","start":"YYYY-MM","end":"YYYY-MM"}: income statement, balance sheet (assets, liabilities, equity by ledger, cash by account), and cash flow statement per month for one entity or the consolidated group. Use it for balance sheet, receivable, payable, prepaid, equity, and consolidation questions.
 - trace_value {"month":"YYYY-MM","category":"professional_services","label":"Smith"}: the lines behind a figure with their source, item, settlement, decision, and policy. Use it for every "why is this number" question.
 - get_obligations {}: what is due, settled, and unpaid.
 - get_allocations {}: allocation rules, allocated lines, amounts due from other entities.
@@ -162,6 +170,8 @@ Prior decisions: ${JSON.stringify(priorDecisions)}
 Proposed decisions awaiting the CFO: ${JSON.stringify(proposedDecisionRows.map((decision) => ({ id: decision.id, question: decision.question, answer: decision.answer })))}
 Open clarification questions: ${JSON.stringify(consolidatedOpenReviews)}
 Opening cash: ${JSON.stringify(financials.input.openingCash ?? null)}; closed months: ${JSON.stringify(financials.input.closedMonths)}
+Legal entities (consolidated flag means in the group; the default view here is consolidated): ${JSON.stringify(financials.structure.legalEntities)}; accounts: ${JSON.stringify(financials.structure.accounts.map((account) => ({ id: account.id, name: account.name, ownerEntityId: account.ownerEntityId })))}
+Balance sheet as of ${asOf}: ${JSON.stringify(asOfMonth?.balanceSheet ? { assets: asOfMonth.balanceSheet.assets, liabilities: asOfMonth.balanceSheet.liabilities, equity: asOfMonth.balanceSheet.equity, balances: asOfMonth.balanceSheet.balances, balanced: asOfMonth.balanceSheet.balanced, hasOpening: asOfMonth.balanceSheet.hasOpening } : null)}
 Engine summary from ${asOf} (twelve months): ${JSON.stringify(calculated)}
 Outstanding as of ${asOf}: ${JSON.stringify(asOfMonth?.outstanding ?? null)}
 Confirmed items: ${JSON.stringify(confirmedItems)}

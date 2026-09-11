@@ -27,6 +27,16 @@ Rules the engine enforces:
 - Every month carries its lines with amount, category, basis (contractual or
   assumed), the item or event behind it, what settled it, and its provenance.
 
+Statements: every line carries a working-capital key, an entity, and an
+account. The cumulative gap between what a key has recognized and what it has
+paid or received becomes a receivable, payable, accrued liability, prepaid
+asset, or deferred revenue; allocations, investments, and financing post to
+their own ledgers; opening positions set absolute balances against opening
+equity. Each month therefore carries a balance sheet that balances and a cash
+flow statement whose indirect operating figure ties to the direct one. With
+`consolidate`, recognized lines whose counterparty is a consolidated entity
+are eliminated and shown as affiliate balances.
+
 `traceValue(output, { month, category, label })` returns the lines behind one
 figure. `summarizeMonths(output, start, end)` returns compact totals for
 prompts and summaries.

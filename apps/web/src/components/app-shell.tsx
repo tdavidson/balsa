@@ -199,7 +199,10 @@ type ChatEvidence = {
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected"; effectSummary?: string | null };
 type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null };
-type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
+type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; balanceSheet?: BalanceSheetView; cashFlow?: CashFlowView; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
+type BalanceSheetView = { month: string; hasOpening: boolean; balances: Record<string, number>; cashByAccount: { accountId: string | null; name: string; balance: number }[]; assets: number; liabilities: number; equity: number; check: number; balanced: boolean };
+type CashFlowView = { month: string; netIncome: number; eliminations: number; changes: Record<string, number>; operatingIndirect: number; operating: number; investing: number; financing: number; transfers: number; adjustments: number; netChange: number; openingCash?: number; endingCash?: number; ties: boolean };
+type EntityStructureView = { legalEntities: { id: string; name: string; consolidated: boolean }[]; accounts: { id: string; name: string; ownerEntityId: string | null }[] };
 type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; activity?: string; category: string | null; sourceName: string }[] };
 type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; allocatedOut?: number; uncategorized?: number; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string; kind?: string; basis?: string | null }[] };
 type PeriodPreset = "month" | "quarter" | "ytd" | "year" | "custom";
@@ -230,6 +233,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
   const [proposedItems, setProposedItems] = useState<ProposedItem[]>([]);
+  const [entityStructure, setEntityStructure] = useState<EntityStructureView>({ legalEntities: [], accounts: [] });
+  const [selectedEntity, setSelectedEntity] = useState<string>("consolidated");
+  const entityQuery = selectedEntity === "consolidated" ? "" : `?entity=${selectedEntity}`;
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [pnl, setPnl] = useState<PnlMonth[]>([]);
@@ -269,6 +275,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const sumRows = (pick: (row: ForecastMonth) => number | undefined) => periodForecastRows.reduce((sum, row) => sum + (pick(row) ?? 0), 0);
   const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: sumRows((row) => row.receipts), spending: sumRows((row) => row.spending), actualReceipts: sumRows((row) => row.actualReceipts), actualSpending: sumRows((row) => row.actualSpending), variance: sumRows((row) => row.variance), contractualReceipts: sumRows((row) => row.contractualReceipts), contractualSpending: sumRows((row) => row.contractualSpending), assumedReceipts: sumRows((row) => row.assumedReceipts), assumedSpending: sumRows((row) => row.assumedSpending), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
   const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, allocatedOut: periodPnlRows.reduce((sum, row) => sum + (row.allocatedOut ?? 0), 0), uncategorized: periodPnlRows.reduce((sum, row) => sum + (row.uncategorized ?? 0), 0), revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
+  const periodBalanceSheet = lastForecast?.balanceSheet;
+  const periodCashFlow = periodForecastRows.length ? periodForecastRows.reduce<CashFlowView | undefined>((total, row) => {
+    if (!row.cashFlow) return total;
+    if (!total) return { ...row.cashFlow, changes: { ...row.cashFlow.changes } };
+    const changes = Object.fromEntries(Object.keys(total.changes).map((key) => [key, (total.changes[key] ?? 0) + (row.cashFlow!.changes[key] ?? 0)]));
+    return { ...total, netIncome: total.netIncome + row.cashFlow.netIncome, eliminations: total.eliminations + row.cashFlow.eliminations, changes, operatingIndirect: total.operatingIndirect + row.cashFlow.operatingIndirect, operating: total.operating + row.cashFlow.operating, investing: total.investing + row.cashFlow.investing, financing: total.financing + row.cashFlow.financing, transfers: total.transfers + row.cashFlow.transfers, adjustments: total.adjustments + row.cashFlow.adjustments, netChange: total.netChange + row.cashFlow.netChange, ...(row.cashFlow.endingCash !== undefined ? { endingCash: row.cashFlow.endingCash } : {}), ties: total.ties && row.cashFlow.ties };
+  }, undefined) : undefined;
+  const ledgerLabel = (ledger: string) => ledger.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
   const periodLabel = periodPreset === "quarter" ? `Q${Math.floor((anchorMonth - 1) / 3) + 1} ${anchorYear}` : periodPreset === "ytd" ? `YTD ${monthLabel(selectedMonth)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${monthLabel(periodStart)} – ${monthLabel(periodEnd)}` : monthLabel(selectedMonth);
   const pendingEvidence = evidence.filter((item) => item.status === "pending");
   const draftItems = proposedItems.filter((item) => item.status === "draft");
@@ -289,15 +303,29 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   useEffect(() => {
     fetch("/api/decisions").then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.decisions) setAgentDecisions(payload.decisions); }).catch(() => undefined);
     refreshProposedItems().catch(() => undefined);
+    refreshEntities().catch(() => undefined);
   }, []);
+
+  // Re-read the statements when the entity view changes (the initial load is handled below).
+  const firstEntityRender = useRef(true);
+  useEffect(() => {
+    if (firstEntityRender.current) { firstEntityRender.current = false; return; }
+    refreshFinancials().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEntity]);
 
   async function refreshProposedItems() {
     const response = await fetch("/api/items");
     if (response.ok) { const payload = await readJson(response); if (payload.items) setProposedItems(payload.items); }
   }
 
+  async function refreshEntities() {
+    const response = await fetch("/api/entities");
+    if (response.ok) { const payload = await readJson(response); setEntityStructure({ legalEntities: payload.legalEntities ?? [], accounts: payload.accounts ?? [] }); }
+  }
+
   async function refreshFinancials() {
-    const [forecastResponse, pnlResponse, reconciliationResponse] = await Promise.all([fetch("/api/forecast"), fetch("/api/pnl"), fetch("/api/reconciliation")]);
+    const [forecastResponse, pnlResponse, reconciliationResponse] = await Promise.all([fetch(`/api/forecast${entityQuery}`), fetch(`/api/pnl${entityQuery}`), fetch("/api/reconciliation")]);
     if (forecastResponse.ok) { const payload = await readJson(forecastResponse); if (payload.months) setForecast(payload.months); }
     if (pnlResponse.ok) { const payload = await readJson(pnlResponse); if (payload.months) setPnl(payload.months); }
     if (reconciliationResponse.ok) { const payload = await readJson(reconciliationResponse); if (payload.months) setReconciliation(payload.months); }
@@ -509,8 +537,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         const summary = payload.summary as { actualNet?: number; variance?: number } | undefined;
         if (summary?.actualNet !== undefined && summary.variance !== undefined) setCloseSummary({ month: closeCommand[1]!, actualNet: summary.actualNet, variance: summary.variance });
         setNotice(`${closeCommand[1]} close completed${summary ? ` · actual net ${company.currency} ${summary.actualNet?.toLocaleString()} · variance ${summary.variance?.toLocaleString()}` : ""}.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancials();
         return;
       }
       const reopenCommand = submittedMessage.match(/^(?:open|reopen)\s+(?:month\s+)?(\d{4}-\d{2})$/i);
@@ -519,8 +546,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to reopen month");
         setNotice(`${reopenCommand[1]} reopened.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancials();
         return;
       }
       const decisionCommand = submittedMessage.match(/^decision\s*:\s*(.+?)\s*=>\s*(.+)$/i);
@@ -538,14 +564,53 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         }
         return;
       }
+      const entityCommand = submittedMessage.match(/^entity\s*:\s*(.+?)\s*(\(?(?:not\s+consolidated|standalone|unconsolidated)\)?)?$/i);
+      if (entityCommand) {
+        const response = await request("/api/entities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "legal_entity", name: entityCommand[1], consolidated: !entityCommand[2] }) });
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.error ?? "Unable to save the entity");
+        setNotice(`${payload.created ? "Created" : "Updated"} legal entity ${payload.entity?.name ?? entityCommand[1]}${entityCommand[2] ? " (not consolidated)" : ""}.`);
+        await Promise.all([refreshEntities(), refreshFinancials()]);
+        return;
+      }
+      const accountCommand = submittedMessage.match(/^account\s*:\s*(.+?)\s*=>\s*(.+)$/i);
+      if (accountCommand) {
+        const identifier = accountCommand[1]!.match(/\b(\d{4})\b/)?.[1];
+        const response = await request("/api/entities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "account", name: accountCommand[1], ownerName: accountCommand[2], ...(identifier ? { accountIdentifier: identifier } : {}) }) });
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.error ?? "Unable to save the account");
+        setNotice(`Account ${payload.account?.name ?? accountCommand[1]} belongs to ${accountCommand[2]}.`);
+        await Promise.all([refreshEntities(), refreshFinancials()]);
+        return;
+      }
+      const positionCommand = submittedMessage.match(/^opening\s+position\s+(?:for\s+)?(.+?)\s+(\d{4}-\d{2})\s*:?\s*(.+)$/i);
+      if (positionCommand) {
+        const balances: Record<string, number> = {};
+        const aliases: Record<string, string> = { cash: "cash", receivables: "accounts_receivable", ar: "accounts_receivable", prepaid: "prepaid_expenses", prepaids: "prepaid_expenses", investments: "investments", duefrom: "due_from_affiliates", payables: "accounts_payable", ap: "accounts_payable", accrued: "accrued_liabilities", deferred: "deferred_revenue", dueto: "due_to_affiliates", debt: "financing", financing: "financing" };
+        for (const part of positionCommand[3]!.split(/[,;]/)) {
+          const pair = part.match(/^\s*([a-z_ ]+?)\s*=\s*-?\$?\s*(-?[\d,]+(?:\.\d+)?)\s*$/i);
+          if (!pair) continue;
+          const ledger = aliases[pair[1]!.toLowerCase().replace(/[\s_]+/g, "")] ?? pair[1]!.toLowerCase().replace(/\s+/g, "_");
+          balances[ledger] = Number(pair[2]!.replace(/,/g, "")) * (part.includes("-") ? -1 : 1);
+        }
+        if (!Object.keys(balances).length) throw new Error("Give balances as ledger=amount pairs, for example cash=482314, prepaid=6000, payables=12500");
+        const target = positionCommand[1]!.trim();
+        const isAll = /^(all|company|consolidated)$/i.test(target);
+        const account = entityStructure.accounts.find((entry) => entry.name.toLowerCase() === target.toLowerCase());
+        const response = await request("/api/positions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: positionCommand[2], balances, ...(account ? { accountEntityId: account.id } : isAll ? {} : { entityName: target }) }) });
+        const payload = await readJson(response);
+        if (!response.ok) throw new Error(payload.error ?? "Unable to save the opening position");
+        setNotice(`Opening position for ${target} set at ${positionCommand[2]}.`);
+        await refreshFinancials();
+        return;
+      }
       const openingCommand = submittedMessage.match(/^(?:set\s+)?opening\s+(?:cash|balance)\s+(?:for\s+)?(\d{4}-\d{2})\s*(?:to|=)?\s*\$?([\d,]+(?:\.\d+)?)$/i);
       if (openingCommand) {
         const response = await request("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: openingCommand[1], openingCash: openingCommand[2]!.replace(/,/g, "") }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to set opening balance");
         setNotice(`Opening cash set for ${openingCommand[1]}.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancials();
         return;
       }
       if (!selectedFiles.length) {
@@ -563,7 +628,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           const filePreview = /\.(csv|xlsx|xls)$/i.test(file.name) ? await file.slice(0, 4000).text() : "";
           const looksLikeTransactions = /\.(qbo|ofx)$/i.test(file.name) || (/\.(csv|xlsx|xls)$/i.test(file.name) && /bank|transaction|actual|statement/i.test(file.name) && /date/i.test(filePreview) && /amount|debit|credit|value|total/i.test(filePreview));
           if (looksLikeTransactions) {
-            const actualsForm = new FormData(); actualsForm.append("file", file);
+            const actualsForm = new FormData(); actualsForm.append("file", file); if (submittedMessage) actualsForm.append("instructions", submittedMessage); actualsForm.append("model", model); if (effort !== "auto") actualsForm.append("effort", effort);
             const actualsResponse = await request("/api/actuals", { method: "POST", body: actualsForm });
             const actualsPayload = await readJson(actualsResponse);
             if (actualsResponse.ok) {
@@ -614,8 +679,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       }
       await refreshReconciliation();
       if (importedActuals) {
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancials();
         const refreshedPnl = await request("/api/pnl");
         if (refreshedPnl.ok) { const data = await readJson(refreshedPnl); setPnl(data.months); }
       }
@@ -984,6 +1048,17 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             <div className="flex items-center gap-3 text-[13px] text-ink-2">
               {currentForecast?.status && <span className="hidden sm:inline">{isClosed ? "Closed, in ink" : showActuals ? "Past month, actuals in ink" : "Open, forecast in pencil"}</span>}
               <button type="button" className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-ink-2 hover:bg-rule hover:text-ink sm:flex" onClick={() => window.location.reload()}><RefreshCw className="size-3.5" aria-hidden="true" /> Refresh</button>
+              {entityStructure.legalEntities.length > 0 && (
+                <Select value={selectedEntity} onValueChange={setSelectedEntity}>
+                  <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Entity view">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-rule">
+                    <SelectItem value="consolidated">Consolidated</SelectItem>
+                    {entityStructure.legalEntities.map((entity) => <SelectItem key={entity.id} value={entity.id}>{entity.name}{entity.consolidated ? "" : " (standalone)"}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
               {forecast.length > 0 && (
                 <>
                   <Select value={periodPreset} onValueChange={(value) => setPeriodPreset(value as PeriodPreset)}>
@@ -1104,25 +1179,41 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   {periodPnlRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Revenue</th><th className="pb-2 text-right font-normal">Expenses</th><th className="pb-2 text-right font-normal">Operating income</th></tr></thead><tbody>{periodPnlRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.revenue)}</td><td className="py-2 text-right">{money(row.expenses)}</td><td className="py-2 text-right">{money(row.operatingIncome)}</td></tr>)}</tbody></table></div>}
                 </div>}
                 {statementTab === "cash" && <div>
-                  <div className="text-[13px] text-ink-2">Cash flow statement</div>
+                  <div className="text-[13px] text-ink-2">Cash flow statement{periodCashFlow && !periodCashFlow.ties ? <span className="text-red-ink"> · does not tie</span> : null}</div>
                   <div className="mt-2 grid gap-1 text-[13px]">
-                    <span>Beginning period cash <span className="float-right">{money(currentForecast.openingCash ?? (currentForecast.endingCash - (currentForecast.receipts - currentForecast.spending)))}</span></span>
-                    <span>Cash from operations <span className="float-right">{money(currentForecast.receipts - currentForecast.spending)}</span></span>
-                    <span>Cash from financing <span className="float-right">{money(0)}</span></span>
-                    <span>Cash from investing <span className="float-right">{money(0)}</span></span>
-                    <span className="border-t border-rule pt-1 font-medium">Ending cash <span className="float-right">{money(currentForecast.endingCash)}</span></span>
+                    <span>Beginning period cash <span className="float-right">{money(periodCashFlow?.openingCash ?? currentForecast.openingCash ?? 0)}</span></span>
+                    <span>Cash from operations <span className="float-right">{money(periodCashFlow?.operating ?? currentForecast.receipts - currentForecast.spending)}</span></span>
+                    <span>Cash from investing <span className="float-right">{money(periodCashFlow?.investing ?? 0)}</span></span>
+                    <span>Cash from financing <span className="float-right">{money(periodCashFlow?.financing ?? 0)}</span></span>
+                    {periodCashFlow?.adjustments ? <span className="text-ink-2">Opening position adjustments <span className="float-right">{money(periodCashFlow.adjustments)}</span></span> : null}
+                    <span className="border-t border-rule pt-1 font-medium">Ending cash <span className="float-right">{money(periodCashFlow?.endingCash ?? currentForecast.endingCash)}</span></span>
                   </div>
+                  {periodCashFlow && <div className="mt-3 grid gap-1 border-t border-rule pt-2 text-[12px] text-ink-2"><span className="text-[11px] uppercase tracking-wide text-pencil">Operating reconciliation</span><span>Net income <span className="float-right">{money(periodCashFlow.netIncome)}</span></span>{periodCashFlow.eliminations ? <span>Intercompany eliminations <span className="float-right">{money(periodCashFlow.eliminations)}</span></span> : null}{Object.entries(periodCashFlow.changes).filter(([, amount]) => amount !== 0).map(([key, amount]) => { const asset = ["accountsReceivable", "prepaidExpenses", "dueFromAffiliates"].includes(key); return <span key={key}>{amount > 0 ? "Increase" : "Decrease"} in {key.replace(/([A-Z])/g, " $1").toLowerCase()} <span className="float-right">{money(asset ? -amount : amount)}</span></span>; })}<span className="border-t border-rule pt-1">Cash from operations <span className="float-right">{money(periodCashFlow.operatingIndirect)}</span></span>{periodCashFlow.transfers ? <span className="text-pencil">Transfers between own accounts <span className="float-right">{money(periodCashFlow.transfers)}</span></span> : null}</div>}
                   {currentForecast.trace && <div className="mt-3 grid max-h-36 min-w-0 gap-1 overflow-x-auto overflow-y-auto border-t border-rule pt-2 text-[12px] text-ink-2">{currentForecast.trace.filter((entry) => entry.amount).map((entry, index) => <span key={`${entry.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{entry.description}</span><span className="shrink-0">{entry.kind === "spend" ? "−" : "+"}{money(entry.amount ?? 0)}</span></span>)}</div>}
-                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.receipts - row.spending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
+                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Operations</th><th className="pb-2 text-right font-normal">Investing</th><th className="pb-2 text-right font-normal">Financing</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.cashFlow?.openingCash ?? row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.cashFlow?.operating ?? row.receipts - row.spending)}</td><td className="py-2 text-right">{money(row.cashFlow?.investing ?? 0)}</td><td className="py-2 text-right">{money(row.cashFlow?.financing ?? 0)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
                 </div>}
                 {statementTab === "balance" && <div>
-                  <div className="text-[13px] text-ink-2">Balance sheet snapshot</div>
-                  <div className="mt-2 grid gap-1 text-[13px]">
-                    <span>Cash and equivalents <span className="float-right">{money(currentForecast.endingCash)}</span></span>
-                    <span>Period <span className="float-right">{monthLabel(currentForecast.month)}</span></span>
-                    <span className="border-t border-rule pt-1 font-medium">Position <span className="float-right">{currentForecast.endingCash < 0 ? "Deficit" : "Positive"}</span></span>
-                  </div>
-                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Total assets / cash</th><th className="pb-2 text-right font-normal">Position</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.endingCash)}</td><td className="py-2 text-right">{row.endingCash < 0 ? "Deficit" : "Positive"}</td></tr>)}</tbody></table></div>}
+                  <div className="text-[13px] text-ink-2">Balance sheet at end of {monthLabel(currentForecast.month)}{periodBalanceSheet && !periodBalanceSheet.hasOpening ? <span className="text-pencil"> · flows only, no opening position yet</span> : null}{periodBalanceSheet && !periodBalanceSheet.balanced ? <span className="text-red-ink"> · out of balance by {money(periodBalanceSheet.check)}</span> : null}</div>
+                  {periodBalanceSheet ? (
+                    <div className="mt-2 grid gap-1 text-[13px]">
+                      <span className="text-[11px] uppercase tracking-wide text-pencil">Assets</span>
+                      {["cash", "accounts_receivable", "prepaid_expenses", "due_from_affiliates", "investments"].filter((ledger) => ledger === "cash" || periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
+                      {periodBalanceSheet.cashByAccount.length > 1 && periodBalanceSheet.cashByAccount.map((account) => <span key={account.accountId ?? "unassigned"} className="pl-4 text-[12px] text-ink-2">{account.name} <span className="float-right">{money(account.balance)}</span></span>)}
+                      <span className="border-t border-rule pt-1 font-medium">Total assets <span className="float-right">{money(periodBalanceSheet.assets)}</span></span>
+                      <span className="mt-2 text-[11px] uppercase tracking-wide text-pencil">Liabilities</span>
+                      {["accounts_payable", "accrued_liabilities", "deferred_revenue", "due_to_affiliates"].filter((ledger) => periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
+                      <span className="border-t border-rule pt-1 font-medium">Total liabilities <span className="float-right">{money(periodBalanceSheet.liabilities)}</span></span>
+                      <span className="mt-2 text-[11px] uppercase tracking-wide text-pencil">Equity</span>
+                      {["opening_equity", "financing", "retained_earnings", "eliminations"].filter((ledger) => periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledger === "financing" ? "Contributions and debt" : ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
+                      <span className="border-t border-rule pt-1 font-medium">Total equity <span className="float-right">{money(periodBalanceSheet.equity)}</span></span>
+                      <span className="border-t border-rule pt-1 text-ink-2">Liabilities and equity <span className="float-right">{money(periodBalanceSheet.liabilities + periodBalanceSheet.equity)}</span></span>
+                    </div>
+                  ) : (
+                    <div className="mt-2 grid gap-1 text-[13px]">
+                      <span>Cash and equivalents <span className="float-right">{money(currentForecast.endingCash)}</span></span>
+                    </div>
+                  )}
+                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Cash</th><th className="pb-2 text-right font-normal">Total assets</th><th className="pb-2 text-right font-normal">Liabilities</th><th className="pb-2 text-right font-normal">Equity</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.endingCash)}</td><td className="py-2 text-right">{money(row.balanceSheet?.assets ?? row.endingCash)}</td><td className="py-2 text-right">{money(row.balanceSheet?.liabilities ?? 0)}</td><td className="py-2 text-right">{money(row.balanceSheet?.equity ?? row.endingCash)}</td></tr>)}</tbody></table></div>}
                 </div>}
               </div>
             </section>

@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   char,
   date,
   index,
@@ -134,8 +135,26 @@ export const observations = pgTable("observations", {
 }, (table) => [index("observations_company_index").on(table.companyId), index("observations_source_index").on(table.sourceId), index("observations_event_index").on(table.eventId)]);
 
 export const entities = pgTable("entities", {
-  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), type: text("type").notNull(), name: text("name").notNull(), attributes: text("attributes").default("{}").notNull(), ...timestamps,
-}, (table) => [index("entities_company_index").on(table.companyId)]);
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), type: text("type").notNull(), name: text("name").notNull(), attributes: text("attributes").default("{}").notNull(),
+  /** For accounts: the legal entity that owns the account. */
+  ownerEntityId: uuid("owner_entity_id").references((): AnyPgColumn => entities.id, { onDelete: "set null" }),
+  /** For legal entities: included in the consolidated group. */
+  consolidated: char("consolidated", { length: 1 }).default("N").notNull(),
+  ...timestamps,
+}, (table) => [index("entities_company_index").on(table.companyId), index("entities_owner_index").on(table.ownerEntityId)]);
+
+/** Absolute ledger balances at the start of a month, per legal entity (and per account for cash). */
+export const openingPositions = pgTable("opening_positions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  entityId: uuid("entity_id").references(() => entities.id, { onDelete: "cascade" }),
+  accountEntityId: uuid("account_entity_id").references(() => entities.id, { onDelete: "cascade" }),
+  month: text("month").notNull(),
+  ledger: text("ledger").notNull(),
+  amount: text("amount").notNull(),
+  sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (table) => [index("opening_positions_company_index").on(table.companyId, table.month), uniqueIndex("opening_positions_unique").on(table.companyId, table.entityId, table.accountEntityId, table.month, table.ledger)]);
 
 export const relationships = pgTable("relationships", {
   id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), fromEntityId: uuid("from_entity_id").notNull().references(() => entities.id, { onDelete: "cascade" }), toEntityId: uuid("to_entity_id").notNull().references(() => entities.id, { onDelete: "cascade" }), type: text("type").notNull(), attributes: text("attributes").default("{}").notNull(), ...timestamps,
@@ -298,6 +317,8 @@ export const economicItems = pgTable(
     decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
     confidence: text("confidence"),
     rationale: text("rationale"),
+    /** The company's own legal entity that earns or owes this item. */
+    entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
     status: economicItemStatus("status").default("draft").notNull(),
     policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }),
     ...timestamps,
@@ -328,6 +349,9 @@ export const cashEvents = pgTable(
     counterpartyEntityId: uuid("counterparty_entity_id").references(() => entities.id, { onDelete: "set null" }),
     /** The confirmed agreement or obligation this actual settles. */
     settlesItemId: uuid("settles_item_id").references(() => economicItems.id, { onDelete: "set null" }),
+    /** The bank or brokerage account the movement happened in, and the legal entity that owns it. */
+    accountEntityId: uuid("account_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
     isActual: char("is_actual", { length: 1 }).default("N").notNull(),
     ...timestamps,
   },
@@ -385,6 +409,7 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   assumptions: many(assumptions),
   scenarios: many(scenarios),
   allocations: many(allocations),
+  openingPositions: many(openingPositions),
 }));
 
 export const companyMembersRelations = relations(

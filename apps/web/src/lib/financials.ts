@@ -1,7 +1,8 @@
 import "server-only";
 import { and, eq, ne } from "drizzle-orm";
-import { allocations, cashEvents, economicItems, entities, evidence, getDatabase, reportingPeriods } from "@finance/database";
-import { addMonths, isCategory, isValidMonth, parseCadence, runEngine, type ActualEvent, type AllocationRule, type EngineInput, type EngineOutput, type ScheduleItem, type StatementBalance, type Treatment } from "@nevermodel/finance-engine";
+import { allocations, cashEvents, economicItems, entities, evidence, getDatabase, openingPositions, reportingPeriods } from "@finance/database";
+import { addMonths, isCategory, isLedger, isValidMonth, parseCadence, runEngine, type ActualEvent, type AllocationRule, type EngineInput, type EngineOutput, type OpeningPosition, type ScheduleItem, type StatementBalance, type Treatment } from "@nevermodel/finance-engine";
+import { loadEntityStructure, type EntityStructure } from "@/lib/entity-structure";
 import { financialEventKey, isSummaryDescription, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
 import { legacyCategory } from "@/lib/categories";
 
@@ -11,6 +12,8 @@ export type FinancialOptions = {
   /** Months before this one are history. Defaults to the current calendar month. */
   asOfMonth?: string;
   scenarioId?: string;
+  /** One legal entity's view, or the consolidated group. Defaults to consolidated. */
+  entity?: string | "consolidated";
   /** Hypothetical items layered on top of persisted state, for simulations. */
   extraItems?: ScheduleItem[];
   /** Persisted item ids to drop, or to end at a month, for simulations. */
@@ -22,6 +25,8 @@ export type DuplicateEvent = { key: string; description: string; month: string; 
 export type FinancialContext = {
   input: EngineInput;
   output: EngineOutput;
+  structure: EntityStructure;
+  view: { entityId?: string; consolidated: boolean };
   duplicates: DuplicateEvent[];
   entityNames: Map<string, string>;
   /** Confirmed economic item rows, by id, for routes that need the original record. */
@@ -50,11 +55,12 @@ function balanceKind(label: string) {
 }
 
 /** Statement balances per month from approved evidence: the stored columns first, then the legacy extracted facts. */
-function statementBalancesFrom(rows: { status: string; reportingMonth: string | null; statementPeriodEnd: string | null; openingBalance: string | null; endingBalance: string | null; extractedJson: string | null; accountEntityId: string | null }[], hasAccounts: boolean): StatementBalance[] {
+function statementBalancesFrom(rows: { status: string; reportingMonth: string | null; statementPeriodEnd: string | null; openingBalance: string | null; endingBalance: string | null; extractedJson: string | null; accountEntityId: string | null }[], hasAccounts: boolean, inView: (accountId: string | null) => boolean): StatementBalance[] {
   const byMonth = new Map<string, { opening: number[]; ending: number[] }>();
   for (const row of rows) {
     if (row.status !== "approved") continue;
     if (hasAccounts && !row.accountEntityId) continue;
+    if (!inView(row.accountEntityId)) continue;
     const month = row.reportingMonth ?? monthOf(row.statementPeriodEnd);
     if (!month) continue;
     const entry = byMonth.get(month) ?? { opening: [], ending: [] };
@@ -81,22 +87,32 @@ function statementBalancesFrom(rows: { status: string; reportingMonth: string | 
 export async function loadFinancialInput(companyId: string, options: FinancialOptions = {}): Promise<Omit<FinancialContext, "output">> {
   const db = getDatabase();
   const asOfMonth = options.asOfMonth && isValidMonth(options.asOfMonth) ? options.asOfMonth : currentMonth();
-  const [itemRowsRaw, eventRows, allocationRows, entityRows, periodRows, evidenceRows] = await Promise.all([
-    db.select({ item: economicItems, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth }).from(economicItems).leftJoin(evidence, eq(economicItems.evidenceId, evidence.id)).where(and(eq(economicItems.companyId, companyId), eq(economicItems.status, "confirmed"))),
-    db.select({ event: cashEvents, sourceName: evidence.sourceName, evidenceStatus: evidence.status }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, companyId)),
+  const [itemRowsRaw, eventRows, allocationRows, entityRows, periodRows, evidenceRows, positionRows, structure] = await Promise.all([
+    db.select({ item: economicItems, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, evidenceAccountId: evidence.accountEntityId }).from(economicItems).leftJoin(evidence, eq(economicItems.evidenceId, evidence.id)).where(and(eq(economicItems.companyId, companyId), eq(economicItems.status, "confirmed"))),
+    db.select({ event: cashEvents, sourceName: evidence.sourceName, evidenceStatus: evidence.status, evidenceAccountId: evidence.accountEntityId }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, companyId)),
     db.select().from(allocations).where(and(eq(allocations.companyId, companyId), eq(allocations.status, "approved"))),
     db.select({ id: entities.id, name: entities.name, type: entities.type }).from(entities).where(eq(entities.companyId, companyId)),
     db.select({ month: reportingPeriods.month, openingCash: reportingPeriods.openingCash, status: reportingPeriods.status }).from(reportingPeriods).where(eq(reportingPeriods.companyId, companyId)),
     db.select({ status: evidence.status, reportingMonth: evidence.reportingMonth, statementPeriodEnd: evidence.statementPeriodEnd, openingBalance: evidence.openingBalance, endingBalance: evidence.endingBalance, extractedJson: evidence.extractedJson, accountEntityId: evidence.accountEntityId }).from(evidence).where(and(eq(evidence.companyId, companyId), ne(evidence.status, "rejected"))),
+    db.select().from(openingPositions).where(eq(openingPositions.companyId, companyId)),
+    loadEntityStructure(companyId),
   ]);
   const entityNames = new Map(entityRows.map((entity) => [entity.id, entity.name]));
   const hasAccounts = entityRows.some((entity) => entity.type === "account");
   const overrides = new Map((options.itemOverrides ?? []).map((override) => [override.itemId, override]));
+  // The view: one legal entity, or everything consolidated. Rows that carry no entity belong to the default entity.
+  const viewEntity = options.entity && options.entity !== "consolidated" ? options.entity : undefined;
+  const view = { ...(viewEntity ? { entityId: viewEntity } : {}), consolidated: !viewEntity };
+  const entityOf = (explicit: string | null | undefined, accountId: string | null | undefined) => explicit ?? structure.entityOfAccount(accountId);
+  const inView = (entityId: string | undefined) => !viewEntity || entityId === viewEntity;
+  const accountInView = (accountId: string | null) => inView(structure.entityOfAccount(accountId));
 
   const itemRows = new Map<string, ItemRow>();
   const items: ScheduleItem[] = [];
-  for (const { item, sourceName, reportingMonth } of itemRowsRaw) {
+  for (const { item, sourceName, reportingMonth, evidenceAccountId } of itemRowsRaw) {
     itemRows.set(item.id, { ...item, sourceName, reportingMonth });
+    const entityId = entityOf(item.entityId, evidenceAccountId);
+    if (!inView(entityId)) continue;
     const override = overrides.get(item.id);
     if (override?.remove) continue;
     const splitFrom = override?.amount !== undefined && override.amountFrom && isValidMonth(override.amountFrom) ? override.amountFrom : undefined;
@@ -120,6 +136,7 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
       ...(item.recognitionEnd ? { recognitionEnd: item.recognitionEnd } : {}),
       basis: item.basis === "assumed" ? "assumed" : "contractual",
       ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}),
+      ...(entityId ? { entityId } : {}),
       provenance: { ...(item.evidenceId ? { evidenceId: item.evidenceId } : {}), ...(sourceName ? { sourceName } : {}), ...(item.decisionId ? { decisionId: item.decisionId } : {}), ...(item.policyId ? { policyId: item.policyId } : {}), ...(item.assumptionId ? { assumptionId: item.assumptionId } : {}) },
     };
     if (splitFrom && effectiveTo && effectiveTo < effectiveFrom) { /* the change starts before the item does: apply the new amount throughout */ items.push({ ...base, id: item.id, amount: override!.amount!, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}) }); continue; }
@@ -139,8 +156,11 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
   const actuals: ActualEvent[] = [];
   // Imports carry an external key; prefer them as the canonical copy of a transaction.
   const ordered = [...canonical].sort((a, b) => Number(Boolean(b.event.externalKey)) - Number(Boolean(a.event.externalKey)));
-  for (const { event, sourceName, evidenceStatus } of ordered) {
+  for (const { event, sourceName, evidenceStatus, evidenceAccountId } of ordered) {
     if (event.isActual !== "Y") continue;
+    const accountId = event.accountEntityId ?? evidenceAccountId ?? undefined;
+    const entityId = entityOf(event.entityId, accountId);
+    if (!inView(entityId)) continue;
     const key = financialEventKey(event);
     const duplicate = seen.get(key);
     if (duplicate) { duplicate.eventIds.push(event.id); if (sourceName && !duplicate.sourceNames.includes(sourceName)) duplicate.sourceNames.push(sourceName); continue; }
@@ -164,15 +184,19 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
       accountingTreatment: asTreatment(event.accountingTreatment),
       ...(event.recognitionStart ? { recognitionStart: event.recognitionStart } : {}),
       ...(event.recognitionEnd ? { recognitionEnd: event.recognitionEnd } : {}),
+      ...(entityId ? { entityId } : {}),
+      ...(accountId ? { accountId } : {}),
       provenance: { ...(event.evidenceId ? { evidenceId: event.evidenceId } : {}), ...(sourceName ? { sourceName } : {}), ...(event.policyId ? { policyId: event.policyId } : {}) },
     });
   }
   // Manually entered forecast events (isActual = N) are one-off assumed items.
-  for (const { event, sourceName } of canonical) {
+  for (const { event, sourceName, evidenceAccountId } of canonical) {
     if (event.isActual === "Y") continue;
     const amount = Number(event.amount);
     if (!Number.isFinite(amount) || amount <= 0 || !isValidMonth(event.month)) continue;
-    items.push({ id: `event:${event.id}`, label: event.description, direction: event.direction, amount, category: isCategory(event.financialCategory) ? event.financialCategory : legacyCategory(event.description, event.direction) ?? (event.direction === "receipt" ? "other_revenue" : "other"), cadence: "once", effectiveFrom: event.month, accountingTreatment: asTreatment(event.accountingTreatment), ...(event.recognitionStart ? { recognitionStart: event.recognitionStart } : {}), ...(event.recognitionEnd ? { recognitionEnd: event.recognitionEnd } : {}), basis: "assumed", provenance: { ...(event.evidenceId ? { evidenceId: event.evidenceId } : {}), ...(sourceName ? { sourceName } : {}) } });
+    const manualEntity = entityOf(event.entityId, event.accountEntityId ?? evidenceAccountId);
+    if (!inView(manualEntity)) continue;
+    items.push({ id: `event:${event.id}`, ...(manualEntity ? { entityId: manualEntity } : {}), label: event.description, direction: event.direction, amount, category: isCategory(event.financialCategory) ? event.financialCategory : legacyCategory(event.description, event.direction) ?? (event.direction === "receipt" ? "other_revenue" : "other"), cadence: "once", effectiveFrom: event.month, accountingTreatment: asTreatment(event.accountingTreatment), ...(event.recognitionStart ? { recognitionStart: event.recognitionStart } : {}), ...(event.recognitionEnd ? { recognitionEnd: event.recognitionEnd } : {}), basis: "assumed", provenance: { ...(event.evidenceId ? { evidenceId: event.evidenceId } : {}), ...(sourceName ? { sourceName } : {}) } });
   }
 
   const allocationRules: AllocationRule[] = allocationRows.flatMap((row) => {
@@ -183,12 +207,23 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
     return [{ id: row.id, ...(row.eventId ? { eventId: row.eventId } : {}), ...(row.itemId ? { itemId: row.itemId } : {}), ...(row.counterpartyEntityId ? { counterpartyEntityId: row.counterpartyEntityId } : {}), bearerEntityId: row.bearerEntityId, ...(entityNames.has(row.bearerEntityId) ? { bearerName: entityNames.get(row.bearerEntityId)! } : {}), ...(percentage !== undefined && Number.isFinite(percentage) ? { percentage } : { amount: amount! }) }];
   });
 
-  const statementBalances = statementBalancesFrom(evidenceRows, hasAccounts).sort((a, b) => a.month.localeCompare(b.month));
+  const statementBalances = statementBalancesFrom(evidenceRows, hasAccounts, accountInView).sort((a, b) => a.month.localeCompare(b.month));
+  // Opening positions: rows for the entity in view (unstamped rows belong to the default entity); cash rows carry their account.
+  const positions: OpeningPosition[] = positionRows.flatMap((row) => {
+    if (!isLedger(row.ledger) || !isValidMonth(row.month)) return [];
+    const amount = Number(row.amount);
+    if (!Number.isFinite(amount)) return [];
+    const entityId = row.entityId ?? (row.accountEntityId ? structure.entityOfAccount(row.accountEntityId) : structure.defaultEntityId);
+    if (!inView(entityId)) return [];
+    return [{ month: row.month, ledger: row.ledger, amount, ...(entityId ? { entityId } : {}), ...(row.accountEntityId ? { accountId: row.accountEntityId } : {}) }];
+  });
+  // The legacy opening cash figure belongs to the default entity. A statement opening balance serves when nothing else is set.
   const openingPeriod = periodRows.filter((period) => Number(period.openingCash) !== 0 && isValidMonth(period.month)).sort((a, b) => a.month.localeCompare(b.month))[0];
   const openingStatement = statementBalances.find((balance) => balance.opening !== undefined);
-  const openingCash = openingPeriod ? { month: openingPeriod.month, amount: Number(openingPeriod.openingCash) } : openingStatement ? { month: openingStatement.month, amount: openingStatement.opening! } : undefined;
+  const hasCashPositions = positions.some((position) => position.ledger === "cash");
+  const openingCash = hasCashPositions ? undefined : openingPeriod && inView(structure.defaultEntityId) ? { month: openingPeriod.month, amount: Number(openingPeriod.openingCash) } : openingStatement ? { month: openingStatement.month, amount: openingStatement.opening! } : undefined;
 
-  const dataMonths = [...actuals.map((actual) => actual.month), ...items.map((item) => item.effectiveFrom), ...(openingCash ? [openingCash.month] : []), ...statementBalances.map((balance) => balance.month)].filter(isValidMonth);
+  const dataMonths = [...actuals.map((actual) => actual.month), ...items.map((item) => item.effectiveFrom), ...(openingCash ? [openingCash.month] : []), ...positions.map((position) => position.month), ...statementBalances.map((balance) => balance.month)].filter(isValidMonth);
   const earliest = dataMonths.length ? dataMonths.reduce((min, month) => (month < min ? month : min)) : asOfMonth;
   const floor = addMonths(asOfMonth, -36);
   const start = [earliest, `${asOfMonth.slice(0, 4)}-01`].reduce((min, month) => (month < min ? month : min));
@@ -204,8 +239,12 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
     closedMonths: periodRows.filter((period) => period.status === "closed").map((period) => period.month),
     ...(options.scenarioId ? { scenarioId: options.scenarioId } : {}),
     statementBalances,
+    entities: structure.legalEntities.map((entity) => ({ id: entity.id, name: entity.name, consolidated: entity.consolidated })),
+    accounts: structure.accounts.map((account) => ({ id: account.id, name: account.name, ...(account.ownerEntityId ? { entityId: account.ownerEntityId } : {}) })),
+    openingPositions: positions,
+    consolidate: view.consolidated,
   };
-  return { input, duplicates: [...seen.values()].filter((entry) => entry.eventIds.length > 1), entityNames, itemRows, actualSources };
+  return { input, duplicates: [...seen.values()].filter((entry) => entry.eventIds.length > 1), entityNames, itemRows, actualSources, structure, view };
 }
 
 export async function computeFinancials(companyId: string, options: FinancialOptions = {}): Promise<FinancialContext> {
@@ -237,6 +276,8 @@ export function forecastMonthView(month: EngineOutput["months"][number], context
     outstanding: month.outstanding,
     intercompany: month.intercompany,
     ...(month.statement ? { statement: month.statement } : {}),
+    balanceSheet: month.balanceSheet,
+    cashFlow: month.cashFlow,
     trace: month.lines.filter((line) => line.cash).map((line) => ({ description: line.description, evidenceId: line.provenance.evidenceId ?? null, sourceName: line.provenance.sourceName ?? (line.eventId ? context.actualSources.get(line.eventId)?.sourceName ?? null : null), amount: line.amount, kind: line.direction, actual: line.kind === "actual", basis: line.basis ?? null, itemId: line.itemId ?? null, eventId: line.eventId ?? null, settledBy: line.settledBy ?? [], settles: line.settles ?? null })),
   };
 }

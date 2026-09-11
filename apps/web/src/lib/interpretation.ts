@@ -34,6 +34,7 @@ export const interpretedItemSchema = z.object({
   confidence: z.number().min(0).max(1),
   rationale: z.string(),
   appliedPolicy: z.string().nullable(),
+  entity: z.string().nullable().optional(),
 });
 
 export const interpretedTransactionSchema = z.object({
@@ -45,6 +46,7 @@ export const interpretedTransactionSchema = z.object({
   category: z.enum(categories).nullable(),
   counterparty: z.string().nullable(),
   confidence: z.number().min(0).max(1),
+  entity: z.string().nullable().optional(),
 });
 
 export const interpretationSchema = z.object({
@@ -63,14 +65,14 @@ const itemJsonSchema = {
     label: { type: "string" }, counterparty: nullableString, direction: { type: "string", enum: ["receipt", "spend"] }, amount: { type: "number" },
     cadence: { type: "string", enum: ["once", "monthly", "quarterly", "annual"] }, effectiveFrom: { type: "string" }, effectiveTo: nullableString,
     category: { type: "string", enum: [...categories] }, accountingTreatment: { type: "string", enum: ["cash", "accrual", "prepaid"] }, recognitionStart: nullableString, recognitionEnd: nullableString,
-    basis: { type: "string", enum: ["contractual", "assumed"] }, confidence: { type: "number" }, rationale: { type: "string" }, appliedPolicy: nullableString,
+    basis: { type: "string", enum: ["contractual", "assumed"] }, confidence: { type: "number" }, rationale: { type: "string" }, appliedPolicy: nullableString, entity: nullableString,
   },
-  required: ["label", "counterparty", "direction", "amount", "cadence", "effectiveFrom", "effectiveTo", "category", "accountingTreatment", "recognitionStart", "recognitionEnd", "basis", "confidence", "rationale", "appliedPolicy"],
+  required: ["label", "counterparty", "direction", "amount", "cadence", "effectiveFrom", "effectiveTo", "category", "accountingTreatment", "recognitionStart", "recognitionEnd", "basis", "confidence", "rationale", "appliedPolicy", "entity"],
 };
 const transactionJsonSchema = {
   type: "object", additionalProperties: false,
-  properties: { date: { type: "string" }, description: { type: "string" }, amount: { type: "number" }, direction: { type: "string", enum: ["receipt", "spend"] }, activity: { type: "string", enum: ["operating", "transfer", "investment", "financing"] }, category: { type: ["string", "null"], enum: [...categories, null] }, counterparty: nullableString, confidence: { type: "number" } },
-  required: ["date", "description", "amount", "direction", "activity", "category", "counterparty", "confidence"],
+  properties: { date: { type: "string" }, description: { type: "string" }, amount: { type: "number" }, direction: { type: "string", enum: ["receipt", "spend"] }, activity: { type: "string", enum: ["operating", "transfer", "investment", "financing"] }, category: { type: ["string", "null"], enum: [...categories, null] }, counterparty: nullableString, confidence: { type: "number" }, entity: nullableString },
+  required: ["date", "description", "amount", "direction", "activity", "category", "counterparty", "confidence", "entity"],
 };
 export const interpretationJsonSchema = {
   type: "object", additionalProperties: false,
@@ -153,6 +155,7 @@ export type InterpretationContext = {
   decisions: { question: string; answer: string }[];
   knowledge: { slug: string; content: string }[];
   entities: KnownEntity[];
+  legalEntities?: { id: string; name: string }[];
 };
 
 export async function interpretEvidence(context: InterpretationContext): Promise<Interpretation> {
@@ -163,6 +166,8 @@ Return three kinds of records and only what the evidence supports:
 1. items: persistent arrangements that produce expected cash on a schedule (management-fee agreements, salaries, retainers, subscriptions, insurance policies, invoices that are due). Give each a cadence, the first month it produces cash (effectiveFrom, YYYY-MM), an end month when known, an income statement category, and an accounting treatment. Use "prepaid" with a recognition range for prepaid coverage, "accrual" with a range for services performed over a period, and "cash" otherwise. basis is "contractual" when a document or agreement supports it and "assumed" when it is a plan or expectation. A one-off invoice is cadence "once" with effectiveFrom set to its due or expected payment month.
 2. transactions: individual cash movements that already happened, with the exact date, positive amount, direction, activity class, category, and counterparty. Do not restate items as transactions.
 3. balances: opening or ending cash balances with their dates. Never turn a balance into a transaction or an item.
+
+The company's own legal entities: ${JSON.stringify((context.legalEntities ?? []).map((entity) => entity.name))}. When the evidence shows which of them earns, owes, or holds an item or transaction, set entity to that exact name; otherwise set entity to null. Never treat one of these entities as an outside counterparty unless money moves between two of them.
 
 Never invent amounts, dates, or counterparties. Set confidence below 0.7 when you are guessing at a category, timing, or treatment, and put one concise CFO question in questions for each material ambiguity instead of guessing. Combine related questions.
 
