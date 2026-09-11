@@ -142,7 +142,8 @@ export const relationships = pgTable("relationships", {
 }, (table) => [index("relationships_company_index").on(table.companyId)]);
 
 export const assumptions = pgTable("assumptions", {
-  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), name: text("name").notNull(), value: text("value").notNull(), unit: text("unit"), sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), name: text("name").notNull(), value: text("value").notNull(), unit: text("unit"), sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }), active: char("active", { length: 1 }).default("Y").notNull(),
+  scenarioId: uuid("scenario_id").references(() => scenarios.id, { onDelete: "set null" }), decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }), effectiveFrom: text("effective_from"), effectiveTo: text("effective_to"), ...timestamps,
 }, (table) => [index("assumptions_company_index").on(table.companyId, table.active)]);
 
 export const scenarios = pgTable("scenarios", {
@@ -170,6 +171,8 @@ export const decisions = pgTable(
     question: text("question").notNull(),
     answer: text("answer").notNull(),
     appliesTo: text("applies_to"),
+    /** Structured effect applied when the decision is accepted (JSON: add_item, end_item, change_amount, set_category). */
+    effect: text("effect"),
     status: text("status").default("applied").notNull(),
     ...timestamps,
   },
@@ -281,11 +284,25 @@ export const economicItems = pgTable(
     accountingTreatment: text("accounting_treatment").default("cash").notNull(),
     recognitionStart: text("recognition_start"),
     recognitionEnd: text("recognition_end"),
+    /** First month the item produces an expected event (YYYY-MM). */
+    effectiveFrom: text("effective_from"),
+    /** Last month the item produces an expected event (YYYY-MM). */
+    effectiveTo: text("effective_to"),
+    /** Income statement line: management_fee, other_revenue, salary, contractor, professional_services, software, insurance, other. */
+    category: text("category"),
+    /** contractual (supported by evidence) or assumed (CFO or agent assumption). */
+    basis: text("basis").default("contractual").notNull(),
+    counterpartyEntityId: uuid("counterparty_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    scenarioId: uuid("scenario_id").references(() => scenarios.id, { onDelete: "set null" }),
+    assumptionId: uuid("assumption_id").references(() => assumptions.id, { onDelete: "set null" }),
+    decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
+    confidence: text("confidence"),
+    rationale: text("rationale"),
     status: economicItemStatus("status").default("draft").notNull(),
     policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }),
     ...timestamps,
   },
-  (table) => [index("economic_items_company_index").on(table.companyId, table.status)],
+  (table) => [index("economic_items_company_index").on(table.companyId, table.status), index("economic_items_scenario_index").on(table.scenarioId)],
 );
 
 export const cashEvents = pgTable(
@@ -306,10 +323,15 @@ export const cashEvents = pgTable(
     recognitionStart: text("recognition_start"),
     recognitionEnd: text("recognition_end"),
     policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }),
+    /** Income statement line, set by interpretation or a CFO decision. `category` above is the cash activity class. */
+    financialCategory: text("financial_category"),
+    counterpartyEntityId: uuid("counterparty_entity_id").references(() => entities.id, { onDelete: "set null" }),
+    /** The confirmed agreement or obligation this actual settles. */
+    settlesItemId: uuid("settles_item_id").references(() => economicItems.id, { onDelete: "set null" }),
     isActual: char("is_actual", { length: 1 }).default("N").notNull(),
     ...timestamps,
   },
-  (table) => [index("cash_events_company_month_index").on(table.companyId, table.month), uniqueIndex("cash_events_company_external_key_unique").on(table.companyId, table.externalKey)],
+  (table) => [index("cash_events_company_month_index").on(table.companyId, table.month), uniqueIndex("cash_events_company_external_key_unique").on(table.companyId, table.externalKey), index("cash_events_counterparty_index").on(table.counterpartyEntityId)],
 );
 
 export const reportingPeriods = pgTable(
@@ -329,6 +351,9 @@ export const allocations = pgTable("allocations", {
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   eventId: uuid("event_id").references(() => cashEvents.id, { onDelete: "set null" }),
+  itemId: uuid("item_id").references(() => economicItems.id, { onDelete: "set null" }),
+  /** A recurring rule: applies to every spend from this counterparty. */
+  counterpartyEntityId: uuid("counterparty_entity_id").references(() => entities.id, { onDelete: "set null" }),
   payerEntityId: uuid("payer_entity_id").references(() => entities.id, { onDelete: "set null" }),
   bearerEntityId: uuid("bearer_entity_id").references(() => entities.id, { onDelete: "set null" }),
   percentage: text("percentage"),

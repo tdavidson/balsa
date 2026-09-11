@@ -3,11 +3,12 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cashEvents, decisions, economicItems, evidence, getDatabase, knowledgeDocuments, policies, reportingPeriods, reviewItems } from "@finance/database";
-import { buildMonthlyCash } from "@nevermodel/finance-engine";
+import { summarizeMonths, traceValue } from "@nevermodel/finance-engine";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";
 import { relevantEvidenceContext } from "@/lib/evidence-context";
+import { computeFinancials } from "@/lib/financials";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 
 const conversationMessageSchema = z.object({
@@ -109,8 +110,8 @@ export async function POST(request: Request) {
     db.select({ id: evidence.id, sourceName: evidence.sourceName, rawText: evidence.rawText, extractedJson: evidence.extractedJson }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20),
   ]);
   const consolidatedOpenReviews = uniqueReviewQuestions(openReviews);
-  const openingCash = Number(periods.find((period) => period.month === (body.data.month ?? new Date().toISOString().slice(0, 7)))?.openingCash ?? periods[0]?.openingCash ?? 0);
-  const calculated = buildMonthlyCash(openingCash, events.map((event) => ({ month: event.month, amount: Number(event.amount), kind: event.direction, actual: event.isActual === "Y" })));
+  const financials = await computeFinancials(context.company.id);
+  const calculated = summarizeMonths(financials.output, financials.input.asOfMonth);
   const provider = getModelProvider(resolveModelOverrides(body.data));
   const conversation = [...body.data.history, { role: "user" as const, content: body.data.message }];
   const focusedReview = body.data.reviewQuestionId ? consolidatedOpenReviews.find((review) => review.id === body.data.reviewQuestionId) : undefined;
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
   const firstRun = await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "agent", request: { message: body.data.message, history: body.data.history, evidence: body.data.evidence, reviewQuestionId: body.data.reviewQuestionId, month: body.data.month }, response: JSON.stringify(result) });
   if (firstRun) runIds.push(firstRun);
   for (let turn = 0; turn < 2 && result.toolCalls.length; turn += 1) {
-    const toolResults: Array<{ tool: string; result: unknown }> = result.toolCalls.slice(0, 1).map((call) => call.tool === "query_forecast" ? { tool: call.tool, result: calculated.slice(0, 12) } : call.tool === "read_policies" ? { tool: call.tool, result: activePolicies } : call.tool === "trace_value" ? { tool: call.tool, result: calculated.slice(0, 12).map((month) => ({ month: month.month, trace: events.filter((event) => event.month === month.month).map((event) => ({ description: event.description, evidenceId: event.evidenceId })) })) } : call.tool === "get_obligations" ? { tool: call.tool, result: items.filter((item) => item.type === "obligation") } : call.tool === "get_allocations" ? { tool: call.tool, result: "Allocation records are available in the authorized company state." } : { tool: call.tool, result: { items, events: events.slice(0, 50), periods } });
+    const toolResults: Array<{ tool: string; result: unknown }> = result.toolCalls.slice(0, 1).map((call) => call.tool === "query_forecast" ? { tool: call.tool, result: calculated.slice(0, 12) } : call.tool === "read_policies" ? { tool: call.tool, result: activePolicies } : call.tool === "trace_value" ? { tool: call.tool, result: calculated.slice(0, 12).map((month) => ({ month: month.month, lines: traceValue(financials.output, { month: month.month }).map((line) => ({ kind: line.kind, description: line.description, amount: line.amount, direction: line.direction, category: line.category, basis: line.basis, evidenceId: line.provenance.evidenceId, sourceName: line.provenance.sourceName, decisionId: line.provenance.decisionId })) })) } : call.tool === "get_obligations" ? { tool: call.tool, result: items.filter((item) => item.type === "obligation") } : call.tool === "get_allocations" ? { tool: call.tool, result: "Allocation records are available in the authorized company state." } : { tool: call.tool, result: { items, events: events.slice(0, 50), periods, outstanding: financials.output.months.at(-1)?.outstanding } });
     try {
       result = await provider.generateStructured({ name: "finance_agent_response", schema: outputSchema, jsonSchema: outputJsonSchema, instructions: `${baseInstructions}\nControlled tool results: ${JSON.stringify(toolResults)}`, messages: conversation });
     } catch (error) {

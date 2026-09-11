@@ -1,5 +1,4 @@
 const summaryPattern = /balance sheet|holding\b|allocation\b|change in value|net credits?|credits?\s+debits?|total value|total income|total automated|automated payments?\s+total|this period|this year|year-to-date|estimated annual|percentage of holdings|current yield|unrealized|beginning total|ending total|opening total|consolidated|all accounts|total assets|total cash|cash related activity|investment related activity|sales and redemptions|electronic transfers?|closing cash|ending cash|opening cash|cash balance/i;
-const transactionPattern = /cash flow activity|automated payment|funds received|wired funds|bank product withdrawal|cash transfer|interest income|dividend|sold|bought|purchase|redemption|investment|transaction/i;
 
 /** Transfers change the cash location, but are not revenue or expense. */
 export function isTransferDescription(description: string) {
@@ -36,8 +35,9 @@ export function parseFinancialAmount(value: string) {
   return /[-−]|\(/.test(match[0]!) ? -amount : amount;
 }
 
-export function isDetailedFinancialEvent(description: string) {
-  return transactionPattern.test(description) && !summaryPattern.test(description);
+/** Balances, totals, and period summaries describe positions, not transactions. */
+export function isSummaryDescription(description: string) {
+  return summaryPattern.test(description);
 }
 
 export function inferFinancialDirection(direction: string, description: string): "receipt" | "spend" {
