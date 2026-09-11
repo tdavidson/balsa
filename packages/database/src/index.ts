@@ -21,5 +21,11 @@ export function getDatabase(): Database {
   return database;
 }
 
+export async function closeDatabase() {
+  if (client) await client.end();
+  client = undefined;
+  database = undefined;
+}
+
 export type { Database };
 export * from "./schema";

@@ -128,7 +128,7 @@ export function LoginForm() {
 }
 
 const field =
-  "h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
+  "hemrock-auth-field h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus:bg-background focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
 
 function describe(error: { message?: string | undefined; longMessage?: string | undefined } | null): string {
   return error?.longMessage ?? error?.message ?? "Something went wrong. Try again.";

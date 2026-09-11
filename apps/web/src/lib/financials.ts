@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, ne } from "drizzle-orm";
-import { allocations, cashEvents, economicItems, entities, evidence, getDatabase, openingPositions, reportingPeriods } from "@finance/database";
+import { allocations, cashEvents, companies, economicItems, entities, evidence, getDatabase, openingPositions, reportingPeriods } from "@finance/database";
 import { addMonths, isCategory, isLedger, isValidMonth, parseCadence, runEngine, type ActualEvent, type AllocationRule, type EngineInput, type EngineOutput, type OpeningPosition, type ScheduleItem, type StatementBalance, type Treatment } from "@nevermodel/finance-engine";
 import { loadEntityStructure, type EntityStructure } from "@/lib/entity-structure";
 import { financialEventKey, isSummaryDescription, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
@@ -87,7 +87,7 @@ function statementBalancesFrom(rows: { status: string; reportingMonth: string | 
 export async function loadFinancialInput(companyId: string, options: FinancialOptions = {}): Promise<Omit<FinancialContext, "output">> {
   const db = getDatabase();
   const asOfMonth = options.asOfMonth && isValidMonth(options.asOfMonth) ? options.asOfMonth : currentMonth();
-  const [itemRowsRaw, eventRows, allocationRows, entityRows, periodRows, evidenceRows, positionRows, structure] = await Promise.all([
+  const [itemRowsRaw, eventRows, allocationRows, entityRows, periodRows, evidenceRows, positionRows, structure, companyRows] = await Promise.all([
     db.select({ item: economicItems, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, evidenceAccountId: evidence.accountEntityId }).from(economicItems).leftJoin(evidence, eq(economicItems.evidenceId, evidence.id)).where(and(eq(economicItems.companyId, companyId), eq(economicItems.status, "confirmed"))),
     db.select({ event: cashEvents, sourceName: evidence.sourceName, evidenceStatus: evidence.status, evidenceAccountId: evidence.accountEntityId }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, companyId)),
     db.select().from(allocations).where(and(eq(allocations.companyId, companyId), eq(allocations.status, "approved"))),
@@ -96,7 +96,9 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
     db.select({ status: evidence.status, reportingMonth: evidence.reportingMonth, statementPeriodEnd: evidence.statementPeriodEnd, openingBalance: evidence.openingBalance, endingBalance: evidence.endingBalance, extractedJson: evidence.extractedJson, accountEntityId: evidence.accountEntityId }).from(evidence).where(and(eq(evidence.companyId, companyId), ne(evidence.status, "rejected"))),
     db.select().from(openingPositions).where(eq(openingPositions.companyId, companyId)),
     loadEntityStructure(companyId),
+    db.select({ baseCurrency: companies.baseCurrency }).from(companies).where(eq(companies.id, companyId)),
   ]);
+  const baseCurrency = companyRows[0]?.baseCurrency ?? "USD";
   const entityNames = new Map(entityRows.map((entity) => [entity.id, entity.name]));
   const hasAccounts = entityRows.some((entity) => entity.type === "account");
   const overrides = new Map((options.itemOverrides ?? []).map((override) => [override.itemId, override]));
@@ -148,7 +150,9 @@ export async function loadFinancialInput(companyId: string, options: FinancialOp
   // Actual cash events. Rows from rejected or still-pending evidence stay out;
   // rows created from balance or summary facts by the earlier approval path are
   // not transactions; one statement format lists sweep activity twice.
-  const usable = eventRows.filter(({ event, evidenceStatus }) => (event.isActual === "Y" || evidenceStatus === "approved") && evidenceStatus !== "rejected" && evidenceStatus !== "pending" && !isSummaryDescription(event.description));
+  // Staged import rows (accounting treatment still pending), rows from evidence
+  // that is not published, and non-base-currency rows awaiting conversion stay out.
+  const usable = eventRows.filter(({ event, evidenceStatus }) => event.accountingTreatment !== "pending" && (event.isActual === "Y" ? (!event.evidenceId || evidenceStatus === "approved") : evidenceStatus === "approved") && (!event.currency || event.currency === baseCurrency) && !isSummaryDescription(event.description));
   const monthsWithCashFlowView = new Set(usable.filter(({ event }) => /^(?:Cash Flow Activity\b|\d{4}-\d{2}-\d{2}.*(?:Automated Payment|Wired Funds|Bank Product Withdrawal))/i.test(event.description)).map(({ event }) => event.month));
   const canonical = usable.filter(({ event }) => !(monthsWithCashFlowView.has(event.month) && isSweepCounterpartActivity(event.description)));
   const seen = new Map<string, DuplicateEvent>();

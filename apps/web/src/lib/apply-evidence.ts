@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { cashEvents, decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, openingPositions, policies, reportingPeriods, reviewItems } from "@finance/database";
 import { transactionExternalKey } from "@nevermodel/ingestion";
 import type { ApplicationContext } from "@finance/auth";
@@ -9,6 +9,8 @@ import { interpretEvidence, resolveCounterparty, type Interpretation, type Known
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { loadEntityStructure } from "@/lib/entity-structure";
 import type { z } from "zod";
+
+const cashProvingSources = new Set(["bank_statement", "brokerage_statement", "quickbooks_transactions", "general_ledger"]);
 
 export type ApplyEvidenceResult =
   | { items: number; transactions: number; balances: number; questions: number; interpretation: Interpretation }
@@ -23,7 +25,10 @@ export async function applyApprovedEvidence(options: {
   context: ApplicationContext;
   evidenceId: string;
   evidenceStatus: string;
-  extraction: { summary?: string; facts?: { label: string; value: string; confidence?: number }[] };
+  extraction: { summary?: string; facts?: { label: string; value: string; confidence?: number; accountingRole?: string }[] };
+  /** Intake classification of the source; only cash-proving sources may produce transactions. */
+  sourceKind?: string;
+  currency?: string;
   modelChoice: z.infer<typeof modelRequestSchema>;
   replace: boolean;
 }): Promise<ApplyEvidenceResult> {
@@ -45,7 +50,9 @@ export async function applyApprovedEvidence(options: {
   const provider = getModelProvider(resolveModelOverrides(options.modelChoice));
   let interpretation: Interpretation;
   try {
-    interpretation = await interpretEvidence({ provider, sourceName: evidenceRow.sourceName, summary: options.extraction.summary, facts: options.extraction.facts ?? [], reportingMonth: evidenceRow.reportingMonth ?? undefined, policies: policyRows, decisions: decisionRows, knowledge: knowledgeRows, entities: candidates, legalEntities: structure.legalEntities });
+    interpretation = await interpretEvidence({ provider, sourceName: evidenceRow.sourceName, summary: options.extraction.summary, facts: options.extraction.facts ?? [], reportingMonth: evidenceRow.reportingMonth ?? undefined, policies: policyRows, decisions: decisionRows, knowledge: knowledgeRows, entities: candidates, legalEntities: structure.legalEntities, ...(options.sourceKind ? { sourceKind: options.sourceKind } : {}) });
+    // A source that cannot prove cash (an income statement, a balance sheet, an agreement) never creates transactions.
+    if (options.sourceKind && !cashProvingSources.has(options.sourceKind)) interpretation = { ...interpretation, transactions: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Interpretation failed";
     await recordLlmRun({ db, provider, companyId, userId: context.user.id, operation: "evidence_interpretation", request: { evidenceId, facts: options.extraction.facts?.length ?? 0 }, status: "failed", error: message });
@@ -68,7 +75,8 @@ export async function applyApprovedEvidence(options: {
     }
   }
   if (options.replace) {
-    await db.delete(cashEvents).where(and(eq(cashEvents.companyId, companyId), eq(cashEvents.evidenceId, evidenceId)));
+    // Imported rows (those with an external key) are the source's own transactions and stay.
+    await db.delete(cashEvents).where(and(eq(cashEvents.companyId, companyId), eq(cashEvents.evidenceId, evidenceId), isNull(cashEvents.externalKey)));
     await db.delete(economicItems).where(and(eq(economicItems.companyId, companyId), eq(economicItems.evidenceId, evidenceId)));
   }
 
@@ -102,7 +110,7 @@ export async function applyApprovedEvidence(options: {
       const entity = transaction.counterparty && transaction.activity === "operating" ? await resolveCounterparty(db, companyId, { name: transaction.counterparty, alias: transaction.description, category: transaction.category, direction: transaction.direction, candidates }) : undefined;
       rows.push({
         companyId, evidenceId, month: transaction.date.slice(0, 7), transactionDate: transaction.date, description: transaction.description, amount: String(transaction.amount), direction: transaction.direction,
-        category: transaction.activity, financialCategory: transaction.category ?? undefined, counterpartyEntityId: entity?.id, accountEntityId: accountId, entityId: structure.resolveEntityName(transaction.entity) ?? accountEntity, isActual: options.evidenceStatus === "approved" ? "Y" as const : "N" as const,
+        category: transaction.activity, financialCategory: transaction.category ?? undefined, counterpartyEntityId: entity?.id, accountEntityId: accountId, entityId: structure.resolveEntityName(transaction.entity) ?? accountEntity, ...(options.currency ? { currency: options.currency } : {}), isActual: options.evidenceStatus === "approved" ? "Y" as const : "N" as const,
         externalKey: transactionExternalKey({ date: transaction.date.slice(0, 7), postedDate: transaction.date, description: transaction.description, amount: transaction.amount, direction: transaction.direction }),
       });
     }

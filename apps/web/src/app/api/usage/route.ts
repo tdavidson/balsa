@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDatabase, llmMessages, llmRuns } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -10,11 +10,23 @@ export async function GET(request: Request) {
   await auth.protect();
   const context = await requireCompanyAccess();
   const url = new URL(request.url);
-  const tab = url.searchParams.get("tab") === "calls" ? "calls" : "conversations";
+  const tab = url.searchParams.get("tab") === "calls" ? "calls" : url.searchParams.get("tab") === "summary" ? "summary" : "conversations";
   const page = Math.max(1, Number(url.searchParams.get("page") ?? "1") || 1);
   const query = url.searchParams.get("q")?.trim();
   const offset = (page - 1) * pageSize;
   const db = getDatabase();
+
+  if (tab === "summary") {
+    const runs = await db.select({ provider: llmRuns.provider, model: llmRuns.model, inputTokens: llmRuns.inputTokens, outputTokens: llmRuns.outputTokens, totalTokens: llmRuns.totalTokens, cost: llmRuns.cost, latencyMs: llmRuns.latencyMs, createdAt: llmRuns.createdAt }).from(llmRuns).where(eq(llmRuns.companyId, context.company.id)).orderBy(asc(llmRuns.createdAt));
+    const messages = await db.select({ id: llmMessages.id }).from(llmMessages).where(and(eq(llmMessages.companyId, context.company.id), eq(llmMessages.role, "user")));
+    const rollup = url.searchParams.get("rollup") === "daily" || url.searchParams.get("rollup") === "weekly" || url.searchParams.get("rollup") === "annual" ? url.searchParams.get("rollup") : "monthly";
+    const keyForDate = (date: Date) => { if (rollup === "daily") return date.toISOString().slice(0, 10); if (rollup === "annual") return date.toISOString().slice(0, 4); if (rollup === "weekly") { const start = new Date(date); const day = start.getUTCDay(); start.setUTCDate(start.getUTCDate() - (day === 0 ? 6 : day - 1)); return `Week of ${start.toISOString().slice(0, 10)}`; } return date.toISOString().slice(0, 7); };
+    const totals = runs.reduce((sum, run) => ({ inputTokens: sum.inputTokens + Number(run.inputTokens ?? 0), outputTokens: sum.outputTokens + Number(run.outputTokens ?? 0), totalTokens: sum.totalTokens + Number(run.totalTokens ?? 0), cost: sum.cost + Number(run.cost ?? 0), unpricedRuns: sum.unpricedRuns + (run.cost === null ? 1 : 0) }), { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0, unpricedRuns: 0 });
+    const byModel = new Map<string, { provider: string; model: string; runs: number; inputTokens: number; outputTokens: number; totalTokens: number; cost: number; latency: number }>();
+    const byDate = new Map<string, { runs: number; totalTokens: number; cost: number }>();
+    for (const run of runs) { const modelKey = `${run.provider}:${run.model}`; const model = byModel.get(modelKey) ?? { provider: run.provider, model: run.model, runs: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0, latency: 0 }; model.runs += 1; model.inputTokens += Number(run.inputTokens ?? 0); model.outputTokens += Number(run.outputTokens ?? 0); model.totalTokens += Number(run.totalTokens ?? 0); model.cost += Number(run.cost ?? 0); model.latency += Number(run.latencyMs ?? 0); byModel.set(modelKey, model); const dateKey = keyForDate(run.createdAt); const date = byDate.get(dateKey) ?? { runs: 0, totalTokens: 0, cost: 0 }; date.runs += 1; date.totalTokens += Number(run.totalTokens ?? 0); date.cost += Number(run.cost ?? 0); byDate.set(dateKey, date); }
+    return NextResponse.json({ tab, rollup, summary: { ...totals, chatTurns: messages.length, modelRuns: runs.length, modelRows: [...byModel.values()].sort((a, b) => b.runs - a.runs), dateRows: [...byDate.entries()].map(([period, values]) => ({ period, ...values })).reverse() } });
+  }
 
   if (tab === "calls") {
     const search = query ? or(ilike(llmRuns.operation, `%${query}%`), ilike(llmRuns.model, `%${query}%`), ilike(llmRuns.status, `%${query}%`)) : undefined;

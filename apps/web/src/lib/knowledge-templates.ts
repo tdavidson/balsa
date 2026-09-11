@@ -1,5 +1,5 @@
 export type KnowledgeDocumentTemplate = {
-  slug: "company" | "policies" | "allocations" | "accounting" | "forecast";
+  slug: "core-accounting" | "onboarding" | "company" | "policies" | "allocations" | "accounting" | "forecast";
   title: string;
   content: string;
 };
@@ -13,7 +13,19 @@ export type KnowledgeTemplate = {
   documents: KnowledgeDocumentTemplate[];
 };
 
-export const universalAccountingRules = `## Universal cash-activity rules
+export const universalAccountingRules = `## Core financial reasoning
+
+Hemrock begins with accounting and forecasting fundamentals. It separates the
+economic event, billing or invoicing, cash settlement, and revenue or expense
+recognition; rolls balance-sheet accounts forward; and treats evidence,
+materiality, and reconciliation as controls rather than optional prompts.
+
+Company evidence and CFO decisions establish company-specific entities,
+contracts, chart-of-accounts mappings, recognition policies, allocation bases,
+counterparties, timing, and forecast assumptions. Do not turn an inference into
+a company policy without supporting evidence or explicit approval.
+
+## Universal cash-activity rules
 
 These baseline rules apply to every company unless a company-specific policy or approved decision says otherwise.
 
@@ -26,10 +38,12 @@ These baseline rules apply to every company unless a company-specific policy or 
 `;
 
 export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
-  { slug: "company", title: "Company", content: "# Company\n\nHow the company operates.\n" },
+  { slug: "core-accounting", title: "Core accounting", content: `# Core accounting\n\nPlatform-managed financial reasoning that applies before company-specific policies.\n\n${universalAccountingRules}` },
+  { slug: "onboarding", title: "Onboarding", content: "# Onboarding\n\nComplete or confirm these business facts as evidence becomes available. Hemrock already knows accounting fundamentals; these answers define how they apply to this company.\n\n## Legal entities and ownership\n- Reporting entity and owned entities:\n- Accounts, custodians, and legal owner of each account:\n- Base currency, fiscal year-end, and reporting basis:\n\n## How the business earns and spends\n- Revenue streams, customer contracts, and performance or service periods:\n- Billing, collection, deposits, refunds, and pass-through amounts:\n- Material vendors, payroll, financing, investment, and intercompany activity:\n\n## Close and forecast\n- Chart-of-accounts mapping and materiality threshold:\n- Recognition, allocation, and recurring-counterparty policies to confirm:\n- Forecast drivers, committed contracts, and cash-timing assumptions:\n" },
+  { slug: "company", title: "Company", content: "# Company\n\nCompany-specific operating model, entities, and business context supported by onboarding evidence.\n" },
   { slug: "policies", title: "Policies", content: "# Financial Policies\n\nStanding CFO judgment and recognition policies.\n" },
   { slug: "allocations", title: "Allocations", content: "# Allocations\n\nRecurring cost allocation treatment.\n" },
-  { slug: "accounting", title: "Accounting", content: `# Accounting\n\nRecognition and accounting context.\n\n${universalAccountingRules}` },
+  { slug: "accounting", title: "Accounting", content: "# Accounting\n\nCompany-specific recognition, account mapping, and accounting context.\n" },
   { slug: "forecast", title: "Forecast", content: "# Forecast\n\nForecast assumptions and scenarios.\n" },
 ];
 
