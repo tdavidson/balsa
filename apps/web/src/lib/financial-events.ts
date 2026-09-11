@@ -47,6 +47,11 @@ export function isDetailedFinancialEvent(description: string) {
   return Boolean(description.trim()) && !summaryPattern.test(description);
 }
 
+/** Balances, totals, and period summaries describe positions, not transactions. */
+export function isSummaryDescription(description: string) {
+  return summaryPattern.test(description);
+}
+
 export function inferFinancialDirection(direction: string, description: string): "receipt" | "spend" {
   // These labels describe the destination account, so their cash direction
   // is opposite the ordinary English meaning of "withdrawal".

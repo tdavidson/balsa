@@ -1,8 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, getDatabase, reportingPeriods } from "@finance/database";
+import { evidence, getDatabase, reportingPeriods } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
+import { computeFinancials } from "@/lib/financials";
 
 export async function GET() {
   await auth.protect();
@@ -34,12 +35,19 @@ export async function PATCH(request: Request) {
     [period] = await getDatabase().insert(reportingPeriods).values({ companyId: context.company.id, month: body.month, status: body.status }).onConflictDoNothing().returning();
   }
   if (!period) return NextResponse.json({ error: "Reporting period not found" }, { status: 404 });
-  const events = await getDatabase().select({ amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.isActual, "Y"), or(isNull(cashEvents.currency), eq(cashEvents.currency, context.company.baseCurrency)), eq(cashEvents.month, body.month), or(eq(evidence.status, "approved"), isNull(cashEvents.evidenceId))));
-  const summary = events.reduce((result, event) => {
-    const amount = Number(event.amount);
-    const key = event.isActual === "Y" ? (event.direction === "receipt" ? "actualReceipts" : "actualSpending") : (event.direction === "receipt" ? "forecastReceipts" : "forecastSpending");
-    result[key] += Number.isFinite(amount) ? amount : 0;
-    return result;
-  }, { forecastReceipts: 0, forecastSpending: 0, actualReceipts: 0, actualSpending: 0 });
-  return NextResponse.json({ period, summary: { ...summary, forecastNet: summary.forecastReceipts - summary.forecastSpending, actualNet: summary.actualReceipts - summary.actualSpending, variance: (summary.actualReceipts - summary.actualSpending) - (summary.forecastReceipts - summary.forecastSpending) } });
+  const financials = await computeFinancials(context.company.id);
+  const month = financials.output.months.find((entry) => entry.month === body.month);
+  const summary = {
+    forecastReceipts: month?.expectedReceipts ?? 0,
+    forecastSpending: month?.expectedSpending ?? 0,
+    actualReceipts: month?.actualReceipts ?? 0,
+    actualSpending: month?.actualSpending ?? 0,
+    forecastNet: (month?.expectedReceipts ?? 0) - (month?.expectedSpending ?? 0),
+    actualNet: month?.actualNet ?? 0,
+    variance: month?.variance ?? 0,
+    endingCash: month?.endingCash ?? null,
+    outstandingReceivables: month?.outstanding.receivables.length ?? 0,
+    outstandingPayables: month?.outstanding.payables.length ?? 0,
+  };
+  return NextResponse.json({ period, summary });
 }
