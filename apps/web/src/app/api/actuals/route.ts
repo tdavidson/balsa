@@ -1,29 +1,31 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, getDatabase, ingestionRuns, reportingPeriods, sources, observations } from "@finance/database";
+import { cashEvents, evidence, factRecords, getDatabase, ingestionRuns, reportingPeriods, policies, sources, observations } from "@finance/database";
 import { and, eq, inArray, desc, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
-import * as XLSX from "xlsx";
 import { requireCompanyAccess } from "@/lib/auth";
-import { normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
+import { classifySource, detectSourceCurrencies, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
 import { classifyCashActivity } from "@/lib/financial-events";
 import { storeSourceBlob } from "@/lib/blob-store";
+import { classifyWithCompanyPolicy } from "@/lib/company-policy-engine";
+import { assertExtractedTextSize, assertUploadSize } from "@/lib/ingestion-guardrails";
+import { extractSpreadsheetText } from "@/lib/spreadsheet-extraction";
+import { takeRateLimit } from "@/lib/request-rate-limit";
 
 export async function POST(request: Request) {
   await auth.protect();
   const context = await requireCompanyAccess();
+  const quota = takeRateLimit(`actuals:${context.company.id}:${context.user.id}`, 20, 60 * 60 * 1_000);
+  if (!quota.allowed) return NextResponse.json({ error: "Upload limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } });
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File) || !/\.(csv|xlsx|xls|qbo|ofx)$/i.test(file.name)) return NextResponse.json({ error: "Upload a bank CSV, Excel workbook, or QuickBooks/OFX file" }, { status: 400 });
+  if (file.name.length > 255) return NextResponse.json({ error: "File names must be 255 characters or fewer" }, { status: 400 });
+  try { assertUploadSize(file.size); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "File is too large" }, { status: 413 }); }
   const sourceBuffer = Buffer.from(await file.arrayBuffer());
   const sourceHash = createHash("sha256").update(sourceBuffer).digest("hex");
-  const rawText = /\.(csv|qbo|ofx)$/i.test(file.name) ? sourceBuffer.toString("utf8") : (() => {
-    const workbook = XLSX.read(sourceBuffer, { type: "buffer" });
-    return workbook.SheetNames.map((name) => {
-      const sheet = workbook.Sheets[name];
-      return sheet ? XLSX.utils.sheet_to_csv(sheet) : "";
-    }).filter(Boolean).join("\n");
-  })();
+  const rawText = /\.(csv|qbo|ofx)$/i.test(file.name) ? sourceBuffer.toString("utf8") : await extractSpreadsheetText(sourceBuffer);
+  try { assertExtractedTextSize(rawText); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Extracted text is too large" }, { status: 413 }); }
   const [duplicate] = await getDatabase().select({ id: evidence.id }).from(evidence).where(and(eq(evidence.companyId, context.company.id), eq(evidence.sourceHash, sourceHash)));
   if (duplicate) return NextResponse.json({ imported: 0, duplicate: true, sourceName: file.name });
   const storageReference = await storeSourceBlob(context.company.id, sourceHash, sourceBuffer);
@@ -40,6 +42,10 @@ export async function POST(request: Request) {
   const ofxTransactions = /\.(qbo|ofx)$/i.test(file.name) ? parseOfx(rawText) : null;
   const rows = ofxTransactions ? [] : parseCsvRows(rawText);
   const parsedTransactions = ofxTransactions ?? normalizeTransactions(rows, new Date().toISOString().slice(0, 7));
+  const sourceClassification = classifySource({ filename: file.name, mimeType: file.type || "text/csv", text: rawText });
+  const detectedCurrencies = detectSourceCurrencies(rawText);
+  const sourceCurrency = detectedCurrencies.length === 1 ? detectedCurrencies[0] : undefined;
+  const activePolicies = await getDatabase().select({ id: policies.id, name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")));
   if (!parsedTransactions.length) return failImport("File has no transactions");
   const headers = rows[0]?.map((header) => header.toLowerCase()) ?? [];
   const amountIndex = ofxTransactions ? 0 : headers.findIndex((header) => /amount|total|value/.test(header));
@@ -49,7 +55,10 @@ export async function POST(request: Request) {
   const events = parsedTransactions.map((transaction) => {
     const externalKey = transactionExternalKey(transaction);
     const description = transaction.description || file.name;
-    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description, amount: String(transaction.amount), direction: transaction.direction, category: classifyCashActivity(description, transaction.direction), isActual: "Y" as const, externalKey };
+    const policyClassification = classifyWithCompanyPolicy(description, activePolicies, { effectiveDate: transaction.postedDate ?? transaction.date, sourceKind: sourceClassification.kind, sourceName: file.name });
+    // Parsed rows are retained for matching and review, but they must not become
+    // financial actuals until the source's accounting treatment is approved.
+    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, sourceLocation: transaction.sourceLocation, description, amount: String(transaction.amount), ...(sourceCurrency ? { currency: sourceCurrency } : {}), direction: transaction.direction, category: policyClassification?.category ?? classifyCashActivity(description, transaction.direction), ...(policyClassification ? { policyId: policyClassification.policyId } : {}), accountingTreatment: "pending", isActual: "N" as const, externalKey };
   });
   const months = [...new Set(events.map((event) => event.month))];
   let importedCount = 0;
@@ -64,10 +73,12 @@ export async function POST(request: Request) {
       const keys = events.map((event) => event.externalKey).filter((key): key is string => Boolean(key));
       const canonicalEvents = await getDatabase().select({ id: cashEvents.id, externalKey: cashEvents.externalKey }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), inArray(cashEvents.externalKey, keys)));
       const eventByKey = new Map(canonicalEvents.map((event) => [event.externalKey, event.id]));
-      await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate }), confidence: "high" })));
+      await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, ...(sourceCurrency ? { currency: sourceCurrency } : {}), counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate, sourceLocation: event.sourceLocation }), confidence: "high" })));
     }
-    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} actual transactions imported`, facts: [{ label: "Transactions", value: String(events.length), confidence: 1 }], questions: [] }), status: "approved", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
-    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length }) }).where(eq(sources.id, canonicalSource!.id));
+    const importedFact = { label: "Imported transaction set", value: `${events.length} transactions parsed from ${file.name}; approve the source and treatment to post them as actual cash activity.`, accountingRole: "transaction", confidence: 1 };
+    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} transactions parsed and staged for review`, facts: [importedFact], questions: [] }), ...(sourceCurrency ? { currency: sourceCurrency } : {}), status: "pending", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
+    await getDatabase().insert(factRecords).values({ companyId: context.company.id, evidenceId: placeholder!.id, ...importedFact, sourceLocation: "transaction file", ...(sourceCurrency ? { currency: sourceCurrency } : {}), confidence: String(importedFact.confidence), status: "pending" });
+    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length, classification: sourceClassification, currencies: detectedCurrencies }) }).where(eq(sources.id, canonicalSource!.id));
     await getDatabase().insert(ingestionRuns).values([
       { companyId: context.company.id, sourceId: canonicalSource!.id, stage: "classification", status: "succeeded", metadata: JSON.stringify({ transactions: events.length }) },
       { companyId: context.company.id, sourceId: canonicalSource!.id, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ months }) },
@@ -81,9 +92,9 @@ export async function POST(request: Request) {
     importedCount = inserted.length;
   }
   const extraction = {
-    summary: `${events.length} actual transactions imported with statement dates, amounts, and descriptions or notes`,
+    summary: `${events.length} transactions staged with statement dates, amounts, and descriptions or notes; approve their accounting treatment to post actuals`,
     facts: events.slice(0, 200).map((event) => ({
-      label: `Transaction ${event.postedDate ?? event.month}`,
+      label: `Transaction ${event.postedDate ?? event.month} (${event.sourceLocation ?? "source row unavailable"})`,
       value: `${event.direction === "spend" ? "−" : "+"}$${Number(event.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — ${event.description}`,
       confidence: 1,
     })),

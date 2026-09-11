@@ -1,18 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { expandFinancialFactDates, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "./index";
+import { assessPdfText, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractStructuredStatementFacts, mergeStatementFacts, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey, validateStatementRollforward } from "./index";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("transaction ingestion", () => {
+  it("validates statement roll-forwards independently of model output", () => {
+    expect(validateStatementRollforward({ opening: 100, receipts: 50, spending: 25, ending: 125 })).toMatchObject({ status: "matched", expectedEnding: 125, difference: 0 });
+    expect(validateStatementRollforward({ opening: 100, receipts: 50, spending: 25, ending: 130 })).toMatchObject({ status: "mismatch", expectedEnding: 125, difference: 5 });
+    expect(validateStatementRollforward({ receipts: 50, spending: 25, ending: 125 })).toMatchObject({ status: "incomplete" });
+  });
+  it("flags weak page extraction instead of treating it as complete", () => {
+    expect(assessPdfText([{ page: 1, text: "" }, { page: 2, text: "" }])).toMatchObject({ status: "empty", pageCount: 2, nonEmptyPages: 0 });
+    expect(assessPdfText([{ page: 1, text: "Statement period 2026-01" }, { page: 2, text: "" }])).toMatchObject({ status: "weak", nonEmptyPages: 1 });
+    expect(assessPdfText([{ page: 1, text: "Beginning balance $100.00; ending balance $125.00; transaction activity" }])).toMatchObject({ status: "good", characters: 71 });
+  });
+  it("classifies source shape before extraction", () => {
+    expect(classifySource({ filename: "January bank statement.pdf", text: "Beginning balance 100.00 Account activity Ending balance 125.00" })).toMatchObject({ kind: "bank_statement", containsTransactions: true, containsBalances: true });
+    expect(classifySource({ filename: "quickbooks-detail.xlsx", text: "Date,Description,Debit,Credit" })).toMatchObject({ kind: "quickbooks_transactions", containsTransactions: true });
+    expect(classifySource({ filename: "balance-sheet.pdf", text: "Balance Sheet Total Assets Total Liabilities" })).toMatchObject({ kind: "balance_sheet", containsBalances: true });
+  });
+  it("records only explicitly named source currencies", () => {
+    expect(detectSourceCurrencies("Currency: CAD\nCAD 1,200.00")).toEqual(["CAD"]);
+    expect(detectSourceCurrencies("$1,200.00")).toEqual([]);
+    expect(detectSourceCurrencies("USD 100.00 and EUR 50.00")).toEqual(["USD", "EUR"]);
+  });
+  it("extracts common printed P&L and balance-sheet lines deterministically", () => {
+    expect(extractStructuredStatementFacts("Income Statement\nRevenue | $12,500.00\nOperating Expenses | ($3,200.00)\nNet Income | $9,300.00", "profit_and_loss")).toMatchObject([
+      { label: "Revenue", value: "$12,500.00", accountingRole: "revenue" },
+      { label: "Operating Expenses", value: "($3,200.00)", accountingRole: "expense" },
+      { label: "Net Income", value: "$9,300.00", accountingRole: "summary" },
+    ]);
+    expect(extractStructuredStatementFacts("Balance Sheet\nCash and Cash Equivalents $44,200.00\nTotal Assets $92,000.00", "balance_sheet")).toHaveLength(2);
+  });
+  it("prefers a deterministic statement line over a model duplicate", () => {
+    expect(mergeStatementFacts([{ label: "Revenue", value: "$12,000.00", accountingRole: "revenue", confidence: 0.8 }, { label: "Management agreement", value: "$1,000 monthly", accountingRole: "agreement", confidence: 0.8 }], [{ label: "Revenue", value: "$12,500.00", accountingRole: "revenue", confidence: 0.98 }])).toEqual([
+      { label: "Revenue", value: "$12,500.00", accountingRole: "revenue", confidence: 0.98 },
+      { label: "Management agreement", value: "$1,000 monthly", accountingRole: "agreement", confidence: 0.8 },
+    ]);
+  });
   it("normalizes quoted CSV, debit/credit, and dates across months", () => {
     const rows = parseCsvRows('Date,Description,Debit,Credit\n2026-09-03,"Customer, payment",,12500\n2026-10-15,Contractor,3200,');
     expect(normalizeTransactions(rows, "2026-09")).toEqual([
-      { date: "2026-09", postedDate: "2026-09-03", description: "Customer, payment", amount: 12500, direction: "receipt" },
-      { date: "2026-10", postedDate: "2026-10-15", description: "Contractor", amount: 3200, direction: "spend" },
+      { date: "2026-09", postedDate: "2026-09-03", description: "Customer, payment", amount: 12500, direction: "receipt", sourceLocation: "row:2" },
+      { date: "2026-10", postedDate: "2026-10-15", description: "Contractor", amount: 3200, direction: "spend", sourceLocation: "row:3" },
     ]);
   });
   it("bootstraps QuickBooks OFX transactions", () => {
-    expect(parseOfx("<STMTTRN><DTPOSTED>20260903<TRNAMT>-3200<NAME>Contractor<MEMO>September invoice</STMTTRN>")).toEqual([{ date: "2026-09", postedDate: "2026-09-03", description: "Contractor · September invoice", amount: 3200, direction: "spend" }]);
+    expect(parseOfx("<STMTTRN><DTPOSTED>20260903<TRNAMT>-3200<NAME>Contractor<MEMO>September invoice</STMTTRN>")).toEqual([{ date: "2026-09", postedDate: "2026-09-03", description: "Contractor · September invoice", amount: 3200, direction: "spend", sourceLocation: "transaction:1" }]);
   });
 
   it("keeps exact dates and note fields from bank transaction lists", () => {
@@ -23,6 +57,7 @@ describe("transaction ingestion", () => {
       description: "Incoming wire · Klingenstein Fund II management fee",
       amount: 60000,
       direction: "receipt",
+      sourceLocation: "row:2",
     }]);
   });
 

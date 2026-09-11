@@ -182,12 +182,16 @@ export const policies = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }),
+    sourceId: uuid("source_id").references(() => sources.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     rule: text("rule").notNull(),
+    scope: text("scope").default("company").notNull(),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).defaultNow().notNull(),
+    confidence: text("confidence").default("1.0").notNull(),
     active: char("active", { length: 1 }).default("Y").notNull(),
     ...timestamps,
   },
-  (table) => [index("policies_company_index").on(table.companyId, table.active)],
+  (table) => [index("policies_company_index").on(table.companyId, table.active), index("policies_source_index").on(table.sourceId)],
 );
 
 export const companyMembers = pgTable(
@@ -219,6 +223,7 @@ export const evidence = pgTable(
     createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     sourceName: text("source_name").notNull(),
     reportingMonth: text("reporting_month"),
+    currency: char("currency", { length: 3 }),
     sourceMime: text("source_mime"),
     sourceSize: text("source_size"),
     sourceHash: text("source_hash"),
@@ -231,7 +236,11 @@ export const evidence = pgTable(
     accountEntityId: uuid("account_entity_id").references(() => entities.id, { onDelete: "set null" }),
     rawText: text("raw_text").notNull(),
     extractedJson: text("extracted_json"),
+    /** Approval of the source's identity, ownership, account, and period. */
+    identityStatus: evidenceStatus("identity_status").default("pending").notNull(),
+    /** Overall publication state. Approved means every approval layer is complete. */
     status: evidenceStatus("status").default("pending").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [index("evidence_company_index").on(table.companyId, table.createdAt), index("evidence_account_entity_index").on(table.accountEntityId)],
@@ -243,12 +252,13 @@ export const reviewItems = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     evidenceId: uuid("evidence_id").references(() => evidence.id, { onDelete: "cascade" }),
+    reviewKey: text("review_key"),
     question: text("question").notNull(),
     answer: text("answer"),
     status: text("status").default("open").notNull(),
     ...timestamps,
   },
-  (table) => [index("review_items_company_index").on(table.companyId, table.status), index("review_items_evidence_index").on(table.evidenceId)],
+  (table) => [index("review_items_company_index").on(table.companyId, table.status), index("review_items_evidence_index").on(table.evidenceId), index("review_items_key_index").on(table.companyId, table.reviewKey)],
 );
 
 export const factRecords = pgTable(
@@ -259,11 +269,33 @@ export const factRecords = pgTable(
     evidenceId: uuid("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
     value: text("value").notNull(),
+    accountingRole: text("accounting_role"),
+    sourceLocation: text("source_location"),
+    currency: char("currency", { length: 3 }),
     confidence: text("confidence").notNull(),
     status: text("status").default("pending").notNull(),
     ...timestamps,
   },
   (table) => [index("fact_records_company_index").on(table.companyId, table.status), index("fact_records_evidence_index").on(table.evidenceId)],
+);
+
+/** Immutable audit trail for the three evidence approval layers. */
+export const approvalEvents = pgTable(
+  "approval_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    evidenceId: uuid("evidence_id").notNull().references(() => evidence.id, { onDelete: "cascade" }),
+    factId: uuid("fact_id").references(() => factRecords.id, { onDelete: "set null" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    layer: text("layer").notNull(),
+    action: text("action").notNull(),
+    previousValue: text("previous_value"),
+    nextValue: text("next_value"),
+    metadata: text("metadata").default("{}").notNull(),
+    ...timestamps,
+  },
+  (table) => [index("approval_events_evidence_index").on(table.companyId, table.evidenceId, table.createdAt), index("approval_events_fact_index").on(table.factId)],
 );
 
 export const economicItems = pgTable(
@@ -297,9 +329,11 @@ export const cashEvents = pgTable(
     evidenceId: uuid("evidence_id").references(() => evidence.id, { onDelete: "set null" }),
     month: text("month").notNull(),
     transactionDate: date("transaction_date"),
+    sourceLocation: text("source_location"),
     externalKey: text("external_key"),
     description: text("description").notNull(),
     amount: text("amount").notNull(),
+    currency: char("currency", { length: 3 }),
     direction: cashEventDirection("direction").notNull(),
     category: text("category").default("operating").notNull(),
     accountingTreatment: text("accounting_treatment").default("cash").notNull(),
@@ -310,6 +344,23 @@ export const cashEvents = pgTable(
     ...timestamps,
   },
   (table) => [index("cash_events_company_month_index").on(table.companyId, table.month), uniqueIndex("cash_events_company_external_key_unique").on(table.companyId, table.externalKey)],
+);
+
+/** Derived reconciliation state. It is rebuilt from source events and never posts accounting entries itself. */
+export const reconciliationEntries = pgTable(
+  "reconciliation_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull().references(() => cashEvents.id, { onDelete: "cascade" }),
+    counterpartEventId: uuid("counterpart_event_id").references(() => cashEvents.id, { onDelete: "cascade" }),
+    month: text("month").notNull(),
+    kind: text("kind").notNull(),
+    matchKey: text("match_key").notNull(),
+    evidence: text("evidence").default("{}").notNull(),
+    ...timestamps,
+  },
+  (table) => [index("reconciliation_entries_company_month_index").on(table.companyId, table.month), uniqueIndex("reconciliation_entries_event_match_unique").on(table.companyId, table.eventId, table.matchKey)],
 );
 
 export const reportingPeriods = pgTable(
@@ -353,6 +404,7 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   policies: many(policies),
   reviewItems: many(reviewItems),
   factRecords: many(factRecords),
+  approvalEvents: many(approvalEvents),
   sources: many(sources),
   observations: many(observations),
   entities: many(entities),

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AccountMenu } from "@/components/account-menu";
@@ -23,6 +23,29 @@ function monthLabel(month: string, formatter = monthFormatter) {
   return formatter.format(new Date(`${month}-01T00:00:00Z`));
 }
 
+function dateLabel(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+}
+
+function firstDayOfMonth(month: string) {
+  return /^\d{4}-\d{2}$/.test(month) ? `${month}-01` : "";
+}
+
+function lastDayOfMonth(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return "";
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year!, monthNumber!, 0)).toISOString().slice(0, 10);
+}
+
+function accountingValue(value: string | undefined) {
+  if (!value) return undefined;
+  const normalized = value.replace(/[$,\s]/g, "");
+  const negative = /^\(.*\)$/.test(normalized) || normalized.startsWith("-");
+  const parsed = Number(normalized.replace(/[()]/g, ""));
+  return Number.isFinite(parsed) ? (negative ? -Math.abs(parsed) : parsed) : undefined;
+}
+
 function money(amount: number, currency = "$") {
   const formatted = Math.abs(amount).toLocaleString();
   return amount < 0 ? `−${currency}${formatted}` : `${currency}${formatted}`;
@@ -42,6 +65,7 @@ const efforts: { value: Effort; label: string }[] = [
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
 ];
+const accountingRoleOptions = ["transaction", "opening_balance", "ending_balance", "transfer", "investment_movement", "revenue", "expense", "financing", "summary", "agreement", "unknown"] as const;
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
@@ -97,13 +121,65 @@ function processingChanges(runs: EvidenceItem["ingestionRuns"] | undefined) {
   try { return JSON.parse(latest.metadata) as { changes?: { added: { label: string; value: string }[]; removed: { label: string; value: string }[]; changed: { label: string; before: string; after: string }[] }; reconciliation?: string; forecast?: string }; } catch { return null; }
 }
 
+/** Human-readable, source-level result of a durable intake stage. */
+function processingRunDetail(run: NonNullable<EvidenceItem["ingestionRuns"]>[number]) {
+  try {
+    const metadata = JSON.parse(run.metadata) as Record<string, unknown>;
+    const count = (key: string) => typeof metadata[key] === "number" ? metadata[key] : undefined;
+    if (run.stage === "storage") return metadata.storageReference ? "Original retained" : undefined;
+    if (run.stage === "classification") return count("transactions") !== undefined ? `${count("transactions")} transactions identified` : undefined;
+    if (run.stage === "extraction") return [count("facts") !== undefined ? `${count("facts")} facts` : undefined, count("questions") !== undefined ? `${count("questions")} source questions` : undefined].filter(Boolean).join(" · ") || undefined;
+    if (run.stage === "validation") return [count("months") !== undefined ? `${count("months")} months checked` : undefined, count("exceptions") !== undefined ? `${count("exceptions")} exceptions` : undefined].filter(Boolean).join(" · ") || undefined;
+    if (run.stage === "matching") return [count("matched") !== undefined ? `${count("matched")} matched` : undefined, count("unmatched") !== undefined ? `${count("unmatched")} unmatched` : undefined].filter(Boolean).join(" · ") || undefined;
+    if (run.stage === "grouped_review") return count("questions") !== undefined ? `${count("questions")} CFO questions prepared` : undefined;
+    if (run.stage === "reconciliation") return [count("months") !== undefined ? `${count("months")} months reconciled` : undefined, count("exceptions") !== undefined ? `${count("exceptions")} exceptions` : undefined].filter(Boolean).join(" · ") || undefined;
+  } catch { /* An older run can have non-JSON metadata. */ }
+  return undefined;
+}
+
+function ingestionStatusLabel(item: EvidenceItem) {
+  const status = item.ingestionStatus ?? item.status;
+  if (status === "extracting") return "Extracting facts and evidence";
+  if (status === "stored") return "Stored; waiting for extraction";
+  if (status === "reconciling") return "Checking against other sources";
+  if (status === "review") return "Ready for review";
+  if (status === "reconciled") return "Reconciled";
+  if (status === "failed") return "Processing failed";
+  return status;
+}
+
+type ProcessingStage = { key: string; label: string; status: "waiting" | "running" | "succeeded" | "failed"; detail?: string };
+
+/** Converts durable run records into the fixed workflow a CFO expects to see. */
+function processingTimeline(item: EvidenceItem): ProcessingStage[] {
+  const latest = (stages: string[]) => [...(item.ingestionRuns ?? [])].filter((run) => stages.includes(run.stage)).sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+  const stage = (key: string, label: string, stages: string[], fallback: ProcessingStage["status"], detail?: string): ProcessingStage => {
+    const run = latest(stages);
+    const resolvedDetail = run ? processingRunDetail(run) ?? run.error ?? undefined : detail;
+    return { key, label, status: run?.status as ProcessingStage["status"] ?? fallback, ...(resolvedDetail ? { detail: resolvedDetail } : {}) };
+  };
+  const classification = item.sourceMetadata?.classification;
+  const extracted = Boolean(item.extraction);
+  return [
+    stage("identify", "Identify source", ["classification"], classification ? "succeeded" : "waiting", classification ? `${classification.kind.replace(/_/g, " ")} · ${classification.confidence} confidence` : undefined),
+    stage("extract", "Extract evidence", ["extraction"], extracted ? "succeeded" : "waiting", extracted ? `${item.extraction?.facts.length ?? 0} facts · ${item.extraction?.questions.length ?? 0} questions` : undefined),
+    stage("validate", "Validate balances", ["validation"], extracted ? "waiting" : "waiting"),
+    stage("match", "Cross-check sources", ["matching", "reconciliation"], extracted ? "waiting" : "waiting"),
+    stage("review", "Prepare review", ["grouped_review", "review"], item.status === "approved" ? "succeeded" : extracted ? "waiting" : "waiting"),
+  ];
+}
+
 function renderInlineMarkdown(text: string): ReactNode[] {
   const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^\)]+\)|\*[^*]+\*|_[^_]+_)/g).filter(Boolean);
   return tokens.map((token, index) => {
     if (/^\*\*.*\*\*$|^__.*__$/.test(token)) return <strong key={index}>{token.slice(2, -2)}</strong>;
     if (/^`.*`$/.test(token)) return <code key={index} className="rounded bg-rule px-1 py-0.5 font-mono text-[0.85em]">{token.slice(1, -1)}</code>;
     const link = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
-    if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="underline underline-offset-2">{link[1]}</a>;
+    if (link) {
+      const href = link[2]?.trim();
+      if (href && /^(https?:|mailto:)/i.test(href)) return <a key={index} href={href} target="_blank" rel="noreferrer" className="underline underline-offset-2">{link[1]}</a>;
+      return <span key={index}>{link[1]}</span>;
+    }
     if (/^\*.*\*$|^_.*_$/.test(token)) return <em key={index}>{token.slice(1, -1)}</em>;
     return <span key={index}>{token}</span>;
   });
@@ -147,7 +223,7 @@ function composerCallToAction(now: Date, context: { needsInputCount: number; has
   const day = now.getDay();
   const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   if (context.hasFiles) return "Add a note about these files, then send them for review";
-  if (context.needsInputCount > 0) return "Answer a waiting question, or ask me to inspect the evidence";
+  if (context.needsInputCount > 0) return "Start with something that needs your input";
   if (context.hasConversation) return "Ask a follow-up, add context, or tell me what to decide";
   if (day === 1) return `Good ${timeOfDay} — start the week with what needs attention`;
   if (day === 5) return `Good ${timeOfDay} — close the week with a question or update`;
@@ -179,6 +255,13 @@ type EvidenceItem = {
   sourceMime?: string | null;
   sourceSize?: string | null;
   sourceHash?: string | null;
+  currency?: string | null;
+  reportingMonth?: string | null;
+  accountHolder?: string | null;
+  accountIdentifier?: string | null;
+  statementPeriodStart?: string | null;
+  statementPeriodEnd?: string | null;
+  sourceMetadata?: { classification?: { kind: string; confidence: "high" | "medium" | "low"; containsTransactions?: boolean; containsBalances?: boolean; containsSummaries?: boolean }; pdfQuality?: { status: "good" | "weak" | "empty"; pageCount: number; nonEmptyPages: number; characters: number; warnings: string[] } };
   storageReference?: string | null;
   ingestionStatus?: string | null;
   ingestionError?: string | null;
@@ -186,8 +269,10 @@ type EvidenceItem = {
   sourceExcerpt?: string;
   createdAt?: string;
   status: string;
-  extraction: { summary: string; facts: { label: string; value: string; confidence: number }[]; questions: string[] } | null;
+  identityStatus: string;
+  extraction: { summary: string; facts: { label: string; value: string; accountingRole?: string; confidence: number; factId?: string; factStatus?: string; sourceLocation?: string | null; currency?: string | null }[]; questions: string[] } | null;
   ingestionRuns?: { id: string; stage: string; status: string; error?: string | null; startedAt: string; completedAt?: string | null; metadata: string }[];
+  approvals?: { id: string; factId?: string | null; layer: string; action: string; previousValue?: string | null; nextValue?: string | null; createdAt: string; userName?: string | null; userEmail?: string | null }[];
 };
 type ChatEvidence = {
   id?: string;
@@ -196,12 +281,61 @@ type ChatEvidence = {
   facts: { label: string; value: string; confidence: number }[];
   questions: string[];
 };
-type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
+type ReviewQuestion = { id: string; reviewKey?: string | null; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
 type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; status?: "open" | "closed"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean }[] };
-type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string }[] };
+type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; duplicateGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; transferGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; bookMatchGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; reviewQuestions?: { kind: string; question: string; evidence: string[] }[]; sourceNames: string[]; pendingSources: string[]; stagedTransactionCount?: number; stagedSourceNames?: string[]; stagedTransactions?: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string; sourceLocation?: string | null }[]; revenueComparison?: { reported: number; cashReceived: number; sources: string[] }; bookBalanceComparison?: { statementBalance: number; bookBalance: number; difference: number; statementSources: string[]; bookSources: string[] }; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string; sourceLocation?: string | null }[] };
+type ReconciliationLedgerSummary = { total: number; byKind: Record<string, number> };
 type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string }[] };
-type PeriodPreset = "month" | "quarter" | "ytd" | "year" | "custom";
+type PeriodPreset = "month" | "quarter" | "ytd" | "last12" | "year" | "custom";
+type StatementCadence = "monthly" | "quarterly" | "annual";
+
+function cadenceKey(month: string, cadence: StatementCadence) {
+  if (cadence === "monthly") return month;
+  if (cadence === "annual") return month.slice(0, 4);
+  return `${month.slice(0, 4)}-Q${Math.floor((Number(month.slice(5, 7)) - 1) / 3) + 1}`;
+}
+
+function cadenceLabel(key: string, cadence: StatementCadence) {
+  if (cadence === "monthly") return monthLabel(key);
+  return key;
+}
+
+function aggregateForecastRows(rows: ForecastMonth[], cadence: StatementCadence) {
+  const groups = new Map<string, ForecastMonth[]>();
+  for (const row of rows) {
+    const key = cadenceKey(row.month, cadence);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.entries()].map(([key, entries]) => {
+    const first = entries[0]!;
+    const last = entries.at(-1)!;
+    return {
+      ...last,
+      month: key,
+      endMonth: last.month,
+      openingCash: first.openingCash,
+      receipts: entries.reduce((sum, row) => sum + row.receipts, 0),
+      spending: entries.reduce((sum, row) => sum + row.spending, 0),
+      actualReceipts: entries.reduce((sum, row) => sum + row.actualReceipts, 0),
+      actualSpending: entries.reduce((sum, row) => sum + row.actualSpending, 0),
+    };
+  });
+}
+
+function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
+  const groups = new Map<string, PnlMonth[]>();
+  for (const row of rows) {
+    const key = cadenceKey(row.month, cadence);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.entries()].map(([key, entries]) => ({
+    month: key,
+    revenue: entries.reduce((sum, row) => sum + row.revenue, 0),
+    expenses: entries.reduce((sum, row) => sum + row.expenses, 0),
+    operatingIncome: entries.reduce((sum, row) => sum + row.operatingIncome, 0),
+  }));
+}
 
 export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [message, setMessage] = useState("");
@@ -215,6 +349,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [reprocessingEvidenceId, setReprocessingEvidenceId] = useState<string | null>(null);
+  const [batchApprovalEvidenceId, setBatchApprovalEvidenceId] = useState<string | null>(null);
+  const [treatmentDrafts, setTreatmentDrafts] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -230,12 +366,24 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
+  const [reconciliationLedger, setReconciliationLedger] = useState<ReconciliationLedgerSummary | null>(null);
+  const [isReconciling, setIsReconciling] = useState(false);
   const [pnl, setPnl] = useState<PnlMonth[]>([]);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("month");
+  const [statementCadence, setStatementCadence] = useState<StatementCadence>("monthly");
   const [statementTab, setStatementTab] = useState<"income" | "cash" | "balance">("income");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const selectPeriodPreset = (value: string) => {
+    const next = value as PeriodPreset;
+    setPeriodPreset(next);
+    if (next === "custom") {
+      setCustomStart((current) => current || firstDayOfMonth(rangeEnd.slice(0, 7) || selectedMonth));
+      setCustomEnd((current) => current || rangeEnd || lastDayOfMonth(selectedMonth));
+    }
+  };
   const [editingItem, setEditingItem] = useState<EvidenceItem | null>(null);
   const [editSummary, setEditSummary] = useState("");
   const [editFacts, setEditFacts] = useState<{ label: string; value: string; confidence: number }[]>([]);
@@ -256,18 +404,40 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   useEffect(() => {
     if (turns.length > 0) composerInput.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [turns.length]);
-  const anchorDate = selectedMonth ? new Date(`${selectedMonth}-01T00:00:00Z`) : null;
+  const effectiveRangeEnd = rangeEnd || lastDayOfMonth(selectedMonth);
+  const anchorMonth = effectiveRangeEnd.slice(0, 7) || selectedMonth;
+  const anchorDate = anchorMonth ? new Date(`${anchorMonth}-01T00:00:00Z`) : null;
   const anchorYear = anchorDate?.getUTCFullYear();
-  const anchorMonth = anchorDate ? anchorDate.getUTCMonth() + 1 : 1;
-  const periodStart = periodPreset === "custom" ? (customStart || selectedMonth) : periodPreset === "ytd" ? `${anchorYear}-01` : periodPreset === "year" ? `${anchorYear}-01` : periodPreset === "quarter" ? `${anchorYear}-${String(Math.floor((anchorMonth - 1) / 3) * 3 + 1).padStart(2, "0")}` : selectedMonth;
-  const periodEnd = periodPreset === "custom" ? (customEnd || selectedMonth) : periodPreset === "ytd" || periodPreset === "quarter" ? selectedMonth : periodPreset === "year" ? `${anchorYear}-12` : selectedMonth;
-  const periodForecastRows = forecast.filter((month) => month.month >= periodStart && month.month <= periodEnd);
-  const periodPnlRows = pnl.filter((month) => month.month >= periodStart && month.month <= periodEnd);
+  const anchorMonthNumber = anchorDate ? anchorDate.getUTCMonth() + 1 : 1;
+  const periodStart = periodPreset === "custom" ? (customStart || firstDayOfMonth(anchorMonth)) : periodPreset === "ytd" ? `${anchorYear}-01-01` : periodPreset === "year" ? `${anchorYear}-01-01` : periodPreset === "last12" ? firstDayOfMonth(new Date(Date.UTC(anchorYear!, anchorMonthNumber! - 12, 1)).toISOString().slice(0, 7)) : periodPreset === "quarter" ? `${anchorYear}-${String(Math.floor((anchorMonthNumber - 1) / 3) * 3 + 1).padStart(2, "0")}-01` : firstDayOfMonth(anchorMonth);
+  const periodEnd = periodPreset === "custom" ? (customEnd || effectiveRangeEnd) : periodPreset === "year" ? `${anchorYear}-12-31` : effectiveRangeEnd;
+  const periodStartMonth = periodStart.slice(0, 7);
+  const periodEndMonth = periodEnd.slice(0, 7);
+  const customRangeIsValid = periodPreset !== "custom" || !periodStart || !periodEnd || periodStart <= periodEnd;
+  const periodForecastRows = customRangeIsValid ? forecast.filter((month) => month.month >= periodStartMonth && month.month <= periodEndMonth) : [];
+  const periodPnlRows = customRangeIsValid ? pnl.filter((month) => month.month >= periodStartMonth && month.month <= periodEndMonth) : [];
   const lastForecast = periodForecastRows.at(-1);
   const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: periodForecastRows.reduce((sum, row) => sum + row.receipts, 0), spending: periodForecastRows.reduce((sum, row) => sum + row.spending, 0), actualReceipts: periodForecastRows.reduce((sum, row) => sum + row.actualReceipts, 0), actualSpending: periodForecastRows.reduce((sum, row) => sum + row.actualSpending, 0), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
   const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
-  const periodLabel = periodPreset === "quarter" ? `Q${Math.floor((anchorMonth - 1) / 3) + 1} ${anchorYear}` : periodPreset === "ytd" ? `YTD ${monthLabel(selectedMonth)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${monthLabel(periodStart)} – ${monthLabel(periodEnd)}` : monthLabel(selectedMonth);
-  const pendingEvidence = evidence.filter((item) => item.status === "pending");
+  const displayedForecastRows = aggregateForecastRows(periodForecastRows, statementCadence);
+  const displayedPnlRows = aggregatePnlRows(periodPnlRows, statementCadence);
+  const approvedBalanceSheet = evidence.filter((item) => item.status === "approved" && item.identityStatus === "approved" && item.sourceMetadata?.classification?.kind === "balance_sheet" && item.extraction && (item.reportingMonth ?? item.statementPeriodEnd?.slice(0, 7) ?? "") <= periodEndMonth).sort((a, b) => (a.reportingMonth ?? a.statementPeriodEnd ?? "").localeCompare(b.reportingMonth ?? b.statementPeriodEnd ?? "")).at(-1);
+  const balanceFacts = approvedBalanceSheet?.extraction?.facts.filter((fact) => fact.factStatus === "approved" || fact.factStatus === "treatment_approved") ?? [];
+  const balanceFact = (pattern: RegExp) => accountingValue(balanceFacts.find((fact) => pattern.test(fact.label))?.value);
+  const reportedCash = balanceFact(/^(?:cash(?: and cash equivalents)?|total cash)\b/i);
+  const totalAssets = balanceFact(/^total assets\b/i) ?? reportedCash ?? currentForecast?.endingCash;
+  const totalLiabilities = balanceFact(/^total liabilities\b/i);
+  const reportedEquity = balanceFact(/^(?:total )?(?:shareholders?|stockholders?|members?)['’]? equity\b/i);
+  const shareholdersEquity = reportedEquity ?? (totalAssets !== undefined && totalLiabilities !== undefined ? totalAssets - totalLiabilities : undefined);
+  const balanceSheetDifference = totalAssets !== undefined && totalLiabilities !== undefined && shareholdersEquity !== undefined ? totalAssets - totalLiabilities - shareholdersEquity : undefined;
+  const periodLabel = periodPreset === "quarter" ? `Quarter ending ${dateLabel(periodEnd)}` : periodPreset === "ytd" ? `YTD through ${dateLabel(periodEnd)}` : periodPreset === "last12" ? `Last 12 months through ${dateLabel(periodEnd)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${dateLabel(periodStart)} – ${dateLabel(periodEnd)}` : `Month ending ${dateLabel(periodEnd)}`;
+  const pendingEvidence = evidence.filter((item) => item.identityStatus !== "rejected" && (item.status !== "approved" || item.extraction?.facts.some((fact) => fact.factStatus !== "treatment_approved")));
+  const processingEvidence = evidence.filter((item) => ["stored", "extracting", "reconciling", "processing"].includes(item.ingestionStatus ?? ""));
+  const discoveredAccounts = [...evidence.reduce<Map<string, { holder: string | null | undefined; identifier: string | null | undefined; currency: string | null | undefined }>>((accounts, item) => {
+    if (item.accountIdentifier || item.accountHolder) accounts.set(`${item.accountHolder ?? ""}|${item.accountIdentifier ?? ""}`, { holder: item.accountHolder, identifier: item.accountIdentifier, currency: item.currency });
+    return accounts;
+  }, new Map()).values()];
+  const coveredMonths = [...new Set(evidence.map((item) => item.reportingMonth ?? item.statementPeriodEnd?.slice(0, 7)).filter((month): month is string => Boolean(month)))].sort();
   const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length;
   useEffect(() => {
     const updatePlaceholder = () => setComposerPlaceholder(composerCallToAction(new Date(), { needsInputCount, hasConversation: turns.length > 0, hasFiles: files.length > 0 }));
@@ -276,11 +446,59 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     return () => window.clearInterval(timer);
   }, [files.length, needsInputCount, turns.length]);
   useEffect(() => {
-    fetch("/api/evidence")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => { if (payload) { setEvidence(payload.evidence); setReviewQuestions(uniqueById(payload.reviewItems ?? [])); } })
-      .catch(() => undefined);
+    async function loadEvidence() {
+      const response = await fetch("/api/evidence");
+      if (!response.ok) return;
+      const payload = await readJson(response);
+      if (payload.evidence) {
+        setEvidence(payload.evidence);
+        setReviewQuestions(uniqueById(payload.reviewItems ?? []));
+      }
+    }
+    loadEvidence().catch(() => undefined);
   }, []);
+
+  // Ingestion may continue after the upload/chat request returns. Keep the shell
+  // current while the documents modal is open or any source reports active work.
+  useEffect(() => {
+    const shouldPoll = documentsOpen || processingEvidence.length > 0;
+    if (!shouldPoll) return;
+    let cancelled = false;
+    async function refreshBackgroundWork() {
+      const [evidenceResponse, decisionsResponse] = await Promise.all([
+        fetch("/api/evidence"),
+        fetch("/api/decisions"),
+      ]);
+      if (cancelled) return;
+      if (evidenceResponse.ok) {
+        const payload = await readJson(evidenceResponse);
+        if (payload.evidence) {
+          setEvidence(payload.evidence);
+          setReviewQuestions(uniqueById(payload.reviewItems ?? []));
+        }
+      }
+      if (decisionsResponse.ok) {
+        const payload = await readJson(decisionsResponse);
+        if (payload.decisions) setAgentDecisions(payload.decisions);
+      }
+      if (processingEvidence.length > 0) {
+        const reconciliationResponse = await fetch("/api/reconciliation");
+        if (reconciliationResponse.ok) {
+          const payload = await readJson(reconciliationResponse);
+          if (payload.months) setReconciliation(payload.months);
+          if (payload.ledger) setReconciliationLedger(payload.ledger);
+        }
+      }
+    }
+    refreshBackgroundWork().catch(() => undefined);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshBackgroundWork().catch(() => undefined);
+    }, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [documentsOpen, processingEvidence.length]);
 
   useEffect(() => {
     fetch("/api/decisions").then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.decisions) setAgentDecisions(payload.decisions); }).catch(() => undefined);
@@ -288,7 +506,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   async function updateAgentDecision(id: string, status: AgentDecision["status"]) {
     const response = await fetch("/api/decisions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
-    if (response.ok) setAgentDecisions((current) => current.map((decision) => decision.id === id ? { ...decision, status } : decision));
+    if (response.ok) {
+      setAgentDecisions((current) => current.map((decision) => decision.id === id ? { ...decision, status } : decision));
+      await refreshFinancialState();
+    }
   }
 
   useEffect(() => {
@@ -301,13 +522,14 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       }
       const response = await fetch("/api/forecast");
       const payload = response.ok ? await readJson(response) : null;
-      if (payload?.months) { setForecast(payload.months); setSelectedMonth(payload.months[0]?.month ?? ""); }
+      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; setForecast(payload.months); setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
       const pnlResponse = await fetch("/api/pnl");
       const pnlPayload = pnlResponse.ok ? await readJson(pnlResponse) : null;
       if (pnlPayload?.months) setPnl(pnlPayload.months);
       const reconciliationResponse = await fetch("/api/reconciliation");
       const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
       if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
+      if (reconciliationPayload?.ledger) setReconciliationLedger(reconciliationPayload.ledger);
     }
     loadForecast().catch(() => undefined);
   }, []);
@@ -325,12 +547,49 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     return { model, ...(effort === "auto" ? {} : { effort }) };
   }
 
-  async function refreshReconciliation() {
-    const response = await fetch("/api/reconciliation");
-    if (response.ok) {
-      const payload = await readJson(response);
-      if (payload.months) setReconciliation(payload.months);
+  async function refreshReconciliation(runAgain = false) {
+    setIsReconciling(true);
+    try {
+      const response = await fetch(runAgain ? "/api/reconciliation?run=again" : "/api/reconciliation", runAgain ? { method: "POST" } : undefined);
+      if (response.ok) {
+        const payload = await readJson(response);
+        if (payload.months) setReconciliation(payload.months);
+        if (payload.ledger) setReconciliationLedger(payload.ledger);
+      }
+      if (runAgain) {
+        const evidenceResponse = await fetch("/api/evidence");
+        if (evidenceResponse.ok) {
+          const payload = await readJson(evidenceResponse);
+          if (payload.evidence) setEvidence(payload.evidence);
+        }
+      }
+    } finally {
+      setIsReconciling(false);
     }
+  }
+
+  async function refreshFinancialState() {
+    const [forecastResponse, pnlResponse, evidenceResponse] = await Promise.all([
+      fetch("/api/forecast"),
+      fetch("/api/pnl"),
+      fetch("/api/evidence"),
+    ]);
+    if (forecastResponse.ok) {
+      const payload = await readJson(forecastResponse);
+      if (payload.months) setForecast(payload.months);
+    }
+    if (pnlResponse.ok) {
+      const payload = await readJson(pnlResponse);
+      if (payload.months) setPnl(payload.months);
+    }
+    if (evidenceResponse.ok) {
+      const payload = await readJson(evidenceResponse);
+      if (payload.evidence) {
+        setEvidence(payload.evidence);
+        setReviewQuestions(uniqueById(payload.reviewItems ?? []));
+      }
+    }
+    await refreshReconciliation();
   }
 
   async function reprocessEvidence(item: EvidenceItem) {
@@ -366,13 +625,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     const payload = await readJson(response);
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
     const answer = [payload.answer, payload.forecastExplanation].filter(Boolean).join(" ").trim();
-    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, ...(attachmentNames.length ? { attachments: attachmentNames } : {}), model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
-    if (activeReviewQuestionId && payload.resolvedQuestions?.some((resolution: { id: string }) => resolution.id === activeReviewQuestionId)) {
-      setActiveReviewQuestionId(null);
-      setActiveReviewQuestion(null);
-    }
+    const reviewContext = activeReviewQuestion ? { type: "question" as const, text: activeReviewQuestion.question } : activeDecision ? { type: "decision" as const, text: activeDecision.question } : undefined;
+    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, ...(reviewContext ? { reviewContext } : {}), ...(attachmentNames.length ? { attachments: attachmentNames } : {}), model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
+    setActiveReviewQuestionId(null);
+    setActiveReviewQuestion(null);
     if (payload.resolvedDecisionIds?.length) setAgentDecisions((current) => current.map((decision) => payload.resolvedDecisionIds.includes(decision.id) ? { ...decision, status: payload.resolvedDecisions?.find((resolution: { id: string }) => resolution.id === decision.id)?.status ?? decision.status } : decision));
-    if (payload.resolvedDecisionIds?.includes(activeDecision?.id)) setActiveDecision(null);
+    setActiveDecision(null);
     setPendingQuestion(null);
     const [refreshedEvidence, refreshedDecisions] = await Promise.all([fetch("/api/evidence"), fetch("/api/decisions")]);
     if (refreshedEvidence.ok) {
@@ -460,7 +718,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     event.preventDefault();
     const submittedMessage = message.trim();
     if (!submittedMessage && files.length === 0) return;
-    const contextualQuestion = activeReviewQuestion ? `Regarding “${activeReviewQuestion.question}”: ${submittedMessage}` : activeDecision ? `Regarding proposed decision “${activeDecision.question}”: ${submittedMessage}` : submittedMessage;
+    const contextualQuestion = submittedMessage;
     const requestThreadId = activeThreadId;
     const abortController = new AbortController();
     requestAbortController.current = abortController;
@@ -497,16 +755,17 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       const decisionCommand = submittedMessage.match(/^decision\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       const policyCommand = submittedMessage.match(/^policy\s*:\s*(.+?)\s*=>\s*(.+)$/i);
       if (decisionCommand || policyCommand) {
-        const response = await request("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(decisionCommand ? { question: decisionCommand[1], answer: decisionCommand[2] } : { question: "Standing CFO policy", answer: policyCommand![2], policyName: policyCommand![1], policyRule: policyCommand![2] }) });
+        const response = await request(policyCommand ? "/api/policies" : "/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(policyCommand ? { action: "preview", name: policyCommand[1], rule: policyCommand[2], scope: "company" } : { question: decisionCommand![1], answer: decisionCommand![2] }) });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to save decision");
-        setNotice(policyCommand ? `Policy “${policyCommand[1]}” saved.` : "Decision saved.");
+        setNotice(policyCommand ? `Policy “${policyCommand[1]}” would match ${payload.impact?.matched ?? 0} transaction${payload.impact?.matched === 1 ? "" : "s"}. Review and activate it in Knowledge.` : "Decision saved.");
         const refreshedEvidence = await request("/api/evidence");
         if (refreshedEvidence.ok) {
           const evidencePayload = await readJson(refreshedEvidence);
           setEvidence(evidencePayload.evidence);
           setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? []));
         }
+        await refreshFinancialState();
         return;
       }
       const openingCommand = submittedMessage.match(/^(?:set\s+)?opening\s+(?:cash|balance)\s+(?:for\s+)?(\d{4}-\d{2})\s*(?:to|=)?\s*\$?([\d,]+(?:\.\d+)?)$/i);
@@ -523,7 +782,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         await askAgent(contextualQuestion, [], abortController.signal);
         return;
       }
-      const payloads: { id: string; sourceName: string; status: "pending" | "approved"; extraction: EvidenceItem["extraction"]; reprocessEvidenceIds?: string[] }[] = [];
+      const payloads: { id: string; sourceName: string; status: "pending" | "approved"; identityStatus?: "pending" | "approved"; extraction: EvidenceItem["extraction"]; reprocessEvidenceIds?: string[] }[] = [];
       let importedActuals = 0;
       let duplicateActuals = 0;
       const failedFiles: string[] = [];
@@ -540,12 +799,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             if (actualsResponse.ok) {
               importedActuals += Number(actualsPayload.imported ?? 0);
               if (actualsPayload.duplicate) duplicateActuals += 1;
-              if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "approved", extraction: actualsPayload.extraction, reprocessEvidenceIds: actualsPayload.reprocessEvidenceIds });
+              if (actualsPayload.id && actualsPayload.extraction) payloads.push({ id: actualsPayload.id, sourceName: file.name, status: "pending", extraction: actualsPayload.extraction, reprocessEvidenceIds: actualsPayload.reprocessEvidenceIds });
               continue;
             }
             if (actualsResponse.status !== 400 || !/no transactions|needs an amount/i.test(String(actualsPayload.error ?? ""))) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
           }
-          const form = new FormData(); form.append("file", file); form.append("model", model); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
+          const form = new FormData(); form.append("file", file); form.append("model", model); form.append("defer", "true"); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
           const response = await request("/api/evidence", { method: "POST", body: form });
           const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? `Unable to process ${file.name}`);
@@ -563,9 +822,18 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         const payload = await readJson(response);
         if (!response.ok) failedFiles.push(`Related evidence: ${payload.error ?? "reprocessing failed"}`);
       }
-      setEvidence((current) => uniqueById([...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, status: payload.status, extraction: payload.extraction })), ...current]));
+      setEvidence((current) => uniqueById([...payloads.map((payload) => ({ id: payload.id, sourceName: payload.sourceName, identityStatus: payload.identityStatus ?? "pending", status: payload.status, extraction: payload.extraction })), ...current]));
+      const readyPayloads = payloads.filter((payload) => payload.extraction);
+      if (!readyPayloads.length && payloads.length) {
+        setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} queued for extraction. The processing timeline will update automatically.`);
+        setFiles([]);
+        setSelectedFiles([]);
+        const refreshedEvidence = await request("/api/evidence");
+        if (refreshedEvidence.ok) { const evidencePayload = await readJson(refreshedEvidence); setEvidence(evidencePayload.evidence); setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? [])); }
+        return;
+      }
       const question = contextualQuestion || `I uploaded ${files.join(", ")}. Review what I shared, tell me what you found, and ask me about anything that needs clarification.`;
-      const chatEvidence = payloads.map((payload) => ({
+      const chatEvidence = readyPayloads.map((payload) => ({
         id: payload.id,
         sourceName: payload.sourceName,
         summary: payload.extraction?.summary,
@@ -574,7 +842,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       }));
       setSubmissionStatus("Considering the files and preparing a response…");
       await askAgent(question, chatEvidence, abortController.signal, selectedFiles.map((file) => file.name));
-      setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} processed${importedActuals ? `; ${importedActuals} actual transactions imported` : duplicateActuals ? `; ${duplicateActuals} actual file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}${failedFiles.length ? `; ${failedFiles.length} failed: ${failedFiles.join(" · ")}` : "."}`);
+      setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} processed${importedActuals ? `; ${importedActuals} transactions staged for accounting approval` : duplicateActuals ? `; ${duplicateActuals} transaction file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}${failedFiles.length ? `; ${failedFiles.length} failed: ${failedFiles.join(" · ")}` : "."}`);
       setFiles([]);
       setSelectedFiles([]);
       const refreshedEvidence = await request("/api/evidence");
@@ -610,8 +878,47 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   }
 
   async function reviewItem(id: string, status: "approved" | "rejected") {
-    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
-    if (response.ok) setEvidence((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status, layer: "document" }) });
+    if (response.ok) {
+      setEvidence((current) => current.map((item) => item.id === id ? { ...item, identityStatus: status, status: status === "rejected" ? "rejected" : item.status } : item));
+      await refreshFinancialState();
+    } else {
+      const payload = await readJson(response);
+      setNotice(payload.error ?? "Unable to update this document.");
+    }
+  }
+
+  async function reviewFact(evidenceId: string, factId: string, status: "approved" | "rejected", layer: "fact" | "treatment", accountingRole?: string) {
+    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: evidenceId, factId, status, layer, ...(accountingRole ? { accountingRole } : {}) }) });
+    if (!response.ok) {
+      const payload = await readJson(response);
+      setNotice(payload.error ?? "Unable to update this approval.");
+      return;
+    }
+    setEvidence((current) => current.map((item) => item.id === evidenceId && item.extraction ? { ...item, extraction: { ...item.extraction, facts: item.extraction.facts.map((fact) => fact.factId === factId ? { ...fact, ...(accountingRole ? { accountingRole } : {}), factStatus: layer === "treatment" ? "treatment_approved" : status } : fact) } } : item));
+    await refreshFinancialState();
+  }
+
+  async function reviewFactBatch(item: EvidenceItem, layer: "fact" | "treatment") {
+    const facts = item.extraction?.facts.filter((fact) => fact.factId && (layer === "fact" ? fact.factStatus === "pending" : fact.factStatus === "approved")) ?? [];
+    if (!facts.length) return;
+    setBatchApprovalEvidenceId(item.id);
+    setNotice(null);
+    try {
+      for (const fact of facts) {
+        const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, factId: fact.factId, status: "approved", layer }) });
+        if (!response.ok) {
+          const payload = await readJson(response);
+          throw new Error(payload.error ?? "Unable to update this approval.");
+        }
+      }
+      await refreshFinancialState();
+      setNotice(`${facts.length} ${layer === "fact" ? "extracted fact" : "proposed treatment"}${facts.length === 1 ? "" : "s"} approved.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to update this approval.");
+    } finally {
+      setBatchApprovalEvidenceId(null);
+    }
   }
 
   async function editItem(item: EvidenceItem) {
@@ -628,16 +935,19 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     }
     const extraction = { ...editingItem.extraction, summary: editSummary.trim(), facts: editFacts.filter((fact) => fact.label.trim() && fact.value.trim()).map((fact) => ({ ...fact, label: fact.label.trim(), value: fact.value.trim() })) };
     const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editingItem.id, extractedJson: JSON.stringify(extraction) }) });
-    if (response.ok) setEvidence((current) => current.map((entry) => entry.id === editingItem.id ? { ...entry, extraction } : entry));
+    if (response.ok) {
+      setEvidence((current) => current.map((entry) => entry.id === editingItem.id ? { ...entry, extraction } : entry));
+      await refreshFinancialState();
+    }
     setEditingItem(null);
   }
 
   const proposed = agentDecisions.filter((decision) => decision.status === "proposed");
   const isClosed = currentForecast?.status === "closed";
-  const bars = periodForecastRows.map((month) => {
+  const bars = displayedForecastRows.map((month) => {
     const actual = month.actualReceipts !== 0 || month.actualSpending !== 0;
     const net = actual ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
-    return { month: month.month, actual, net };
+    return { month: month.month, endMonth: month.endMonth, actual, net };
   });
   const maxAbs = Math.max(1, ...bars.map((bar) => Math.abs(bar.net)));
   const zeroY = 95;
@@ -663,6 +973,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                       {turn.attachments?.length ? <div className="flex max-w-full flex-wrap justify-end gap-1.5">{turn.attachments.map((name, index) => <span key={`${turn.id}-attachment-${index}`} title={name} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule bg-background px-2 py-1 text-[12px] text-ink-2"><Paperclip className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{shortFileName(name)}</span></span>)}</div> : null}
                     </div>
                   </div>
+                  {turn.reviewContext && <div className="grid gap-1 rounded-[12px] border border-rule bg-rule/35 px-4 py-3"><span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">{turn.reviewContext.type === "decision" ? "Reviewing proposed decision" : "Answering waiting question"}</span><p className="text-[15px] leading-[1.45] text-ink">{turn.reviewContext.text}</p></div>}
                   <div className="flex justify-start">
                     <div className="prose-serif max-w-[70ch] text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }}><MarkdownMessage content={turn.answer} /></div>
                   </div>
@@ -816,6 +1127,33 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           )}
         </section>
 
+        {processingEvidence.length > 0 && <section className="grid gap-3.5" aria-live="polite" aria-label="Documents processing">
+          <div className="flex items-baseline justify-between gap-4">
+            <div><h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Processing run</h2><p className="mt-1 text-[13px] text-ink-2">New evidence is being checked automatically.</p></div>
+            <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Live</span>
+          </div>
+          <div className="grid gap-4 border-y border-rule py-4 sm:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)]">
+            <div className="grid gap-2 text-[13px]">
+              {[
+                ["Classify sources", evidence.length > 0],
+                ["Extract facts and provenance", evidence.length > 0 && processingEvidence.every((item) => !["stored", "extracting"].includes(item.ingestionStatus ?? ""))],
+                ["Validate balances", reconciliation.length > 0],
+                ["Match transactions", reconciliation.length > 0],
+                ["Prepare grouped review", reconciliation.length > 0],
+              ].map(([label, complete]) => <div className="flex items-center gap-2" key={String(label)}>{complete ? <Check className="size-3.5 text-ink" aria-hidden="true" /> : <LoaderCircle className="size-3.5 animate-spin text-ink-2" aria-hidden="true" />}<span className={complete ? "text-ink" : "text-ink-2"}>{label}</span><span className="ml-auto text-[12px] text-pencil">{complete ? "Complete" : "Running"}</span></div>)}
+            </div>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-rule pt-3 text-[12px] sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+              <span><strong className="block text-[17px] font-normal text-ink">{evidence.length}</strong>documents loaded</span>
+              <span><strong className="block text-[17px] font-normal text-ink">{evidence.reduce((total, item) => total + (item.extraction?.facts.length ?? 0), 0)}</strong>facts extracted</span>
+              <span><strong className="block text-[17px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.transactionCount, 0)}</strong>transactions checked</span>
+              <span><strong className="block text-[17px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.exceptions.length, 0)}</strong>exceptions</span>
+            </div>
+          </div>
+          <div className="grid gap-1 text-[13px]">
+            {processingEvidence.map((item) => <div className="flex items-center justify-between gap-4" key={`processing-${item.id}`}><span className="truncate text-ink" title={item.sourceName}>{shortFileName(item.sourceName)}</span><span className="shrink-0 text-ink-2">{ingestionStatusLabel(item)}</span></div>)}
+          </div>
+        </section>}
+
         {needsInputCount > 0 && <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Needs your input</h2>
@@ -854,19 +1192,28 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                             “{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”
                           </div>
                         )}
+                        <div className="mt-3 grid gap-2 border-l-2 border-rule pl-3 text-[13px]">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">1 · Document identity</span>{item.identityStatus === "approved" ? <span className="text-ink">Confirmed</span> : item.identityStatus === "rejected" ? <span className="text-red-ink">Rejected</span> : <span className="text-ink-2">Confirm this is the right source, entity, and period.</span>}</span>
+                            {item.identityStatus === "pending" && <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewItem(item.id, "approved")}>Confirm document</button>}
+                          </div>
+                          <div><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">2 · Extracted facts</span><span className="text-ink-2">Approve each fact after the document is confirmed.</span></div>
+                          <div><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">3 · Accounting treatment</span><span className="text-ink-2">Approve the proposed role before it can affect financial state.</span></div>
+                        </div>
+                        {item.identityStatus === "approved" && item.extraction?.facts.length ? <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]"><span className="text-ink-2">{item.extraction.facts.filter((fact) => fact.factStatus === "pending").length} facts awaiting review · {item.extraction.facts.filter((fact) => fact.factStatus === "approved").length} treatments awaiting approval</span>{item.extraction.facts.some((fact) => fact.factStatus === "pending") ? <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule disabled:opacity-50" type="button" disabled={batchApprovalEvidenceId === item.id} onClick={() => reviewFactBatch(item, "fact")}>{batchApprovalEvidenceId === item.id ? "Approving…" : "Approve all extracted facts"}</button> : null}{item.extraction.facts.some((fact) => fact.factStatus === "approved") ? <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule disabled:opacity-50" type="button" disabled={batchApprovalEvidenceId === item.id} onClick={() => reviewFactBatch(item, "treatment")}>{batchApprovalEvidenceId === item.id ? "Approving…" : "Approve all proposed treatments"}</button> : null}</div> : null}
                         {item.extraction?.facts.length ? (
-                          <div className="mt-1 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-ink-2">
-                            {item.extraction.facts.slice(0, 3).map((fact) => (
-                              <span key={`${item.id}-${fact.label}`}>
-                                {fact.label} <span className={cn("font-medium", fact.confidence >= 0.8 ? "text-ink" : "text-ink-2")}>{fact.value}</span>
-                                {fact.confidence < 0.8 && <span className="text-pencil"> {Math.round(fact.confidence * 100)}%</span>}
-                              </span>
+                          <div className="mt-2 grid gap-1.5 text-[13px] text-ink-2">
+                            {item.extraction.facts.map((fact) => (
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1" key={`${item.id}-${fact.label}`}>
+                                <span>{fact.label} <span className={cn("font-medium", fact.confidence >= 0.8 ? "text-ink" : "text-ink-2")}>{fact.value}</span>{fact.currency ? <span className="text-pencil"> · {fact.currency}</span> : null}{fact.sourceLocation ? <span className="text-pencil"> · {fact.sourceLocation}</span> : null}{fact.accountingRole ? <span className="text-pencil"> · {fact.accountingRole.replace(/_/g, " ")}</span> : null}</span>
+                                {fact.factId && <span className="flex flex-wrap items-center gap-1">{item.identityStatus !== "approved" ? <span className="text-[11px] text-pencil">Document confirmation required</span> : fact.factStatus === "treatment_approved" ? <span className="text-[11px] text-ink">Treatment approved · {fact.accountingRole?.replace(/_/g, " ") ?? "unknown"}</span> : fact.factStatus === "approved" ? <><select aria-label={`Accounting treatment for ${fact.label}`} className="rounded border border-rule bg-background px-1.5 py-0.5 text-[11px] text-ink-2" value={treatmentDrafts[fact.factId] ?? fact.accountingRole ?? "unknown"} onChange={(event) => setTreatmentDrafts((current) => ({ ...current, [fact.factId!]: event.target.value }))}>{accountingRoleOptions.map((role) => <option value={role} key={role}>{role.replace(/_/g, " ")}</option>)}</select><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "approved", "treatment", treatmentDrafts[fact.factId!] ?? fact.accountingRole ?? "unknown")}>Approve treatment</button></> : <><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "approved", "fact")}>Approve fact</button><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "rejected", "fact")}>Reject fact</button></>}</span>}
+                              </div>
                             ))}
                           </div>
                         ) : null}
                       </div>
                       <span className="flex gap-1">
-                        <button className={actionButton} type="button" aria-label="Approve extracted evidence" title="Accept" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
+                        <button className={actionButton} type="button" aria-label="Confirm document identity" title="Confirm document" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
                         <button className={actionButton} type="button" aria-label="Reject extracted evidence" title="Delete" onClick={() => reviewItem(item.id, "rejected")}><Trash2 /></button>
                         <button className={actionButton} type="button" aria-label="Edit extracted evidence" title="Edit" onClick={() => editItem(item)}><Pencil /></button>
                       </span>
@@ -897,62 +1244,76 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         </section>}
 
         {reconciliation.length > 0 && (() => {
-          const row = reconciliation.find((entry) => entry.month === selectedMonth) ?? reconciliation.at(-1)!;
+          const row = reconciliation.find((entry) => entry.month === periodEndMonth) ?? reconciliation.at(-1)!;
           return <section className="grid gap-3.5" aria-label="Reconciliation">
             <div className="flex items-baseline justify-between gap-4"><h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Reconciliation</h2><span className={cn("text-[13px]", row.status === "reconciled" ? "text-ink" : "text-red-ink")}>{row.status === "reconciled" ? "Reconciled" : `${row.exceptions.length} exception${row.exceptions.length === 1 ? "" : "s"}`}</span></div>
             <div className="grid gap-3 border-t border-rule pt-3">
               <div className="grid grid-cols-2 gap-4 text-[13px] sm:grid-cols-4"><div><span className="block text-ink-2">Opening</span><span className="mt-1 block text-ink">{row.opening === undefined ? "Not found" : money(row.opening)}</span></div><div><span className="block text-ink-2">Detailed activity</span><span className="mt-1 block text-ink">{money(row.net)}</span></div><div><span className="block text-ink-2">Calculated ending</span><span className="mt-1 block text-ink">{row.expectedEnding === undefined ? "—" : money(row.expectedEnding)}</span></div><div><span className="block text-ink-2">Statement ending</span><span className="mt-1 block text-ink">{row.ending === undefined ? "Not found" : money(row.ending)}</span></div></div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-rule pt-3 text-[12px] text-ink-2"><span>{row.transactionCount} unique transactions</span><span>{row.sourceNames.length} source{row.sourceNames.length === 1 ? "" : "s"}</span><span>{row.duplicateCount} duplicate match{row.duplicateCount === 1 ? "" : "es"}</span>{row.difference !== undefined && <span>Difference {money(row.difference)}</span>}</div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-rule pt-3 text-[12px] text-ink-2"><span>{row.transactionCount} approved transactions</span>{row.stagedTransactionCount ? <span>{row.stagedTransactionCount} staged for approval</span> : null}<span>{row.sourceNames.length} source{row.sourceNames.length === 1 ? "" : "s"}</span><span>{row.duplicateCount} duplicate match{row.duplicateCount === 1 ? "" : "es"}</span>{row.difference !== undefined && <span>Difference {money(row.difference)}</span>}</div>
+              {reconciliationLedger && <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2"><span>{reconciliationLedger.byKind.unmatched ?? 0} unmatched</span><span>{reconciliationLedger.byKind.transfer ?? 0} transfer counterparts</span><span>{reconciliationLedger.byKind.book_match ?? 0} bank-to-books matched</span><span>{reconciliationLedger.byKind.duplicate ?? 0} duplicate-linked</span><span>{reconciliationLedger.byKind.currency_pending ?? 0} awaiting conversion</span></div>}
+              {row.revenueComparison && <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2"><span>P&amp;L revenue {money(row.revenueComparison.reported)}</span><span>cash receipts {money(row.revenueComparison.cashReceived)}</span><span>from {row.revenueComparison.sources.join(" · ")}</span></div>}
+              {row.bookBalanceComparison && <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2"><span>Statement ending cash {money(row.bookBalanceComparison.statementBalance)}</span><span>Books cash {money(row.bookBalanceComparison.bookBalance)}</span><span className={Math.abs(row.bookBalanceComparison.difference) > 0.01 ? "text-red-ink" : "text-ink"}>Difference {money(row.bookBalanceComparison.difference)}</span></div>}
+              {row.duplicateGroups?.length ? <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Cross-source matches ({row.duplicateGroups.length})</summary><div className="mt-2 grid gap-2">{row.duplicateGroups.map((group) => <div className="grid gap-1 border-b border-rule pb-2" key={group.key}><span className="text-ink">{group.date ?? row.month} · {money(group.amount)} {group.direction}</span><span className="text-ink-2">{group.sources.join(" · ")}</span><span className="text-pencil">{group.descriptions.join(" / ")}</span></div>)}</div></details> : null}
+              {row.transferGroups?.length ? <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Matched internal transfers ({row.transferGroups.length})</summary><div className="mt-2 grid gap-2">{row.transferGroups.map((group) => <div className="grid gap-1 border-b border-rule pb-2" key={group.key}><span className="text-ink">{group.date ?? row.month} · {money(group.amount)} transfer</span><span className="text-ink-2">{group.sources.join(" · ")}</span><span className="text-pencil">{group.descriptions.join(" / ")}</span></div>)}</div></details> : null}
+              {row.bookMatchGroups?.length ? <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Bank-to-books matches ({row.bookMatchGroups.length})</summary><div className="mt-2 grid gap-2">{row.bookMatchGroups.map((group) => <div className="grid gap-1 border-b border-rule pb-2" key={group.key}><span className="text-ink">{group.date ?? row.month} · {money(group.amount)} {group.direction}</span><span className="text-ink-2">{group.sources.join(" · ")}</span><span className="text-pencil">{group.descriptions.join(" / ")}</span></div>)}</div></details> : null}
+              {row.reviewQuestions?.length ? <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Grouped review questions ({row.reviewQuestions.length})</summary><div className="mt-2 grid gap-3">{row.reviewQuestions.map((review) => <div className="grid gap-1 rounded-lg bg-highlight/50 p-3" key={`${review.kind}-${review.question}`}><span className="text-ink">{review.question}</span><span className="text-[12px] text-ink-2">Evidence: {review.evidence.join(" · ")}</span></div>)}</div></details> : null}
               {row.exceptions.length > 0 && <div className="grid gap-1 border-t border-rule pt-3 text-[13px] text-red-ink">{row.exceptions.map((exception) => <div key={exception}>{exception}</div>)}</div>}
-              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Sources and coverage</summary><div className="mt-2 grid gap-1 text-ink">{row.sourceNames.map((source) => <span key={source}>{source}</span>)}{row.pendingSources.map((source) => <span className="text-red-ink" key={source}>Pending: {source}</span>)}</div></details>
-              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({row.transactions.length})</summary><div className="mt-2 grid max-h-64 gap-1 overflow-auto">{row.transactions.map((transaction) => <div className="grid min-w-max grid-cols-[100px_minmax(220px,1fr)_auto] gap-3 border-b border-rule py-1.5 text-[12px]" key={transaction.id}><span className="text-ink-2">{transaction.date ?? row.month}</span><span><span className="block text-ink">{transaction.description}</span><span className="text-pencil">{transaction.category} · {transaction.sourceName}</span></span><span className="text-right text-ink">{transaction.direction === "spend" ? "−" : "+"}{money(transaction.amount)}</span></div>)}</div></details>
+              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Sources and coverage</summary><div className="mt-2 grid gap-1 text-ink">{row.sourceNames.map((source) => <span key={source}>{source}</span>)}{row.stagedSourceNames?.map((source) => <span className="text-pencil" key={`staged-${source}`}>Staged transaction source: {source}</span>)}{row.pendingSources.map((source) => <span className="text-red-ink" key={`pending-${source}`}>Pending: {source}</span>)}</div></details>
+              {(row.stagedTransactions?.length ?? 0) > 0 && <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Staged transaction detail ({row.stagedTransactions!.length})</summary><p className="mt-2 text-[12px] text-pencil">These parsed rows are available for review and matching, but are excluded from balances and statements until their accounting treatment is approved.</p><div className="mt-2 grid gap-1.5">{row.stagedTransactions!.map((transaction) => <div className="grid grid-cols-[88px_minmax(0,1fr)_auto] gap-2" key={`staged-transaction-${transaction.id}`}><span className="text-ink-2">{transaction.date ?? row.month}</span><span className="truncate">{transaction.description}<span className="block text-[11px] text-pencil">{transaction.sourceName}{transaction.sourceLocation ? ` · ${transaction.sourceLocation}` : ""}</span></span><span>{transaction.direction === "spend" ? "−" : "+"}{money(transaction.amount)}</span></div>)}</div></details>}
+              <details className="border-t border-rule pt-3 text-[13px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({row.transactions.length})</summary><div className="mt-2 grid max-h-64 gap-1 overflow-auto">{row.transactions.map((transaction) => <div className="grid min-w-max grid-cols-[100px_minmax(220px,1fr)_auto] gap-3 border-b border-rule py-1.5 text-[12px]" key={transaction.id}><span className="text-ink-2">{transaction.date ?? row.month}</span><span><span className="block text-ink">{transaction.description}</span><span className="text-pencil">{transaction.category} · {transaction.sourceName}{transaction.sourceLocation ? ` · ${transaction.sourceLocation}` : ""}</span></span><span className="text-right text-ink">{transaction.direction === "spend" ? "−" : "+"}{money(transaction.amount)}</span></div>)}</div></details>
             </div>
           </section>;
         })()}
 
         <section className="grid gap-3.5">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <h2 className="display min-w-0 text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>
               {selectedMonth ? periodLabel : "Company position"}
             </h2>
-            <div className="flex items-center gap-3 text-[13px] text-ink-2">
-              {currentForecast?.status && <span className="hidden sm:inline">{isClosed ? "Closed, in ink" : "Open, forecast in pencil"}</span>}
-              <button type="button" className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-ink-2 hover:bg-rule hover:text-ink sm:flex" onClick={() => window.location.reload()}><RefreshCw className="size-3.5" aria-hidden="true" /> Refresh</button>
+            <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2 md:justify-end">
               {forecast.length > 0 && (
                 <>
-                  <Select value={periodPreset} onValueChange={(value) => setPeriodPreset(value as PeriodPreset)}>
+                  <Select value={periodPreset} onValueChange={selectPeriodPreset}>
                     <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Reporting period">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="border-rule">
-                      <SelectItem value="month">Month</SelectItem>
-                      <SelectItem value="quarter">Quarter</SelectItem>
+                      <SelectItem value="month">Month to date</SelectItem>
+                      <SelectItem value="quarter">Quarter to date</SelectItem>
                       <SelectItem value="ytd">Year to date</SelectItem>
+                      <SelectItem value="last12">Last 12 months</SelectItem>
                       <SelectItem value="year">Calendar year</SelectItem>
                       <SelectItem value="custom">Custom range</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                    <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Anchor month">
-                      <SelectValue placeholder="Month" />
+                  {periodPreset !== "custom" && <label className="flex items-center gap-1.5 text-[12px] text-ink-2">Ending
+                    <Input aria-label="Reporting period ending date" type="date" value={rangeEnd} onChange={(event) => { setRangeEnd(event.target.value); setSelectedMonth(event.target.value.slice(0, 7)); }} className="h-7 w-[148px] border-rule bg-background px-2 text-[13px] shadow-none" />
+                  </label>}
+                  <Select value={statementCadence} onValueChange={(value) => setStatementCadence(value as StatementCadence)}>
+                    <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Statement aggregation">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="border-rule">
-                      {forecast.map((month) => (
-                        <SelectItem key={month.month} value={month.month}>{monthLabel(month.month)}</SelectItem>
-                      ))}
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="quarterly">Quarterly</SelectItem>
+                      <SelectItem value="annual">Annual</SelectItem>
                     </SelectContent>
                   </Select>
-                  {periodPreset === "custom" && (
-                    <span className="hidden items-center gap-1.5 lg:flex">
-                      <Input aria-label="Custom period start" type="month" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="h-7 w-[116px] px-2 text-[12px]" />
-                      <span>–</span>
-                      <Input aria-label="Custom period end" type="month" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="h-7 w-[116px] px-2 text-[12px]" />
-                    </span>
-                  )}
                 </>
               )}
             </div>
           </div>
+          {periodPreset === "custom" && (
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-2 rounded-lg border border-rule bg-rule/30 px-3 py-2.5">
+              <label className="grid gap-1 text-[12px] text-ink-2">From
+                <Input aria-label="Custom period start" type="date" value={customStart} max={customEnd || undefined} onChange={(event) => setCustomStart(event.target.value)} className="h-8 w-[164px] border-rule bg-background px-2 text-[13px] shadow-none" />
+              </label>
+              <label className="grid gap-1 text-[12px] text-ink-2">To
+                <Input aria-label="Custom period end" type="date" value={customEnd} min={customStart || undefined} onChange={(event) => { setCustomEnd(event.target.value); setSelectedMonth(event.target.value.slice(0, 7)); }} className="h-8 w-[164px] border-rule bg-background px-2 text-[13px] shadow-none" />
+              </label>
+              <span className={cn("pb-1 text-[12px]", customRangeIsValid ? "text-pencil" : "text-red-ink")}>{customRangeIsValid ? "Inclusive dates; charts and statements are shown by the months they cover." : "End date must be on or after the start date."}</span>
+            </div>
+          )}
           {closeSummary?.month === selectedMonth && (
             <p className="text-[13px] text-ink-2">Closed with actual net {money(closeSummary.actualNet)} and variance {money(closeSummary.variance)}.</p>
           )}
@@ -996,7 +1357,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-ink align-[-1px]" />Actual</span>
                 <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-pencil-2 align-[-1px]" />Forecast</span>
               </div>
-              <svg viewBox="0 0 720 170" className="block h-auto w-full" role="img" aria-label="Net cash flow by month. Closed months in ink, forecast months in pencil.">
+              <svg viewBox="0 0 720 170" preserveAspectRatio="none" className="block aspect-[720/170] h-auto w-full" role="img" aria-label={`Net cash flow by ${statementCadence}. Closed periods in ink, forecast periods in pencil.`}>
                 <line x1="0" y1={zeroY} x2="720" y2={zeroY} className="stroke-rule" strokeWidth="1" />
                 {bars.map((bar, index) => {
                   const slot = 720 / bars.length;
@@ -1004,12 +1365,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   const x = index * slot + (slot - width) / 2;
                   const height = Math.max(2, (Math.abs(bar.net) / maxAbs) * 65);
                   const negative = bar.net < 0;
-                  const selected = bar.month === selectedMonth;
+                  const selected = bar.endMonth === selectedMonth;
                   return (
-                    <g key={bar.month} className="cursor-pointer" onClick={() => setSelectedMonth(bar.month)}>
-                      <title>{`${monthLabel(bar.month)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}`}</title>
+                    <g key={bar.month} className="cursor-pointer" onClick={() => { setSelectedMonth(bar.endMonth); setRangeEnd(lastDayOfMonth(bar.endMonth)); }}>
+                      <title>{`${cadenceLabel(bar.month, statementCadence)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}`}</title>
                       <rect x={x} y={negative ? zeroY : zeroY - height} width={width} height={height} className={cn(negative ? "fill-red-ink" : bar.actual ? "fill-ink" : "fill-pencil-2")} opacity={negative && !bar.actual ? 0.35 : 1} />
-                      <text x={x + width / 2} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{monthLabel(bar.month, shortMonthFormatter)}</text>
+                      <text x={x + width / 2} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{statementCadence === "monthly" ? monthLabel(bar.month, shortMonthFormatter) : cadenceLabel(bar.month, statementCadence)}</text>
                     </g>
                   );
                 })}
@@ -1022,11 +1383,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           {currentForecast && (
             <section className="grid gap-3 border-t border-rule pt-5" aria-label="Financial statements">
               <h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Financial statements</h3>
-              <div className="flex w-full border-b border-rule" role="tablist" aria-label="Financial statements">
-                {([['income', 'Income statement'], ['cash', 'Cash flow statement'], ['balance', 'Balance sheet']] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={statementTab === value} className={cn("border-b-2 px-3 py-2 text-[13px] text-ink-2", statementTab === value ? "border-ink text-ink" : "border-transparent hover:text-ink")} onClick={() => setStatementTab(value)}>{label}</button>)}
+              <div className="flex min-h-9 w-full flex-wrap border-b border-rule" role="tablist" aria-label="Financial statements">
+                {([['income', 'Income statement'], ['cash', 'Cash flow statement'], ['balance', 'Balance sheet']] as const).map(([value, label]) => <button key={value} id={`financial-statement-tab-${value}`} type="button" role="tab" aria-selected={statementTab === value} aria-controls={`financial-statement-panel-${value}`} className={cn("shrink-0 border-b-2 px-3 py-2 text-[13px] text-ink-2", statementTab === value ? "border-ink text-ink" : "border-transparent hover:text-ink")} onClick={() => setStatementTab(value)}>{label}</button>)}
               </div>
-              <div className="w-full rounded-lg border border-rule p-4">
-                {statementTab === "income" && <div>
+              <div className="min-h-[220px] w-full rounded-lg border border-rule p-4">
+                {statementTab === "income" && <div id="financial-statement-panel-income" role="tabpanel" aria-labelledby="financial-statement-tab-income">
                   <div className="text-[13px] text-ink-2">Income statement</div>
                   <div className="mt-2 grid gap-1 text-[13px]">
                     <span>Revenue <span className="float-right">{money(currentPnl?.revenue ?? 0)}</span></span>
@@ -1035,9 +1396,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   </div>
                   {currentPnl && <div className="mt-3 grid gap-1 border-t border-rule pt-2 text-[12px] text-ink-2"><span className="text-[11px] uppercase tracking-wide text-pencil">Revenue breakdown</span>{Object.entries(currentPnl.revenueByCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={`revenue-${category}`} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}<span className="mt-1 text-[11px] uppercase tracking-wide text-pencil">Expense breakdown</span>{Object.entries(currentPnl.byCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={category} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}</div>}
                   {currentPnl?.trace?.length ? <details className="mt-3 min-w-0 border-t border-rule pt-2 text-[12px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({currentPnl.trace.length})</summary><div className="mt-2 grid max-h-40 min-w-0 gap-1 overflow-x-auto overflow-y-auto">{currentPnl.trace.map((line, index) => <span key={`${line.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{line.description ?? line.category}</span><span className="shrink-0">{line.direction === "spend" ? "−" : "+"}{money(line.amount)}</span></span>)}</div></details> : null}
-                  {periodPnlRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Revenue</th><th className="pb-2 text-right font-normal">Expenses</th><th className="pb-2 text-right font-normal">Operating income</th></tr></thead><tbody>{periodPnlRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.revenue)}</td><td className="py-2 text-right">{money(row.expenses)}</td><td className="py-2 text-right">{money(row.operatingIncome)}</td></tr>)}</tbody></table></div>}
+                  {displayedPnlRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Revenue</th><th className="pb-2 text-right font-normal">Expenses</th><th className="pb-2 text-right font-normal">Operating income</th></tr></thead><tbody>{displayedPnlRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{cadenceLabel(row.month, statementCadence)}</td><td className="py-2 text-right">{money(row.revenue)}</td><td className="py-2 text-right">{money(row.expenses)}</td><td className="py-2 text-right">{money(row.operatingIncome)}</td></tr>)}</tbody></table></div>}
                 </div>}
-                {statementTab === "cash" && <div>
+                {statementTab === "cash" && <div id="financial-statement-panel-cash" role="tabpanel" aria-labelledby="financial-statement-tab-cash">
                   <div className="text-[13px] text-ink-2">Cash flow statement</div>
                   <div className="mt-2 grid gap-1 text-[13px]">
                     <span>Beginning period cash <span className="float-right">{money(currentForecast.openingCash ?? (currentForecast.endingCash - (isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending)))}</span></span>
@@ -1047,16 +1408,31 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                     <span className="border-t border-rule pt-1 font-medium">Ending cash <span className="float-right">{money(currentForecast.endingCash)}</span></span>
                   </div>
                   {currentForecast.trace && <div className="mt-3 grid max-h-36 min-w-0 gap-1 overflow-x-auto overflow-y-auto border-t border-rule pt-2 text-[12px] text-ink-2">{currentForecast.trace.filter((entry) => entry.amount).map((entry, index) => <span key={`${entry.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{entry.description}</span><span className="shrink-0">{entry.kind === "spend" ? "−" : "+"}{money(entry.amount ?? 0)}</span></span>)}</div>}
-                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.actualReceipts - row.actualSpending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
+                  {displayedForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{displayedForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{cadenceLabel(row.month, statementCadence)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.actualReceipts - row.actualSpending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
                 </div>}
-                {statementTab === "balance" && <div>
-                  <div className="text-[13px] text-ink-2">Balance sheet snapshot</div>
-                  <div className="mt-2 grid gap-1 text-[13px]">
-                    <span>Cash and equivalents <span className="float-right">{money(currentForecast.endingCash)}</span></span>
-                    <span>Period <span className="float-right">{monthLabel(currentForecast.month)}</span></span>
-                    <span className="border-t border-rule pt-1 font-medium">Position <span className="float-right">{currentForecast.endingCash < 0 ? "Deficit" : "Positive"}</span></span>
+                {statementTab === "balance" && <div id="financial-statement-panel-balance" role="tabpanel" aria-labelledby="financial-statement-tab-balance">
+                  <div className="flex items-baseline justify-between gap-3 text-[13px] text-ink-2"><span>Balance sheet</span><span>As of {periodPreset === "custom" ? dateLabel(periodEnd) : monthLabel(currentForecast.month)}</span></div>
+                  <div className="mt-3 grid gap-4 text-[13px]">
+                    <div className="grid gap-1">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-pencil">Assets</span>
+                      <span>Cash and cash equivalents <span className="float-right">{money(reportedCash ?? currentForecast.endingCash)}</span></span>
+                      {totalAssets !== undefined && totalAssets !== (reportedCash ?? currentForecast.endingCash) && <span>Other assets <span className="float-right">{money(totalAssets - (reportedCash ?? currentForecast.endingCash))}</span></span>}
+                      <span className="border-t border-rule pt-1 font-medium">Total assets <span className="float-right">{totalAssets === undefined ? "Not available" : money(totalAssets)}</span></span>
+                    </div>
+                    <div className="grid gap-1">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-pencil">Liabilities</span>
+                      <span>Total liabilities <span className="float-right">{totalLiabilities === undefined ? "Not available" : money(totalLiabilities)}</span></span>
+                    </div>
+                    <div className="grid gap-1">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-pencil">Shareholders’ equity</span>
+                      <span>Shareholders’ equity <span className="float-right">{shareholdersEquity === undefined ? "Not available" : money(shareholdersEquity)}</span></span>
+                      <span className="border-t border-rule pt-1 font-medium">Total liabilities and shareholders’ equity <span className="float-right">{totalLiabilities === undefined || shareholdersEquity === undefined ? "Not available" : money(totalLiabilities + shareholdersEquity)}</span></span>
+                    </div>
                   </div>
-                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Total assets / cash</th><th className="pb-2 text-right font-normal">Position</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.endingCash)}</td><td className="py-2 text-right">{row.endingCash < 0 ? "Deficit" : "Positive"}</td></tr>)}</tbody></table></div>}
+                  <div className={cn("mt-3 border-t border-rule pt-2 text-[12px]", balanceSheetDifference === undefined ? "text-pencil" : Math.abs(balanceSheetDifference) < 0.01 ? "text-ink-2" : "text-red-ink")}>
+                    {balanceSheetDifference === undefined ? (approvedBalanceSheet ? "Liability or equity totals have not yet been approved from this balance-sheet source." : "Cash is available, but an approved balance sheet is needed to report liabilities and shareholders’ equity.") : Math.abs(balanceSheetDifference) < 0.01 ? "Balance check: assets equal liabilities plus shareholders’ equity." : `Balance check difference: ${money(balanceSheetDifference)}.`}
+                    {approvedBalanceSheet ? <span className="block mt-1 text-ink-2">Source: {shortFileName(approvedBalanceSheet.sourceName)}</span> : null}
+                  </div>
                 </div>}
               </div>
             </section>
@@ -1083,6 +1459,40 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Documents</DialogTitle>
             <DialogDescription>Every loaded source, what it established, and the facts extracted from it.</DialogDescription>
           </DialogHeader>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-2 border-b border-rule px-6 py-3 text-[12px] text-ink-2 sm:grid-cols-4 lg:grid-cols-8" aria-label="Review readiness">
+            <span><strong className="block text-[16px] font-normal text-ink">{evidence.length}</strong>documents</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{evidence.reduce((total, item) => total + (item.extraction?.facts.length ?? 0), 0)}</strong>facts</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{new Set(evidence.map((item) => item.sourceName)).size}</strong>sources</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.duplicateCount, 0)}</strong>matches</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.exceptions.length, 0)}</strong>exceptions</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{reviewQuestions.length + reconciliation.reduce((total, row) => total + (row.reviewQuestions?.length ?? 0), 0)}</strong>questions</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{pendingEvidence.length}</strong>awaiting approval</span>
+            <span><strong className="block text-[16px] font-normal text-ink">{processingEvidence.length}</strong>processing</span>
+          </div>
+          <section className="grid gap-2 border-b border-rule px-6 py-3" aria-label="Evidence coverage">
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Evidence coverage</h3><span className="text-[12px] text-ink-2">{coveredMonths.length ? coveredMonths.map((month) => monthLabel(month, shortMonthFormatter)).join(" · ") : "No dated periods found"}</span></div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-2">{discoveredAccounts.length ? discoveredAccounts.map((account) => <span key={`${account.holder ?? ""}-${account.identifier ?? ""}`}>{account.holder ?? "Account"}{account.identifier ? ` · ${account.identifier}` : ""}{account.currency ? ` · ${account.currency}` : ""}</span>) : <span>No account identifiers extracted yet.</span>}</div>
+          </section>
+          {reviewQuestions.some((question) => question.reviewKey?.startsWith("onboarding:")) && <section className="grid gap-2 border-b border-rule px-6 py-3" aria-label="Onboarding queue">
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Onboarding queue</h3><span className="text-[12px] text-ink-2">Only company specifics the evidence cannot establish</span></div>
+            <div className="grid gap-2 text-[13px]">{reviewQuestions.filter((question) => question.reviewKey?.startsWith("onboarding:")).map((question) => <div className="flex items-start justify-between gap-3 border-t border-rule pt-2" key={question.id}><span className="text-ink-2">{question.question}</span><button type="button" className="shrink-0 underline underline-offset-2" onClick={() => { setDocumentsOpen(false); answerInChat(question); }}>Answer</button></div>)}</div>
+          </section>}
+          {reconciliation.length > 0 && <section className="grid gap-2 border-b border-rule px-6 py-3" aria-label="Initial review report">
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Initial review report</h3><span className="flex items-center gap-3 text-[12px] text-ink-2">Review before relying on financial state <button className="underline underline-offset-2 disabled:opacity-50" type="button" onClick={() => refreshReconciliation(true)} disabled={isReconciling}>{isReconciling ? "Reviewing…" : "Run review again"}</button></span></div>
+            <div className="grid gap-1.5 text-[12px]">
+              {reconciliation.map((row) => <div className="grid grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-3 border-t border-rule pt-1.5" key={`report-${row.month}`}>
+                <span className="text-ink">{monthLabel(row.month, shortMonthFormatter)}</span>
+                <span className="min-w-0 truncate text-ink-2">{row.opening === undefined ? "Opening missing" : `Opening ${money(row.opening)}`} · {row.ending === undefined ? "ending missing" : `ending ${money(row.ending)}`} · {row.transactionCount} transactions · {row.duplicateCount} matches</span>
+                <span className={cn("whitespace-nowrap", row.status === "reconciled" ? "text-ink" : "text-red-ink")}>{row.status === "reconciled" ? "Ready" : `${row.exceptions.length} exception${row.exceptions.length === 1 ? "" : "s"}`}</span>
+              </div>)}
+            </div>
+          </section>}
+          {evidence.some((item) => item.ingestionRuns?.length) && <section className="grid gap-2 border-b border-rule px-6 py-3" aria-label="Recent processing activity">
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Recent processing activity</h3><span className="text-[12px] text-ink-2">Last 8 stages</span></div>
+            <div className="grid gap-1.5 text-[12px]">
+              {evidence.flatMap((item) => (item.ingestionRuns ?? []).map((run) => ({ ...run, sourceName: item.sourceName }))).sort((left, right) => right.startedAt.localeCompare(left.startedAt)).slice(0, 8).map((run) => <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t border-rule pt-1.5" key={`activity-${run.id}`}><span className="min-w-0 truncate text-ink" title={run.sourceName}>{shortFileName(run.sourceName)}</span><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("whitespace-nowrap", run.status === "failed" ? "text-red-ink" : "text-ink-2")}>{run.status}</span></div>)}
+            </div>
+          </section>}
           <div className="grid min-h-0 md:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
             <ScrollArea className="max-h-[64vh] border-b border-rule md:border-b-0 md:border-r">
               <div className="grid p-3">
@@ -1101,12 +1511,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 const item = evidence.find((entry) => entry.id === selectedEvidenceId) ?? evidence[0];
                 if (!item) return <Empty className="border-0 py-16"><EmptyHeader><EmptyTitle>Select a document</EmptyTitle></EmptyHeader></Empty>;
                 const changes = processingChanges(item.ingestionRuns);
+                const timeline = processingTimeline(item);
                 return <div className="grid gap-5 p-6">
-                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div></div>
+                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div>{item.sourceMetadata?.pdfQuality?.status !== "good" && item.sourceMetadata?.pdfQuality?.warnings?.length ? <div className="mt-2 rounded-lg border border-red-ink/30 bg-red-ink/5 p-3 text-[13px] text-red-ink"><span className="font-medium">PDF extraction needs review.</span> {item.sourceMetadata.pdfQuality.warnings.join(" ")}</div> : null}</div>
                   {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
-                  <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence)</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
+                  <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence{fact.accountingRole ? ` · ${fact.accountingRole.replace(/_/g, " ")}` : ""})</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question) => <div key={`${item.id}-${question}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>
-                  <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing history</h3>{item.ingestionRuns?.length ? <div className="grid gap-2">{item.ingestionRuns.map((run) => <div className="flex items-start justify-between gap-3 text-[13px]" key={run.id}><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("text-right", run.status === "failed" ? "text-red-ink" : "text-ink-2")}>{run.status}{run.error ? ` · ${run.error}` : ""}</span></div>)}</div> : <p className="text-[13px] text-ink-2">No processing history recorded.</p>}</section>
+                  <section className="grid gap-2 border-t border-rule pt-4" aria-label="Processing timeline"><div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing timeline</h3><span className="text-[12px] text-pencil">{ingestionStatusLabel(item)}</span></div><div className="grid gap-0.5">{timeline.map((stage, index) => <div className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-2 text-[13px]" key={stage.key}><span className={cn("mt-1.5 size-2 rounded-full", stage.status === "succeeded" ? "bg-ink" : stage.status === "failed" ? "bg-red-ink" : stage.status === "running" ? "bg-ink-2" : "bg-rule ring-1 ring-ink-2/30")} aria-hidden="true" /> <span className={cn(index < timeline.length - 1 && "border-b border-rule pb-2", stage.status === "failed" ? "text-red-ink" : "text-ink")}>{stage.label}{stage.detail ? <span className="block text-[12px] text-ink-2">{stage.detail}</span> : null}</span><span className={cn("capitalize text-[12px]", stage.status === "failed" ? "text-red-ink" : "text-ink-2")}>{stage.status}</span></div>)}</div></section>
+                  <section className="grid gap-2 border-t border-rule pt-4" aria-label="Live processing results"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Live results</h3><div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-ink-2"><span>{item.extraction?.facts.length ?? 0} facts extracted</span><span>{item.extraction?.questions.length ?? 0} source questions</span>{item.statementPeriodStart || item.statementPeriodEnd ? <span>{item.statementPeriodStart ?? "Unknown start"} → {item.statementPeriodEnd ?? "Unknown end"}</span> : null}{item.accountIdentifier ? <span>Account · ••••{item.accountIdentifier.replace(/[^0-9A-Za-z]/g, "").slice(-4)}</span> : null}</div></section>
+                  <section className="grid gap-2 border-t border-rule pt-4" aria-label="Approval history"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Approval history</h3>{item.approvals?.length ? <div className="grid gap-1.5">{item.approvals.map((approval) => <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12px]" key={approval.id}><span className="text-ink"><span className="capitalize">{approval.layer}</span> · {approval.action.replace(/_/g, " ")}</span><span className="text-ink-2">{approval.userName ?? approval.userEmail ?? "CFO"} · {new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(approval.createdAt))}</span></div>)}</div> : <p className="text-[13px] text-ink-2">No approvals recorded yet.</p>}</section>
                   {changes?.changes && (changes.changes.added.length || changes.changes.removed.length || changes.changes.changed.length) ? <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">What changed</h3><div className="grid gap-1 text-[13px] text-ink-2"><span>{changes.changes.added.length} added · {changes.changes.removed.length} removed · {changes.changes.changed.length} changed</span>{changes.changes.changed.map((change) => <span key={`changed-${change.label}`}><span className="text-ink">{change.label}:</span> {change.before} → {change.after}</span>)}{changes.changes.added.map((fact) => <span key={`added-${fact.label}`}><span className="text-ink">Added {fact.label}:</span> {fact.value}</span>)}{changes.changes.removed.map((fact) => <span key={`removed-${fact.label}`}><span className="text-ink">Removed {fact.label}:</span> {fact.value}</span>)}</div><span className="text-[12px] text-pencil">Reconciliation and forecast impact: pending refresh.</span></section> : null}
                 </div>;
               })()}

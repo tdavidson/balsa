@@ -31,7 +31,7 @@ describe("buildMonthlyProfitAndLoss", () => {
     expect(buildMonthlyProfitAndLoss([
       { id: "fee", month: "2026-01", category: "management_fee", amount: 1000, direction: "receipt", sourceId: "source-1" },
       { id: "payroll", month: "2026-01", category: "salary", amount: 400, direction: "spend", sourceId: "source-2" },
-    ])).toEqual([{ month: "2026-01", revenue: 1000, expenses: 400, operatingIncome: 600, byCategory: { management_fee: 0, salary: 400, contractor: 0, professional_services: 0, allocation: 0, prepaid: 0, other: 0 }, trace: [{ lineId: "fee", sourceId: "source-1", category: "management_fee", amount: 1000 }, { lineId: "payroll", sourceId: "source-2", category: "salary", amount: 400 }] }]);
+    ])).toEqual([{ month: "2026-01", revenue: 1000, expenses: 400, operatingIncome: 600, byCategory: { management_fee: 0, salary: 400, contractor: 0, professional_services: 0, allocation: 0, prepaid: 0, other: 0 }, revenueByCategory: { management_fee: 1000, salary: 0, contractor: 0, professional_services: 0, allocation: 0, prepaid: 0, other: 0 }, trace: [{ lineId: "fee", sourceId: "source-1", category: "management_fee", amount: 1000, direction: "receipt" }, { lineId: "payroll", sourceId: "source-2", category: "salary", amount: 400, direction: "spend" }] }]);
   });
 
   it("spreads prepaid coverage over the service period while retaining cash timing", () => {

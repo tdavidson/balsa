@@ -1,11 +1,12 @@
 import { auth } from "@clerk/nextjs/server";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { decisions, getDatabase, knowledgeDocuments, policies, reviewItems, assumptions, economicItems } from "@finance/database";
+import { decisions, getDatabase, policies, reviewItems, assumptions, economicItems } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { z } from "zod";
 
 const decisionUpdate = z.object({ id: z.string().uuid(), status: z.enum(["proposed", "applied", "rejected"]) });
+const decisionCreate = z.object({ question: z.string().trim().min(1).max(20_000), answer: z.string().trim().min(1).max(20_000), appliesTo: z.string().trim().max(500).optional() });
 
 export async function GET() {
   await auth.protect();
@@ -18,18 +19,12 @@ export async function GET() {
 export async function POST(request: Request) {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const body = (await request.json()) as { question?: string; answer?: string; appliesTo?: string; policyName?: string; policyRule?: string };
-  if (!body.question?.trim() || !body.answer?.trim()) return NextResponse.json({ error: "question and answer are required" }, { status: 400 });
-  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: body.question.trim(), answer: body.answer.trim(), appliesTo: body.appliesTo?.trim() || undefined }).returning();
-  const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: body.answer.trim(), status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, body.question.trim()), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
-  let policy;
-  if (decision && body.policyName?.trim() && body.policyRule?.trim()) {
-    [policy] = await getDatabase().insert(policies).values({ companyId: context.company.id, decisionId: decision.id, name: body.policyName.trim(), rule: body.policyRule.trim() }).returning();
-    const [doc] = await getDatabase().select({ content: knowledgeDocuments.content }).from(knowledgeDocuments).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, "policies")));
-    const addition = `- [decision:${decision.id}] ${body.policyName.trim()}: ${body.policyRule.trim()}`;
-    if (doc && !doc.content.includes(`decision:${decision.id}`)) await getDatabase().update(knowledgeDocuments).set({ content: `${doc.content.trim()}\n\n## Active policies\n${addition}\n`, updatedAt: new Date() }).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, "policies")));
-  }
-  return NextResponse.json({ decision, policy, resolvedReviewCount: resolvedReviews.length });
+  const body = decisionCreate.safeParse(await request.json());
+  if (!body.success) return NextResponse.json({ error: "question and answer are required" }, { status: 400 });
+  const data = body.data;
+  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined }).returning();
+  const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: data.answer, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, data.question), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
+  return NextResponse.json({ decision, resolvedReviewCount: resolvedReviews.length });
 }
 
 export async function PATCH(request: Request) {

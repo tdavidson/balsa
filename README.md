@@ -49,6 +49,22 @@ Add the Clerk publishable and secret keys to `.env`. Configure email
 code sign-in in the Clerk dashboard. The first successful login provisions an
 internal application user, a company, and an `owner` membership.
 
+### Optional scanned-PDF OCR
+
+For image-only or weak-text PDFs, install an `ocrmypdf`-compatible executable
+in the deployment and set `NEVERMODEL_OCR_COMMAND=ocrmypdf`. Hemrock will use
+its text sidecar only when normal PDF extraction is weak, retain OCR page
+references, and flag OCR-derived facts for review. Without this setting, weak
+PDFs remain blocked for review rather than being guessed.
+
+### Background reconciliation
+
+Set `CRON_SECRET` in the deployment to enable the protected processing drain.
+On Vercel, `vercel.json` invokes `/api/jobs/reconciliation` every five minutes;
+the route drains durable extraction and reconciliation runs through the same
+idempotent handlers used by the interactive app. The endpoint rejects callers
+without `Authorization: Bearer $CRON_SECRET`.
+
 ## Test the monthly workflow
 
 1. Sign in and type `opening cash 2026-09 $10000` in the composer.

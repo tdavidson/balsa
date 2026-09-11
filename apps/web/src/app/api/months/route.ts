@@ -34,7 +34,7 @@ export async function PATCH(request: Request) {
     [period] = await getDatabase().insert(reportingPeriods).values({ companyId: context.company.id, month: body.month, status: body.status }).onConflictDoNothing().returning();
   }
   if (!period) return NextResponse.json({ error: "Reporting period not found" }, { status: 404 });
-  const events = await getDatabase().select({ amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.month, body.month)));
+  const events = await getDatabase().select({ amount: cashEvents.amount, direction: cashEvents.direction, isActual: cashEvents.isActual }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.isActual, "Y"), or(isNull(cashEvents.currency), eq(cashEvents.currency, context.company.baseCurrency)), eq(cashEvents.month, body.month), or(eq(evidence.status, "approved"), isNull(cashEvents.evidenceId))));
   const summary = events.reduce((result, event) => {
     const amount = Number(event.amount);
     const key = event.isActual === "Y" ? (event.direction === "receipt" ? "actualReceipts" : "actualSpending") : (event.direction === "receipt" ? "forecastReceipts" : "forecastSpending");

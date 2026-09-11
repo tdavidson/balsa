@@ -1,5 +1,4 @@
 const summaryPattern = /balance sheet|holding\b|allocation\b|change in value|net credits?|credits?\s+debits?|total value|total income|total automated|automated payments?\s+total|this period|this year|year-to-date|estimated annual|percentage of holdings|current yield|unrealized|beginning total|ending total|opening total|consolidated|all accounts|total assets|total cash|cash related activity|investment related activity|sales and redemptions|electronic transfers?|closing cash|ending cash|opening cash|cash balance/i;
-const transactionPattern = /cash flow activity|automated payment|funds received|wired funds|bank product withdrawal|cash transfer|interest income|dividend|sold|bought|purchase|redemption|investment|transaction/i;
 
 /** Transfers change the cash location, but are not revenue or expense. */
 export function isTransferDescription(description: string) {
@@ -28,7 +27,11 @@ export function classifyCashActivity(description: string, direction: "receipt" |
 
 /** Extract the final currency amount, preserving parentheses and minus signs. */
 export function parseFinancialAmount(value: string) {
-  const matches = [...value.matchAll(/[-−]?\s*(?:USD\s*|\$)\s*(\(?\s*[\d,]+(?:\.\d+)?\s*\)?)/gi)];
+  const currencyMatches = [...value.matchAll(/[-−]?\s*(?:USD\s*|\$)\s*(\(?\s*[\d,]+(?:\.\d+)?\s*\)?)/gi)];
+  // Statements and GL exports frequently omit a currency symbol. Accept a
+  // decimal-formatted amount, but not bare integers that could be dates or IDs.
+  const bareMatches = [...value.matchAll(/[-−]?\s*(\(?\s*(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\s*\)?)/g)];
+  const matches = currencyMatches.length ? currencyMatches : bareMatches;
   const match = matches.at(-1);
   if (!match?.[1]) return undefined;
   const amount = Number(match[1].replace(/[(),\s]/g, ""));
@@ -37,7 +40,11 @@ export function parseFinancialAmount(value: string) {
 }
 
 export function isDetailedFinancialEvent(description: string) {
-  return transactionPattern.test(description) && !summaryPattern.test(description);
+  // Deterministic CSV/OFX rows often have ordinary merchant or customer
+  // descriptions (for example, "Den Technologies") rather than statement
+  // keywords. A non-summary cash event is therefore a transaction by default;
+  // summary lines remain excluded before they can reach reporting.
+  return Boolean(description.trim()) && !summaryPattern.test(description);
 }
 
 export function inferFinancialDirection(direction: string, description: string): "receipt" | "spend" {

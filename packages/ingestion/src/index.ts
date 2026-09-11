@@ -1,12 +1,101 @@
 import { PDFParse } from "pdf-parse";
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
-export async function extractPdfText(buffer: Uint8Array): Promise<string> {
-  const parser = new PDFParse({ data: buffer });
-  try { return (await parser.getText()).text; } finally { await parser.destroy(); }
+export * from "./source-classification";
+export * from "./statement-validation";
+export * from "./structured-statements";
+
+const knownCurrencies = ["USD", "CAD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD"] as const;
+export type KnownCurrency = (typeof knownCurrencies)[number];
+
+/** Returns only currencies explicitly named by the source; a dollar sign alone is ambiguous. */
+export function detectSourceCurrencies(text: string): KnownCurrency[] {
+  const upper = text.toUpperCase();
+  return knownCurrencies.filter((currency) => new RegExp(`\\b${currency}\\b`).test(upper));
 }
 
-export type TransactionRow = { date: string; postedDate?: string; description: string; amount: number; direction: "receipt" | "spend" };
+export type PdfPageText = { page: number; text: string };
+export type PdfExtractionQuality = {
+  pageCount: number;
+  nonEmptyPages: number;
+  characters: number;
+  averageCharactersPerPage: number;
+  status: "good" | "weak" | "empty";
+  warnings: string[];
+  ocr?: { status: "not_needed" | "succeeded" | "unavailable" | "failed"; command?: string; message?: string };
+};
+
+export function assessPdfText(pages: PdfPageText[]): PdfExtractionQuality {
+  const nonEmptyPages = pages.filter((page) => page.text.trim().length > 0).length;
+  const characters = pages.reduce((total, page) => total + page.text.trim().length, 0);
+  const averageCharactersPerPage = pages.length ? Math.round(characters / pages.length) : 0;
+  const warnings: string[] = [];
+  if (!pages.length || !characters) warnings.push("No selectable text was extracted; this PDF may be scanned or image-only.");
+  else if (nonEmptyPages < pages.length) warnings.push(`${pages.length - nonEmptyPages} page${pages.length - nonEmptyPages === 1 ? " has" : "s have"} no selectable text.`);
+  if (characters > 0 && averageCharactersPerPage < 40) warnings.push("Very little text was extracted per page; review the original PDF before relying on extracted facts.");
+  return { pageCount: pages.length, nonEmptyPages, characters, averageCharactersPerPage, status: !characters ? "empty" : warnings.length ? "weak" : "good", warnings };
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Optional OCR fallback. Deployments opt in with NEVERMODEL_OCR_COMMAND
+ * pointing at an ocrmypdf-compatible executable. The sidecar preserves page
+ * breaks, so downstream facts remain traceable to an OCR page.
+ */
+async function extractOcrPdfDocument(buffer: Uint8Array): Promise<{ pages: PdfPageText[]; detail: NonNullable<PdfExtractionQuality["ocr"]> }> {
+  const command = process.env.NEVERMODEL_OCR_COMMAND?.trim();
+  if (!command) return { pages: [], detail: { status: "unavailable", message: "OCR is not configured on this deployment." } };
+  const directory = await mkdtemp(join(tmpdir(), "nevermodel-ocr-"));
+  const input = join(directory, "source.pdf");
+  const output = join(directory, "ocr.pdf");
+  const sidecar = join(directory, "ocr.txt");
+  try {
+    await writeFile(input, buffer);
+    await execFileAsync(command, ["--sidecar", sidecar, input, output], { timeout: 120_000, maxBuffer: 2_000_000 });
+    const text = await readFile(sidecar, "utf8");
+    const pages = text.split(/\f/).map((page, index) => ({ page: index + 1, text: page.trim() })).filter((page) => page.text.length > 0);
+    if (!pages.length) return { pages, detail: { status: "failed", command, message: "OCR completed without a readable text sidecar." } };
+    return { pages, detail: { status: "succeeded", command } };
+  } catch (error) {
+    return { pages: [], detail: { status: "failed", command, message: error instanceof Error ? error.message.slice(0, 300) : "OCR command failed." } };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+export async function extractPdfDocument(buffer: Uint8Array): Promise<{ text: string; pages: PdfPageText[]; quality: PdfExtractionQuality }> {
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    const pages = result.pages.map((page) => ({ page: page.num, text: page.text.trim() }));
+    let selectedPages = pages;
+    let quality = assessPdfText(selectedPages);
+    if (quality.status !== "good") {
+      const ocr = await extractOcrPdfDocument(buffer);
+      const ocrQuality = assessPdfText(ocr.pages);
+      if (ocr.detail.status === "succeeded" && ocrQuality.characters > quality.characters) {
+        selectedPages = ocr.pages;
+        quality = { ...ocrQuality, ocr: ocr.detail, warnings: [...ocrQuality.warnings, "Text was recovered by OCR; review OCR-sensitive amounts and identifiers."] };
+      } else {
+        quality = { ...quality, ocr: ocr.detail, warnings: [...quality.warnings, ocr.detail.status === "unavailable" ? "OCR fallback is unavailable; configure NEVERMODEL_OCR_COMMAND or upload a searchable copy." : `OCR fallback did not improve this source${ocr.detail.message ? `: ${ocr.detail.message}` : "."}`] };
+      }
+    } else quality = { ...quality, ocr: { status: "not_needed" } };
+    const text = selectedPages.map((page) => `--- Page ${page.page} ---\n${page.text}`).join("\n\n");
+    return { text, pages: selectedPages, quality };
+  } finally { await parser.destroy(); }
+}
+
+export async function extractPdfText(buffer: Uint8Array): Promise<string> {
+  return (await extractPdfDocument(buffer)).text;
+}
+
+export type TransactionRow = { date: string; postedDate?: string; description: string; amount: number; direction: "receipt" | "spend"; sourceLocation?: string };
 
 export function transactionExternalKey(transaction: Pick<TransactionRow, "date" | "postedDate" | "description" | "amount" | "direction">): string {
   return createHash("sha256").update(`${transaction.postedDate ?? transaction.date}|${transaction.description}|${transaction.amount.toFixed(2)}|${transaction.direction}`).digest("hex");
@@ -53,7 +142,7 @@ export function normalizeTransactions(rows: string[][], fallbackMonth: string): 
   const debit = headers.findIndex((h) => /debit|withdrawal|outflow/.test(h));
   const credit = headers.findIndex((h) => /credit|deposit|inflow/.test(h));
   const descriptionColumns = headers.flatMap((header, index) => /description|memo|note|payee|name/.test(header) ? [index] : []);
-  return rows.slice(1).flatMap((cells) => {
+  return rows.slice(1).flatMap((cells, index) => {
     const direct = value >= 0 ? amount(cells[value] ?? "") : 0;
     const d = debit >= 0 ? Math.abs(amount(cells[debit] ?? "")) : 0;
     const c = credit >= 0 ? Math.abs(amount(cells[credit] ?? "")) : 0;
@@ -64,17 +153,17 @@ export function normalizeTransactions(rows: string[][], fallbackMonth: string): 
     const postedDate = Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
     const month = postedDate?.slice(0, 7) ?? fallbackMonth;
     const description = [...new Set(descriptionColumns.map((index) => cells[index]?.trim()).filter(Boolean))].join(" · ") || "Imported transaction";
-    return [{ date: month, ...(postedDate ? { postedDate } : {}), description, amount: Math.abs(signed), direction: signed < 0 ? "spend" : "receipt" }];
+    return [{ date: month, ...(postedDate ? { postedDate } : {}), description, amount: Math.abs(signed), direction: signed < 0 ? "spend" : "receipt", sourceLocation: `row:${index + 2}` }];
   });
 }
 
 export function parseOfx(text: string): TransactionRow[] {
-  return [...text.matchAll(/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>))/gi)].flatMap((match) => {
+  return [...text.matchAll(/<STMTTRN>([\s\S]*?)(?:<\/STMTTRN>|(?=<STMTTRN>))/gi)].flatMap((match, index) => {
     const block = match[1] ?? ""; const tag = (name: string) => block.match(new RegExp(`<${name}>([^<\\r\\n]+)`, "i"))?.[1]?.trim() ?? "";
     const signed = amount(tag("TRNAMT")); if (!Number.isFinite(signed) || signed === 0) return [];
     const rawDate = tag("DTPOSTED").slice(0, 8);
     const postedDate = rawDate.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
     const description = [...new Set([tag("NAME"), tag("MEMO")].filter(Boolean))].join(" · ") || "Imported transaction";
-    return [{ date: postedDate.slice(0, 7), postedDate, description, amount: Math.abs(signed), direction: signed < 0 ? "spend" as const : "receipt" as const }];
+    return [{ date: postedDate.slice(0, 7), postedDate, description, amount: Math.abs(signed), direction: signed < 0 ? "spend" as const : "receipt" as const, sourceLocation: `transaction:${index + 1}` }];
   });
 }
