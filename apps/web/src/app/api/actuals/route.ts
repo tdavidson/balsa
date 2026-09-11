@@ -11,6 +11,7 @@ import { storeSourceBlob } from "@/lib/blob-store";
 import { categorizeTransactions, resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";
+import { loadEntityStructure, resolveImportAccount } from "@/lib/entity-structure";
 
 export async function POST(request: Request) {
   await auth.protect();
@@ -49,10 +50,15 @@ export async function POST(request: Request) {
   const debitIndex = headers.findIndex((header) => /debit|withdrawal|outflow/.test(header));
   const creditIndex = headers.findIndex((header) => /credit|deposit|inflow/.test(header));
   if (!ofxTransactions && amountIndex < 0 && debitIndex < 0 && creditIndex < 0) return failImport("CSV needs an amount, debit, or credit column");
+  const structure = await loadEntityStructure(context.company.id);
+  const importNote = String(form.get("instructions") || "").trim() || undefined;
+  const account = resolveImportAccount(structure, { accountId: String(form.get("account") || "") || undefined, note: importNote, fileName: file.name });
+  const accountEntityId = account?.id;
+  const entityId = structure.entityOfAccount(accountEntityId);
   const events = parsedTransactions.map((transaction) => {
     const externalKey = transactionExternalKey(transaction);
     const description = transaction.description || file.name;
-    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description, amount: String(transaction.amount), direction: transaction.direction, category: classifyCashActivity(description, transaction.direction), isActual: "Y" as const, externalKey };
+    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, description, amount: String(transaction.amount), direction: transaction.direction, category: classifyCashActivity(description, transaction.direction), isActual: "Y" as const, externalKey, accountEntityId, entityId };
   });
   const months = [...new Set(events.map((event) => event.month))];
   let importedCount = 0;
@@ -98,7 +104,8 @@ export async function POST(request: Request) {
       const eventByKey = new Map(canonicalEvents.map((event) => [event.externalKey, event.id]));
       await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate }), confidence: "high" })));
     }
-    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} actual transactions imported`, facts: [{ label: "Transactions", value: String(events.length), confidence: 1 }], questions: [] }), status: "approved", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
+    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} actual transactions imported${account ? ` into ${account.name}` : ""}`, facts: [{ label: "Transactions", value: String(events.length), confidence: 1 }], questions: [] }), status: "approved", accountEntityId, updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
+    if (!account && structure.accounts.length > 1) await getDatabase().insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, question: `Which account do the ${events.length} transactions in ${file.name} belong to? (${structure.accounts.map((entry) => entry.name).join(", ")})` });
     await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length }) }).where(eq(sources.id, canonicalSource!.id));
     await getDatabase().insert(ingestionRuns).values([
       { companyId: context.company.id, sourceId: canonicalSource!.id, stage: "classification", status: "succeeded", metadata: JSON.stringify({ transactions: events.length }) },
@@ -121,7 +128,7 @@ export async function POST(request: Request) {
     })),
     questions: [] as string[],
   };
-  return NextResponse.json({ id: evidenceId, imported: importedCount, skipped: events.length - importedCount, sourceName: file.name, extraction, reprocessEvidenceIds });
+  return NextResponse.json({ id: evidenceId, imported: importedCount, skipped: events.length - importedCount, sourceName: file.name, account: account ? { id: account.id, name: account.name } : null, extraction, reprocessEvidenceIds });
 }
 
 export async function GET() {

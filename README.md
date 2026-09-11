@@ -38,6 +38,10 @@ monthly close loop:
 - Decisions with structured effects (add, end, or change an item; categorize a
   counterparty) that run when applied, and an in-memory simulation for
   what-if questions
+- Three statements per legal entity and consolidated: the engine posts every
+  line to a ledger, so the balance sheet balances and the cash flow statement
+  ties to the income statement by construction, with intercompany P&L
+  eliminated between consolidated entities
 
 The controlled agent reads a summary from the engine and uses engine-backed
 tools: financials by month, a trace for any figure, obligations, allocations,
@@ -88,7 +92,18 @@ internal application user, a company, and an `owner` membership.
    the forecast. Any proposed decision appears in Needs your input and must
    be explicitly applied or rejected.
 
-Migration `0028` adds the schedule, category, and settlement columns. The
+7. Describe the structure once for entity and consolidated statements:
+   `entity: Acme Management LLC`, `account: Chase 4432 => Acme Management LLC`,
+   and `opening position Acme Management LLC 2026-01 cash=482314, prepaid=6000,
+   payables=12500, investments=250000`. An entity is consolidated unless you add
+   `(standalone)`. Bank imports resolve their account from the note typed with
+   the upload or the file name. The entity selector next to the period switches
+   the statements between each entity and the consolidated group; the balance
+   sheet and cash flow tabs are derived from the same lines as the income
+   statement. The plan is in `docs/plans/consolidated-statements.md`.
+
+Migrations `0028` and `0029` add the schedule, category, settlement, entity,
+account, and opening position columns. The
 `drizzle/meta` snapshots are not committed, so run `pnpm db:migrate` to apply
 the checked-in SQL, or `pnpm db:generate` on a machine with the snapshots to
 regenerate an equivalent migration.
@@ -118,8 +133,9 @@ output or an unverified browser parameter.
 
 ## Reference
 
-The financial engine plan lives in `docs/plans/financial-engine.md` and the
-multi-tenant hosted plan in `docs/plans/multi-tenant-hosted.md`.
+The financial engine plan lives in `docs/plans/financial-engine.md`, the
+consolidated statements plan in `docs/plans/consolidated-statements.md`, and
+the multi-tenant hosted plan in `docs/plans/multi-tenant-hosted.md`.
 The V0 build specification and its authentication additions live in
 `docs/specs/`. The design language is documented in `docs/design-language.html`.
 The in-app version of the manifesto is at `/about`.

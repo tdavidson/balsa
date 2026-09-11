@@ -8,6 +8,7 @@ export async function GET(request: Request) {
   const context = await requireCompanyAccess();
   const url = new URL(request.url);
   const scenarioId = url.searchParams.get("scenario") ?? undefined;
-  const financials = await computeFinancials(context.company.id, scenarioId ? { scenarioId } : {});
+  const entity = url.searchParams.get("entity") ?? undefined;
+  const financials = await computeFinancials(context.company.id, { ...(scenarioId ? { scenarioId } : {}), ...(entity ? { entity } : {}) });
   return NextResponse.json({ months: financials.output.months.map(pnlMonthView) });
 }
