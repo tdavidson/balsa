@@ -27,12 +27,24 @@ export function classifyCashActivity(description: string, direction: "receipt" |
 
 /** Extract the final currency amount, preserving parentheses and minus signs. */
 export function parseFinancialAmount(value: string) {
-  const matches = [...value.matchAll(/[-−]?\s*(?:USD\s*|\$)\s*(\(?\s*[\d,]+(?:\.\d+)?\s*\)?)/gi)];
+  const currencyMatches = [...value.matchAll(/[-−]?\s*(?:USD\s*|\$)\s*(\(?\s*[\d,]+(?:\.\d+)?\s*\)?)/gi)];
+  // Statements and GL exports frequently omit a currency symbol. Accept a
+  // decimal-formatted amount, but not bare integers that could be dates or IDs.
+  const bareMatches = [...value.matchAll(/[-−]?\s*(\(?\s*(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}\s*\)?)/g)];
+  const matches = currencyMatches.length ? currencyMatches : bareMatches;
   const match = matches.at(-1);
   if (!match?.[1]) return undefined;
   const amount = Number(match[1].replace(/[(),\s]/g, ""));
   if (!Number.isFinite(amount)) return undefined;
   return /[-−]|\(/.test(match[0]!) ? -amount : amount;
+}
+
+export function isDetailedFinancialEvent(description: string) {
+  // Deterministic CSV/OFX rows often have ordinary merchant or customer
+  // descriptions (for example, "Den Technologies") rather than statement
+  // keywords. A non-summary cash event is therefore a transaction by default;
+  // summary lines remain excluded before they can reach reporting.
+  return Boolean(description.trim()) && !summaryPattern.test(description);
 }
 
 /** Balances, totals, and period summaries describe positions, not transactions. */

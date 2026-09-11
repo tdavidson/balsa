@@ -32,8 +32,14 @@ export async function POST(request: Request) {
     if (!entityRows.length || !toRows.length) return NextResponse.json({ error: "Both relationship entities must belong to the current company" }, { status: 404 });
     return NextResponse.json({ relationship: (await db.insert(relationships).values({ companyId: context.company.id, fromEntityId: value.fromEntityId, toEntityId: value.toEntityId, type: value.type, attributes: JSON.stringify(value.attributes ?? {}) }).returning())[0] });
   }
-  if (value.kind === "assumption") return NextResponse.json({ assumption: (await db.insert(assumptions).values({ companyId: context.company.id, name: value.name, value: value.value, unit: value.unit, sourceId: value.sourceId }).returning())[0] });
-  if (value.kind === "scenario") return NextResponse.json({ scenario: (await db.insert(scenarios).values({ companyId: context.company.id, name: value.name, assumptionIds: JSON.stringify(value.assumptionIds) }).returning())[0] });
+  if (value.kind === "assumption") {
+    if (value.sourceId && !(await db.select({ id: sources.id }).from(sources).where(and(eq(sources.id, value.sourceId), eq(sources.companyId, context.company.id)))).length) return NextResponse.json({ error: "Source not found" }, { status: 404 });
+    return NextResponse.json({ assumption: (await db.insert(assumptions).values({ companyId: context.company.id, name: value.name, value: value.value, unit: value.unit, sourceId: value.sourceId }).returning())[0] });
+  }
+  if (value.kind === "scenario") {
+    if (value.assumptionIds.length && (await db.select({ id: assumptions.id }).from(assumptions).where(and(eq(assumptions.companyId, context.company.id), inArray(assumptions.id, value.assumptionIds)))).length !== value.assumptionIds.length) return NextResponse.json({ error: "Scenario assumptions must belong to the current company" }, { status: 404 });
+    return NextResponse.json({ scenario: (await db.insert(scenarios).values({ companyId: context.company.id, name: value.name, assumptionIds: JSON.stringify(value.assumptionIds) }).returning())[0] });
+  }
   if (value.kind === "agreement" || value.kind === "obligation") {
     if (value.evidenceId && !(await db.select({ id: evidence.id }).from(evidence).where(and(eq(evidence.id, value.evidenceId), eq(evidence.companyId, context.company.id)))).length) return NextResponse.json({ error: "Evidence not found" }, { status: 404 });
     if (value.counterpartyEntityId && !(await db.select({ id: entities.id }).from(entities).where(and(eq(entities.id, value.counterpartyEntityId), eq(entities.companyId, context.company.id)))).length) return NextResponse.json({ error: "Counterparty entity not found" }, { status: 404 });
