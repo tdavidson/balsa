@@ -9,7 +9,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { expandFinancialFactDates, extractPdfText, parseCsvRows } from "@nevermodel/ingestion";
-import { classifyCashActivity, inferFinancialDirection, isDetailedFinancialEvent, parseFinancialAmount } from "@/lib/financial-events";
+import { classifyCashActivity, inferFinancialDirection, isSummaryDescription, parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { matchStatementAccount } from "@/lib/account-matching";
 import { storeSourceBlob } from "@/lib/blob-store";
@@ -293,7 +293,7 @@ export async function PATCH(request: Request) {
     });
     const events = financialFacts.flatMap((fact) => {
       const description = `${fact.label}: ${fact.value}`;
-      if (!isDetailedFinancialEvent(description)) return [];
+      if (isSummaryDescription(description)) return [];
       const parsedAmount = parseFinancialAmount(fact.value);
       if (parsedAmount === undefined) return [];
       const factText = `${fact.label} ${fact.value}`;

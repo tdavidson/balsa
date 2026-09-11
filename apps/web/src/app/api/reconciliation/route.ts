@@ -1,94 +1,51 @@
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, getDatabase, sources as sourceTable } from "@finance/database";
+import { evidence, getDatabase, sources as sourceTable } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
-import { financialEventKey, isDetailedFinancialEvent, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
+import { computeFinancials } from "@/lib/financials";
 
-type Balance = { amount: number; label: string; sourceName: string };
-
-function monthFromSource(source: { reportingMonth: string | null; sourceName: string }) {
-  return source.reportingMonth ?? source.sourceName.match(/dt-(20\d{2}-\d{2})(?:-\d{2})/i)?.[1];
+function monthFromSource(source: { reportingMonth: string | null; statementPeriodEnd: string | null }) {
+  return source.reportingMonth ?? source.statementPeriodEnd?.slice(0, 7) ?? undefined;
 }
 
-function balanceKind(label: string) {
-  if (/(?:beginning|opening|starting|total\s+(?:beginning|opening))/i.test(label) && /(?:cash|total value|balance)/i.test(label)) return "opening" as const;
-  if (/(?:ending|closing|total\s+ending)/i.test(label) && /(?:cash|total value|balance)/i.test(label)) return "ending" as const;
-  return undefined;
-}
-
+/**
+ * Bank reconciliation per month: statement opening plus classified cash
+ * movements against the statement ending balance, with the exceptions that
+ * keep a month from being reliable.
+ */
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
   const db = getDatabase();
-  const [evidenceRows, events] = await Promise.all([
-    db.select({ id: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, status: evidence.status }).from(evidence).where(eq(evidence.companyId, context.company.id)),
-    db.select({ id: cashEvents.id, month: cashEvents.month, transactionDate: cashEvents.transactionDate, amount: cashEvents.amount, direction: cashEvents.direction, category: cashEvents.category, description: cashEvents.description, evidenceId: cashEvents.evidenceId, evidenceStatus: evidence.status, sourceName: evidence.sourceName }).from(cashEvents).leftJoin(evidence, eq(cashEvents.evidenceId, evidence.id)).where(eq(cashEvents.companyId, context.company.id)),
+  const [financials, evidenceRows] = await Promise.all([
+    computeFinancials(context.company.id),
+    db.select({ id: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, statementPeriodEnd: evidence.statementPeriodEnd, status: evidence.status }).from(evidence).where(eq(evidence.companyId, context.company.id)),
   ]);
-
-  const approvedSources = evidenceRows.filter((source) => source.status === "approved");
-  const balances = new Map<string, { opening: Balance[]; ending: Balance[] }>();
-  for (const source of approvedSources) {
-    if (!source.extractedJson) continue;
-    const month = monthFromSource(source);
-    if (!month) continue;
-    try {
-      const extraction = JSON.parse(source.extractedJson) as { facts?: { label: string; value: string }[] };
-      for (const fact of extraction.facts ?? []) {
-        if (/this year|year-to-date|ytd/i.test(fact.label)) continue;
-        const kind = balanceKind(fact.label);
-        const amount = parseFinancialAmount(fact.value);
-        if (!kind || amount === undefined) continue;
-        const row = balances.get(month) ?? { opening: [], ending: [] };
-        row[kind].push({ amount: Math.abs(amount), label: fact.label, sourceName: source.sourceName });
-        balances.set(month, row);
-      }
-    } catch { /* keep the source visible through its transactions */ }
-  }
-
-  const seen = new Map<string, { count: number; sources: Set<string>; description: string }>();
-  const usableEvents = events.filter((event) => event.evidenceStatus === "approved" || !event.evidenceId);
-  const monthsWithCashFlowView = new Set(usableEvents.filter((event) => /^(?:Cash Flow Activity\b|\d{4}-\d{2}-\d{2}.*(?:Automated Payment|Wired Funds|Bank Product Withdrawal))/i.test(event.description)).map((event) => event.month));
-  const canonicalEvents = usableEvents.filter((event) => !(monthsWithCashFlowView.has(event.month) && isSweepCounterpartActivity(event.description)));
-  for (const event of canonicalEvents) {
-    if (!isDetailedFinancialEvent(event.description)) continue;
-    const key = financialEventKey(event);
-    const existing = seen.get(key) ?? { count: 0, sources: new Set<string>(), description: event.description };
-    existing.count += 1;
-    if (event.sourceName) existing.sources.add(event.sourceName);
-    seen.set(key, existing);
-  }
-
-  const monthNames = new Set<string>([...balances.keys(), ...canonicalEvents.map((event) => event.month)]);
-  const months = [...monthNames].sort().map((month) => {
-    const monthEvents = canonicalEvents.filter((event) => event.month === month && isDetailedFinancialEvent(event.description));
-    const uniqueEvents = new Map<string, typeof monthEvents[number]>();
-    for (const event of monthEvents) uniqueEvents.set(financialEventKey(event), event);
-    const rows = [...uniqueEvents.values()];
-    const receipts = rows.filter((event) => event.direction === "receipt").reduce((sum, event) => sum + Number(event.amount), 0);
-    const spending = rows.filter((event) => event.direction === "spend").reduce((sum, event) => sum + Number(event.amount), 0);
-    const balanceRow = balances.get(month) ?? { opening: [], ending: [] };
-    const selectBalance = (entries: Balance[]) => {
-      const cashEntries = entries.filter((entry) => /cash|cash\s+balance/i.test(entry.label));
-      const candidates = cashEntries.length ? cashEntries : entries;
-      const unique = [...new Map(candidates.map((entry) => [entry.amount, entry])).values()];
-      return unique.length === 1 ? unique[0]!.amount : undefined;
-    };
-    const opening = selectBalance(balanceRow.opening);
-    const ending = selectBalance(balanceRow.ending);
+  const { output, input, duplicates, actualSources } = financials;
+  const statementMonths = new Set((input.statementBalances ?? []).map((balance) => balance.month));
+  const activityMonths = new Set(input.actuals.map((actual) => actual.month));
+  const months = output.months.filter((month) => statementMonths.has(month.month) || activityMonths.has(month.month)).map((month) => {
+    const actualLines = month.lines.filter((line) => line.kind === "actual");
+    const opening = month.statement?.opening;
+    const ending = month.statement?.ending;
+    const receipts = month.actualReceipts;
+    const spending = month.actualSpending;
     const expectedEnding = opening === undefined ? undefined : opening + receipts - spending;
     const difference = ending === undefined || expectedEnding === undefined ? undefined : ending - expectedEnding;
-    const duplicateEvents = [...seen.values()].filter((event) => event.count > 1 && [...event.sources].some((source) => monthEvents.some((candidate) => candidate.sourceName === source))).length;
-    const pendingSources = evidenceRows.filter((source) => source.status !== "approved" && monthFromSource(source) === month).map((source) => source.sourceName);
-    const sourceNames = [...new Set(rows.map((event) => event.sourceName).filter(Boolean))] as string[];
+    const monthDuplicates = duplicates.filter((entry) => entry.month === month.month);
+    const pendingSources = evidenceRows.filter((source) => source.status !== "approved" && monthFromSource(source) === month.month).map((source) => source.sourceName);
+    const sourceNames = [...new Set(actualLines.map((line) => line.provenance.sourceName ?? (line.eventId ? actualSources.get(line.eventId)?.sourceName : undefined)).filter((name): name is string => Boolean(name)))];
+    const uncategorized = actualLines.filter((line) => line.activity === "operating" && !line.category).length;
     const exceptions: string[] = [];
-    if (opening === undefined || ending === undefined) exceptions.push("A unique opening and ending balance was not found in approved evidence.");
+    if (opening === undefined || ending === undefined) exceptions.push("A statement opening and ending balance was not found in approved evidence.");
     if (difference !== undefined && Math.abs(difference) > 0.01) exceptions.push(`Balance roll-forward differs by $${Math.abs(difference).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
-    if (duplicateEvents) exceptions.push(`${duplicateEvents} transaction${duplicateEvents === 1 ? " is" : "s are"} present in more than one source and require matching review.`);
+    if (monthDuplicates.length) exceptions.push(`${monthDuplicates.length} transaction${monthDuplicates.length === 1 ? " is" : "s are"} present in more than one source and were counted once.`);
     if (pendingSources.length) exceptions.push(`${pendingSources.length} source${pendingSources.length === 1 ? " is" : "s are"} still pending approval.`);
-    if (rows.some((event) => event.category === "unclassified")) exceptions.push(`${rows.filter((event) => event.category === "unclassified").length} cash event${rows.filter((event) => event.category === "unclassified").length === 1 ? " is" : "s are"} not classified for accounting treatment.`);
+    if (uncategorized) exceptions.push(`${uncategorized} cash event${uncategorized === 1 ? " is" : "s are"} not categorized for the income statement.`);
+    if (month.outstanding.payables.length && month.status !== "open") exceptions.push(`${month.outstanding.payables.length} expected payment${month.outstanding.payables.length === 1 ? " has" : "s have"} no matching transaction.`);
     return {
-      month,
+      month: month.month,
       status: exceptions.length ? "exception" : "reconciled",
       opening,
       ending,
@@ -97,20 +54,22 @@ export async function GET() {
       net: receipts - spending,
       expectedEnding,
       difference,
-      transactionCount: rows.length,
-      duplicateCount: duplicateEvents,
+      engineEndingCash: month.endingCash,
+      transactionCount: actualLines.length,
+      duplicateCount: monthDuplicates.length,
+      duplicates: monthDuplicates,
       sourceNames,
       pendingSources,
-      balances: { opening: balanceRow.opening, ending: balanceRow.ending },
       exceptions,
-      transactions: rows.map((event) => ({ id: event.id, date: event.transactionDate, description: event.description, amount: Number(event.amount), direction: event.direction, category: event.category, sourceName: event.sourceName ?? "Unknown source" })),
+      transactions: actualLines.map((line) => ({ id: line.eventId ?? line.id, date: input.actuals.find((actual) => actual.id === line.eventId)?.date ?? null, description: line.description, amount: line.amount, direction: line.direction, activity: line.activity ?? "operating", category: line.category ?? null, settles: line.settles ?? null, sourceName: line.provenance.sourceName ?? (line.eventId ? actualSources.get(line.eventId)?.sourceName : undefined) ?? "Unknown source" })),
     };
   });
   const statusByMonth = new Map(months.map((month) => [month.month, month.status]));
-  const sourceIds = evidenceRows.flatMap((source) => source.sourceId ? [{ id: source.sourceId, month: monthFromSource(source), evidenceStatus: source.status }] : []);
-  await Promise.all(sourceIds.map(({ id, month, evidenceStatus }) => {
-    const status = evidenceStatus === "approved" && month && statusByMonth.get(month) === "reconciled" ? "reconciled" : "review";
-    return db.update(sourceTable).set({ ingestionStatus: status, ingestionError: null, processedAt: new Date() }).where(eq(sourceTable.id, id));
+  await Promise.all(evidenceRows.flatMap((source) => {
+    if (!source.sourceId) return [];
+    const month = monthFromSource(source);
+    const status = source.status === "approved" && month && statusByMonth.get(month) === "reconciled" ? "reconciled" : "review";
+    return [db.update(sourceTable).set({ ingestionStatus: status, ingestionError: null, processedAt: new Date() }).where(eq(sourceTable.id, source.sourceId))];
   }));
   return NextResponse.json({ months });
 }

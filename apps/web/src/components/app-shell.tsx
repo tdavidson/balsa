@@ -198,9 +198,9 @@ type ChatEvidence = {
 };
 type ReviewQuestion = { id: string; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected" };
-type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; status?: "open" | "closed"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean }[] };
-type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string }[] };
-type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string }[] };
+type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
+type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; sourceNames: string[]; pendingSources: string[]; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; activity?: string; category: string | null; sourceName: string }[] };
+type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; allocatedOut?: number; uncategorized?: number; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string; kind?: string; basis?: string | null }[] };
 type PeriodPreset = "month" | "quarter" | "ytd" | "year" | "custom";
 
 export function AppShell({ company, user, modelOptions }: AppShellProps) {
@@ -264,8 +264,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const periodForecastRows = forecast.filter((month) => month.month >= periodStart && month.month <= periodEnd);
   const periodPnlRows = pnl.filter((month) => month.month >= periodStart && month.month <= periodEnd);
   const lastForecast = periodForecastRows.at(-1);
-  const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: periodForecastRows.reduce((sum, row) => sum + row.receipts, 0), spending: periodForecastRows.reduce((sum, row) => sum + row.spending, 0), actualReceipts: periodForecastRows.reduce((sum, row) => sum + row.actualReceipts, 0), actualSpending: periodForecastRows.reduce((sum, row) => sum + row.actualSpending, 0), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
-  const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
+  const sumRows = (pick: (row: ForecastMonth) => number | undefined) => periodForecastRows.reduce((sum, row) => sum + (pick(row) ?? 0), 0);
+  const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: sumRows((row) => row.receipts), spending: sumRows((row) => row.spending), actualReceipts: sumRows((row) => row.actualReceipts), actualSpending: sumRows((row) => row.actualSpending), variance: sumRows((row) => row.variance), contractualReceipts: sumRows((row) => row.contractualReceipts), contractualSpending: sumRows((row) => row.contractualSpending), assumedReceipts: sumRows((row) => row.assumedReceipts), assumedSpending: sumRows((row) => row.assumedSpending), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
+  const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, allocatedOut: periodPnlRows.reduce((sum, row) => sum + (row.allocatedOut ?? 0), 0), uncategorized: periodPnlRows.reduce((sum, row) => sum + (row.uncategorized ?? 0), 0), revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
   const periodLabel = periodPreset === "quarter" ? `Q${Math.floor((anchorMonth - 1) / 3) + 1} ${anchorYear}` : periodPreset === "ytd" ? `YTD ${monthLabel(selectedMonth)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${monthLabel(periodStart)} – ${monthLabel(periodEnd)}` : monthLabel(selectedMonth);
   const pendingEvidence = evidence.filter((item) => item.status === "pending");
   const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length;
@@ -634,6 +635,8 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   const proposed = agentDecisions.filter((decision) => decision.status === "proposed");
   const isClosed = currentForecast?.status === "closed";
+  const showActuals = isClosed || currentForecast?.status === "history";
+  const assumedNote = currentForecast && (currentForecast.assumedReceipts || currentForecast.assumedSpending) ? ` · assumed ${money((currentForecast.assumedReceipts ?? 0) - (currentForecast.assumedSpending ?? 0))} net` : "";
   const bars = periodForecastRows.map((month) => {
     const actual = month.actualReceipts !== 0 || month.actualSpending !== 0;
     const net = actual ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
@@ -916,7 +919,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               {selectedMonth ? periodLabel : "Company position"}
             </h2>
             <div className="flex items-center gap-3 text-[13px] text-ink-2">
-              {currentForecast?.status && <span className="hidden sm:inline">{isClosed ? "Closed, in ink" : "Open, forecast in pencil"}</span>}
+              {currentForecast?.status && <span className="hidden sm:inline">{isClosed ? "Closed, in ink" : showActuals ? "Past month, actuals in ink" : "Open, forecast in pencil"}</span>}
               <button type="button" className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-ink-2 hover:bg-rule hover:text-ink sm:flex" onClick={() => window.location.reload()}><RefreshCw className="size-3.5" aria-hidden="true" /> Refresh</button>
               {forecast.length > 0 && (
                 <>
@@ -960,33 +963,33 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 sm:grid-cols-4">
             <Figure
               label="Cash"
-              value={currentForecast ? money(currentForecast.endingCash) : "—"}
-              note={currentForecast ? (isClosed ? "Ending cash" : "Projected ending cash") : "Awaiting opening balance"}
-              pencil={Boolean(currentForecast) && !isClosed}
+              value={currentForecast && currentForecast.hasCashBalance !== false ? money(currentForecast.endingCash) : "—"}
+              note={currentForecast ? (currentForecast.hasCashBalance === false ? "No opening balance for this month" : showActuals ? "Ending cash" : "Projected ending cash") : "Awaiting opening balance"}
+              pencil={Boolean(currentForecast) && !showActuals}
               negative={Boolean(currentForecast && currentForecast.endingCash < 0)}
             />
             <Figure
-              label={isClosed ? "Received" : "Expected in"}
-              value={currentForecast ? money(isClosed ? currentForecast.actualReceipts : currentForecast.receipts) : "—"}
-              note={currentForecast ? (isClosed ? "Actual receipts" : "From approved agreements") : "No agreements yet"}
-              pencil={Boolean(currentForecast) && !isClosed}
+              label={showActuals ? "Received" : "Expected in"}
+              value={currentForecast ? money(showActuals ? currentForecast.actualReceipts : currentForecast.receipts) : "—"}
+              note={currentForecast ? (showActuals ? "Actual receipts" : `Contractual ${money(currentForecast.contractualReceipts ?? 0)}${currentForecast.assumedReceipts ? ` · assumed ${money(currentForecast.assumedReceipts)}` : ""}`) : "No agreements yet"}
+              pencil={Boolean(currentForecast) && !showActuals}
             />
             <Figure
-              label={isClosed ? "Spent" : "Expected out"}
-              value={currentForecast ? money(isClosed ? currentForecast.actualSpending : currentForecast.spending) : "—"}
-              note={currentForecast ? (isClosed ? "Actual spending" : "From approved obligations") : "No obligations yet"}
-              pencil={Boolean(currentForecast) && !isClosed}
+              label={showActuals ? "Spent" : "Expected out"}
+              value={currentForecast ? money(showActuals ? currentForecast.actualSpending : currentForecast.spending) : "—"}
+              note={currentForecast ? (showActuals ? "Actual spending" : `Contractual ${money(currentForecast.contractualSpending ?? 0)}${currentForecast.assumedSpending ? ` · assumed ${money(currentForecast.assumedSpending)}` : ""}`) : "No obligations yet"}
+              pencil={Boolean(currentForecast) && !showActuals}
             />
             <Figure
               label="Net"
-              value={currentForecast ? money(isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) : "—"}
+              value={currentForecast ? money(showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) : "—"}
               note={
                 currentForecast
-                  ? `Variance ${money(currentForecast.variance ?? currentForecast.actualReceipts - currentForecast.actualSpending - (currentForecast.receipts - currentForecast.spending))}`
+                  ? showActuals ? `Variance ${money(currentForecast.variance ?? 0)} vs expected` : `${company.currency}, deterministic${assumedNote}`
                   : `${company.currency}, deterministic`
               }
-              pencil={Boolean(currentForecast) && !isClosed}
-              negative={Boolean(currentForecast && (isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) < 0)}
+              pencil={Boolean(currentForecast) && !showActuals}
+              negative={Boolean(currentForecast && (showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) < 0)}
             />
           </div>
 
@@ -1033,21 +1036,21 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                     <span>Expenses <span className="float-right">{money(currentPnl?.expenses ?? 0)}</span></span>
                     <span className="border-t border-rule pt-1 font-medium">Operating income <span className="float-right">{money(currentPnl?.operatingIncome ?? 0)}</span></span>
                   </div>
-                  {currentPnl && <div className="mt-3 grid gap-1 border-t border-rule pt-2 text-[12px] text-ink-2"><span className="text-[11px] uppercase tracking-wide text-pencil">Revenue breakdown</span>{Object.entries(currentPnl.revenueByCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={`revenue-${category}`} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}<span className="mt-1 text-[11px] uppercase tracking-wide text-pencil">Expense breakdown</span>{Object.entries(currentPnl.byCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={category} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}</div>}
+                  {currentPnl && <div className="mt-3 grid gap-1 border-t border-rule pt-2 text-[12px] text-ink-2"><span className="text-[11px] uppercase tracking-wide text-pencil">Revenue breakdown</span>{Object.entries(currentPnl.revenueByCategory).filter(([, amount]) => amount > 0).map(([category, amount]) => <span key={`revenue-${category}`} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}<span className="mt-1 text-[11px] uppercase tracking-wide text-pencil">Expense breakdown</span>{Object.entries(currentPnl.byCategory).filter(([, amount]) => amount !== 0).map(([category, amount]) => <span key={category} className="capitalize">{category.replace(/_/g, " ")} <span className="float-right">{money(amount)}</span></span>)}{currentPnl.allocatedOut ? <span>Allocated to other entities <span className="float-right">−{money(currentPnl.allocatedOut)}</span></span> : null}{currentPnl.uncategorized ? <span className="text-pencil">Uncategorized, shown in other <span className="float-right">{money(currentPnl.uncategorized)}</span></span> : null}</div>}
                   {currentPnl?.trace?.length ? <details className="mt-3 min-w-0 border-t border-rule pt-2 text-[12px]"><summary className="cursor-pointer text-ink-2">Transaction detail ({currentPnl.trace.length})</summary><div className="mt-2 grid max-h-40 min-w-0 gap-1 overflow-x-auto overflow-y-auto">{currentPnl.trace.map((line, index) => <span key={`${line.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{line.description ?? line.category}</span><span className="shrink-0">{line.direction === "spend" ? "−" : "+"}{money(line.amount)}</span></span>)}</div></details> : null}
                   {periodPnlRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Revenue</th><th className="pb-2 text-right font-normal">Expenses</th><th className="pb-2 text-right font-normal">Operating income</th></tr></thead><tbody>{periodPnlRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.revenue)}</td><td className="py-2 text-right">{money(row.expenses)}</td><td className="py-2 text-right">{money(row.operatingIncome)}</td></tr>)}</tbody></table></div>}
                 </div>}
                 {statementTab === "cash" && <div>
                   <div className="text-[13px] text-ink-2">Cash flow statement</div>
                   <div className="mt-2 grid gap-1 text-[13px]">
-                    <span>Beginning period cash <span className="float-right">{money(currentForecast.openingCash ?? (currentForecast.endingCash - (isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending)))}</span></span>
-                    <span>Cash from operations <span className="float-right">{money(isClosed ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending)}</span></span>
+                    <span>Beginning period cash <span className="float-right">{money(currentForecast.openingCash ?? (currentForecast.endingCash - (currentForecast.receipts - currentForecast.spending)))}</span></span>
+                    <span>Cash from operations <span className="float-right">{money(currentForecast.receipts - currentForecast.spending)}</span></span>
                     <span>Cash from financing <span className="float-right">{money(0)}</span></span>
                     <span>Cash from investing <span className="float-right">{money(0)}</span></span>
                     <span className="border-t border-rule pt-1 font-medium">Ending cash <span className="float-right">{money(currentForecast.endingCash)}</span></span>
                   </div>
                   {currentForecast.trace && <div className="mt-3 grid max-h-36 min-w-0 gap-1 overflow-x-auto overflow-y-auto border-t border-rule pt-2 text-[12px] text-ink-2">{currentForecast.trace.filter((entry) => entry.amount).map((entry, index) => <span key={`${entry.description}-${index}`} className="flex min-w-max justify-between gap-4 whitespace-nowrap"><span>{entry.description}</span><span className="shrink-0">{entry.kind === "spend" ? "−" : "+"}{money(entry.amount ?? 0)}</span></span>)}</div>}
-                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.actualReceipts - row.actualSpending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
+                  {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.receipts - row.spending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
                 </div>}
                 {statementTab === "balance" && <div>
                   <div className="text-[13px] text-ink-2">Balance sheet snapshot</div>
