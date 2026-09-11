@@ -1,8 +1,11 @@
 import "server-only";
 import { and, eq, ne } from "drizzle-orm";
 import { allocations, cashEvents, economicItems, entities, evidence, getDatabase, reportingPeriods } from "@finance/database";
-import { addMonths, isCategory, isValidMonth, parseCadence, runEngine, type ActualEvent, type AllocationRule, type Category, type EngineInput, type EngineOutput, type ScheduleItem, type StatementBalance, type Treatment } from "@nevermodel/finance-engine";
+import { addMonths, isCategory, isValidMonth, parseCadence, runEngine, type ActualEvent, type AllocationRule, type EngineInput, type EngineOutput, type ScheduleItem, type StatementBalance, type Treatment } from "@nevermodel/finance-engine";
 import { financialEventKey, isSummaryDescription, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
+import { legacyCategory } from "@/lib/categories";
+
+export { legacyCategory };
 
 export type FinancialOptions = {
   /** Months before this one are history. Defaults to the current calendar month. */
@@ -32,18 +35,6 @@ export function currentMonth() { return new Date().toISOString().slice(0, 7); }
 
 const treatments = new Set(["cash", "accrual", "prepaid"]);
 const asTreatment = (value: string | null | undefined): Treatment => (value && treatments.has(value) ? (value as Treatment) : "cash");
-
-/** Conservative category guess for rows created before categories were persisted. */
-export function legacyCategory(text: string, direction: "receipt" | "spend"): Category | undefined {
-  const value = text.toLowerCase();
-  if (direction === "receipt") return /management\s+fee|mgmt\s+fee/.test(value) ? "management_fee" : undefined;
-  if (/payroll|salary|salaries|wages|gusto|adp\b|rippling|justworks/.test(value)) return "salary";
-  if (/contractor|freelanc|retainer|upwork/.test(value)) return "contractor";
-  if (/legal|law\b|llp\b|attorney|accounting|audit|tax\s+prep|bookkeep|consult/.test(value)) return "professional_services";
-  if (/insurance|d&o|liability\s+policy/.test(value)) return "insurance";
-  if (/software|subscription|saas|\.com\b|google\s+workspace|microsoft|slack|notion|carta|quickbooks|zoom|github/.test(value)) return "software";
-  return undefined;
-}
 
 function monthOf(value: Date | string | null | undefined) {
   if (!value) return undefined;
