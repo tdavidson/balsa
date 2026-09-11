@@ -19,6 +19,7 @@ import { recordReviewedKnowledge } from "@/lib/company-knowledge";
 import { buildOnboardingQuestions } from "@/lib/onboarding-review";
 import { policyAppliesInContext } from "@/lib/company-policy-engine";
 import { buildEvidencePublication } from "@/lib/evidence-publication";
+import { applyApprovedEvidence } from "@/lib/apply-evidence";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -338,15 +339,22 @@ export async function PATCH(request: Request) {
     const [closed] = await db.select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, eventMonths), eq(reportingPeriods.status, "closed")));
     if (closed) return NextResponse.json({ error: `Evidence references closed reporting month: ${closed.month}` }, { status: 409 });
   }
+  // Publication: staged import rows become actuals, derived rows from any earlier
+  // publication are cleared, and the source is marked published. The typed
+  // Company State (agreements, obligations, transactions, balances) is then
+  // produced by the interpretation step, whose items stay drafts until the CFO
+  // confirms them.
   await db.transaction(async (tx) => {
     await tx.delete(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id), isNull(cashEvents.externalKey)));
     await tx.update(cashEvents).set({ isActual: "Y", accountingTreatment: "cash", updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id)));
     await tx.delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, body.data.id)));
-    if (publication.cashEvents.length) await tx.insert(cashEvents).values(publication.cashEvents.map((event) => ({ ...event, companyId: context.company.id, evidenceId: body.data.id, sourceId: document.sourceId, isActual: "Y" as const, accountingTreatment: "cash" })));
-    if (publication.economicItems.length) await tx.insert(economicItems).values(publication.economicItems.map((item) => ({ ...item, companyId: context.company.id, evidenceId: body.data.id, status: "confirmed" as const })));
     await tx.update(evidence).set({ status: "approved", publishedAt: new Date(), updatedAt: new Date() }).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
     if (document.sourceId) await tx.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: document.sourceId, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ trigger: "publication", evidenceId: body.data.id }) });
   });
+  let summary: string | undefined;
+  try { summary = (JSON.parse(document.extractedJson) as { summary?: string }).summary; } catch { /* the facts carry the content */ }
+  const interpretation = await applyApprovedEvidence({ context, evidenceId: body.data.id, evidenceStatus: "approved", extraction: { ...(summary ? { summary } : {}), facts: approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })) }, ...(sourceKind ? { sourceKind } : {}), ...(document.currency ? { currency: document.currency } : {}), modelChoice: {}, replace: false });
+  if ("error" in interpretation && interpretation.status === 409) return NextResponse.json({ error: interpretation.error }, { status: 409 });
   await recordReviewedKnowledge(db, context.company.id, body.data.id, approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })));
-  return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), id: document.id, identityStatus: document.identityStatus, status: "approved" });
+  return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), id: document.id, identityStatus: document.identityStatus, status: "approved", interpretation: "error" in interpretation ? { error: interpretation.error } : { items: interpretation.items, transactions: interpretation.transactions, balances: interpretation.balances, questions: interpretation.questions } });
 }

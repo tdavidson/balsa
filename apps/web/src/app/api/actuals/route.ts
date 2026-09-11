@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { cashEvents, evidence, factRecords, getDatabase, ingestionRuns, reportingPeriods, policies, sources, observations } from "@finance/database";
+import { cashEvents, decisions, entities, evidence, factRecords, getDatabase, ingestionRuns, reportingPeriods, policies, reviewItems, sources, observations } from "@finance/database";
 import { and, eq, inArray, desc, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -11,6 +11,10 @@ import { classifyWithCompanyPolicy } from "@/lib/company-policy-engine";
 import { assertExtractedTextSize, assertUploadSize } from "@/lib/ingestion-guardrails";
 import { extractSpreadsheetText } from "@/lib/spreadsheet-extraction";
 import { takeRateLimit } from "@/lib/request-rate-limit";
+import { categorizeTransactions, resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
+import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { recordLlmRun } from "@/lib/llm-telemetry";
+import { loadEntityStructure, resolveImportAccount } from "@/lib/entity-structure";
 
 export async function POST(request: Request) {
   await auth.protect();
@@ -52,13 +56,20 @@ export async function POST(request: Request) {
   const debitIndex = headers.findIndex((header) => /debit|withdrawal|outflow/.test(header));
   const creditIndex = headers.findIndex((header) => /credit|deposit|inflow/.test(header));
   if (!ofxTransactions && amountIndex < 0 && debitIndex < 0 && creditIndex < 0) return failImport("CSV needs an amount, debit, or credit column");
+  // Which company account the file belongs to: an explicit choice, the note typed
+  // with the upload, the file name, or the only account the company has.
+  const structure = await loadEntityStructure(context.company.id);
+  const importNote = String(form.get("instructions") || "").trim() || undefined;
+  const account = resolveImportAccount(structure, { accountId: String(form.get("account") || "") || undefined, note: importNote, fileName: file.name });
+  const accountEntityId = account?.id;
+  const entityId = structure.entityOfAccount(accountEntityId);
   const events = parsedTransactions.map((transaction) => {
     const externalKey = transactionExternalKey(transaction);
     const description = transaction.description || file.name;
     const policyClassification = classifyWithCompanyPolicy(description, activePolicies, { effectiveDate: transaction.postedDate ?? transaction.date, sourceKind: sourceClassification.kind, sourceName: file.name });
     // Parsed rows are retained for matching and review, but they must not become
     // financial actuals until the source's accounting treatment is approved.
-    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, sourceLocation: transaction.sourceLocation, description, amount: String(transaction.amount), ...(sourceCurrency ? { currency: sourceCurrency } : {}), direction: transaction.direction, category: policyClassification?.category ?? classifyCashActivity(description, transaction.direction), ...(policyClassification ? { policyId: policyClassification.policyId } : {}), accountingTreatment: "pending", isActual: "N" as const, externalKey };
+    return { companyId: context.company.id, month: transaction.date, postedDate: transaction.postedDate, sourceLocation: transaction.sourceLocation, description, amount: String(transaction.amount), ...(sourceCurrency ? { currency: sourceCurrency } : {}), direction: transaction.direction, category: policyClassification?.category ?? classifyCashActivity(description, transaction.direction), ...(policyClassification ? { policyId: policyClassification.policyId } : {}), accountingTreatment: "pending", isActual: "N" as const, externalKey, accountEntityId, entityId };
   });
   const months = [...new Set(events.map((event) => event.month))];
   let importedCount = 0;
@@ -68,7 +79,41 @@ export async function POST(request: Request) {
     const closed = await getDatabase().select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, months), eq(reportingPeriods.status, "closed")));
     if (closed.length) return failImport(`Closed reporting month: ${closed[0]!.month}`, 409);
     evidenceId = placeholder?.id;
-    const inserted = await getDatabase().insert(cashEvents).values(events.map(({ postedDate, ...event }) => ({ ...event, transactionDate: postedDate, evidenceId: placeholder!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id });
+    const inserted = await getDatabase().insert(cashEvents).values(events.map(({ postedDate, ...event }) => ({ ...event, transactionDate: postedDate, evidenceId: placeholder!.id, sourceId: canonicalSource?.id }))).onConflictDoNothing({ target: [cashEvents.companyId, cashEvents.externalKey] }).returning({ id: cashEvents.id, externalKey: cashEvents.externalKey });
+    // Categorize the staged rows for the income statement while they wait for
+    // treatment approval: known counterparties resolve locally, the rest go to
+    // the model in batches. The activity class set above (and any policy
+    // classification) is kept unless the model finds a transfer, investment,
+    // or financing movement in an unclassified row.
+    const insertedKeys = new Set(inserted.map((row) => row.externalKey));
+    const toCategorize = events.map((event, index) => ({ index, date: event.postedDate, description: event.description, amount: Number(event.amount), direction: event.direction, externalKey: event.externalKey, category: event.category, policyId: event.policyId })).filter((event) => insertedKeys.has(event.externalKey));
+    if (toCategorize.length) {
+      const db = getDatabase();
+      const [entityRows, decisionRows] = await Promise.all([
+        db.select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes }).from(entities).where(eq(entities.companyId, context.company.id)),
+        db.select({ question: decisions.question, answer: decisions.answer }).from(decisions).where(and(eq(decisions.companyId, context.company.id), eq(decisions.status, "applied"))),
+      ]);
+      const candidates: KnownEntity[] = entityRows.filter((entity) => entity.type !== "legal_entity" && entity.type !== "account");
+      const choice = modelRequestSchema.safeParse({ model: String(form.get("model") || "") || undefined, effort: String(form.get("effort") || "") || undefined });
+      const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
+      const categorized = await categorizeTransactions({ provider, transactions: toCategorize, entities: candidates, policies: activePolicies.map((policy) => ({ name: policy.name, rule: policy.rule })), decisions: decisionRows, activityOf: classifyCashActivity });
+      const modelResults = categorized.filter((entry) => entry.source === "model");
+      if (modelResults.length) await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "transaction_categorization", request: { sourceName: file.name, transactions: toCategorize.length, sentToModel: modelResults.length }, response: JSON.stringify(modelResults.slice(0, 200)) });
+      const byIndex = new Map(toCategorize.map((event) => [event.index, event]));
+      for (const entry of categorized) {
+        const event = byIndex.get(entry.index);
+        if (!event) continue;
+        const entity = entry.counterparty && entry.activity === "operating" ? await resolveCounterparty(db, context.company.id, { name: entry.counterparty, alias: event.description, category: entry.category, direction: event.direction, candidates }) : undefined;
+        const activityOverride = !event.policyId && entry.activity !== "operating" ? entry.activity : !event.policyId && event.category === "unclassified" && entry.category ? (entry.category === "management_fee" || entry.category === "other_revenue" ? "revenue" : "expense") : undefined;
+        await db.update(cashEvents).set({ ...(activityOverride ? { category: activityOverride } : {}), financialCategory: entry.category ?? undefined, counterpartyEntityId: entity?.id, updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.externalKey, event.externalKey)));
+      }
+      const uncertain = categorized.filter((entry) => entry.activity === "operating" && (!entry.category || entry.confidence < 0.6));
+      if (uncertain.length) {
+        const names = [...new Set(uncertain.map((entry) => entry.counterparty ?? byIndex.get(entry.index)?.description ?? "").filter(Boolean))].slice(0, 8);
+        await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, reviewKey: `categorization:${placeholder!.id}`, question: `${uncertain.length} imported transaction${uncertain.length === 1 ? "" : "s"} from ${file.name} could not be categorized with confidence (${names.join(", ")}${uncertain.length > names.length ? ", …" : ""}). Which income statement line should each counterparty use?` });
+      }
+      if (!account && structure.accounts.length > 1) await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, reviewKey: `account:${placeholder!.id}`, question: `Which account do the ${events.length} transactions in ${file.name} belong to? (${structure.accounts.map((entry) => entry.name).join(", ")})` });
+    }
     if (canonicalSource?.id) {
       const keys = events.map((event) => event.externalKey).filter((key): key is string => Boolean(key));
       const canonicalEvents = await getDatabase().select({ id: cashEvents.id, externalKey: cashEvents.externalKey }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), inArray(cashEvents.externalKey, keys)));
@@ -76,7 +121,7 @@ export async function POST(request: Request) {
       await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, ...(sourceCurrency ? { currency: sourceCurrency } : {}), counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate, sourceLocation: event.sourceLocation }), confidence: "high" })));
     }
     const importedFact = { label: "Imported transaction set", value: `${events.length} transactions parsed from ${file.name}; approve the source and treatment to post them as actual cash activity.`, accountingRole: "transaction", confidence: 1 };
-    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} transactions parsed and staged for review`, facts: [importedFact], questions: [] }), ...(sourceCurrency ? { currency: sourceCurrency } : {}), status: "pending", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
+    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} transactions parsed and staged for review${account ? ` (${account.name})` : ""}`, facts: [importedFact], questions: [] }), ...(sourceCurrency ? { currency: sourceCurrency } : {}), accountEntityId, status: "pending", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
     await getDatabase().insert(factRecords).values({ companyId: context.company.id, evidenceId: placeholder!.id, ...importedFact, sourceLocation: "transaction file", ...(sourceCurrency ? { currency: sourceCurrency } : {}), confidence: String(importedFact.confidence), status: "pending" });
     await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length, classification: sourceClassification, currencies: detectedCurrencies }) }).where(eq(sources.id, canonicalSource!.id));
     await getDatabase().insert(ingestionRuns).values([
@@ -100,7 +145,7 @@ export async function POST(request: Request) {
     })),
     questions: [] as string[],
   };
-  return NextResponse.json({ id: evidenceId, imported: importedCount, skipped: events.length - importedCount, sourceName: file.name, extraction, reprocessEvidenceIds });
+  return NextResponse.json({ id: evidenceId, imported: importedCount, skipped: events.length - importedCount, sourceName: file.name, account: account ? { id: account.id, name: account.name } : null, extraction, reprocessEvidenceIds });
 }
 
 export async function GET() {

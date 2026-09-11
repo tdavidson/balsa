@@ -4,16 +4,17 @@ import { NextResponse } from "next/server";
 import { decisions, getDatabase, policies, reviewItems, assumptions, economicItems } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { z } from "zod";
+import { applyDecisionIfEffective, decisionEffectSchema, describeEffect, parseStoredEffect } from "@/lib/decision-effects";
 
 const decisionUpdate = z.object({ id: z.string().uuid(), status: z.enum(["proposed", "applied", "rejected"]) });
-const decisionCreate = z.object({ question: z.string().trim().min(1).max(20_000), answer: z.string().trim().min(1).max(20_000), appliesTo: z.string().trim().max(500).optional() });
+const decisionCreate = z.object({ question: z.string().trim().min(1).max(20_000), answer: z.string().trim().min(1).max(20_000), appliesTo: z.string().trim().max(500).optional(), effect: decisionEffectSchema.optional() });
 
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
   const rows = await getDatabase().select().from(decisions).where(eq(decisions.companyId, context.company.id)).orderBy(desc(decisions.createdAt));
   const policyRows = await getDatabase().select().from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")));
-  return NextResponse.json({ decisions: rows, policies: policyRows });
+  return NextResponse.json({ decisions: rows.map((row) => ({ ...row, effectSummary: describeEffect(parseStoredEffect(row.effect)) })), policies: policyRows });
 }
 
 export async function POST(request: Request) {
@@ -22,9 +23,11 @@ export async function POST(request: Request) {
   const body = decisionCreate.safeParse(await request.json());
   if (!body.success) return NextResponse.json({ error: "question and answer are required" }, { status: 400 });
   const data = body.data;
-  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined }).returning();
+  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined, effect: data.effect ? JSON.stringify(data.effect) : undefined }).returning();
   const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: data.answer, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, data.question), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
-  return NextResponse.json({ decision, resolvedReviewCount: resolvedReviews.length });
+  // A decision typed by the CFO is applied on creation; run its effect now.
+  const applied = decision && data.effect ? await applyDecisionIfEffective(context.company.id, decision.id).catch((error: unknown) => ({ applied: `failed: ${error instanceof Error ? error.message : "unknown error"}` })) : null;
+  return NextResponse.json({ decision, resolvedReviewCount: resolvedReviews.length, applied });
 }
 
 export async function PATCH(request: Request) {
@@ -35,6 +38,9 @@ export async function PATCH(request: Request) {
   const [decision] = await getDatabase().update(decisions).set({ status: body.data.status, updatedAt: new Date() }).where(and(eq(decisions.id, body.data.id), eq(decisions.companyId, context.company.id))).returning();
   if (!decision) return NextResponse.json({ error: "Decision not found" }, { status: 404 });
   let mutation = null;
+  if (body.data.status === "applied" && decision.effect) {
+    try { mutation = await applyDecisionIfEffective(context.company.id, decision.id); } catch (error) { return NextResponse.json({ error: `Decision recorded, but its effect failed: ${error instanceof Error ? error.message : "unknown error"}`, decision }, { status: 502 }); }
+  }
   if (body.data.status === "applied" && decision.appliesTo) {
     const target = decision.appliesTo.match(/^(assumption|economic_item):([0-9a-f-]{36})=(.+)$/i);
     if (target?.[1] === "assumption") {
