@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { and, eq, like } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getDatabase, knowledgeDocuments } from "@finance/database";
+import { getDatabase, knowledgeDocuments, recordAudit } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
 import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
@@ -88,6 +88,10 @@ export async function PATCH(request: Request) {
   const body = (await request.json()) as { slug?: string; content?: string };
   if (!body.slug || typeof body.content !== "string") return NextResponse.json({ error: "slug and content are required" }, { status: 400 });
   if (body.slug === "core-accounting") return NextResponse.json({ error: "Core accounting is platform-managed and cannot be changed in company knowledge." }, { status: 403 });
-  const [document] = await getDatabase().update(knowledgeDocuments).set({ content: body.content, updatedAt: new Date() }).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, body.slug))).returning();
-  return document ? NextResponse.json({ document }) : NextResponse.json({ error: "Knowledge document not found" }, { status: 404 });
+  const [document] = await getDatabase().update(knowledgeDocuments).set({ content: body.content, updatedByUserId: context.user.id, updatedAt: new Date() }).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, body.slug))).returning();
+  if (!document) return NextResponse.json({ error: "Knowledge document not found" }, { status: 404 });
+  // The content itself is not copied into the log; the document row and its
+  // updated-by column hold the text, and entries stay readable.
+  await recordAudit(getDatabase(), { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: "knowledge.updated", entityType: "knowledge_document", entityId: document.id, summary: `Edited knowledge document ${document.title}`, after: { slug: document.slug, characters: body.content.length } });
+  return NextResponse.json({ document });
 }

@@ -255,7 +255,7 @@ async function handleReconciliation(request: Request, persist: boolean) {
   const sourceIds = evidenceRows.flatMap((source) => source.sourceId ? [{ id: source.sourceId, month: monthFromSource(source), evidenceStatus: source.status }] : []);
   await Promise.all(sourceIds.map(({ id, month, evidenceStatus }) => {
     const status = evidenceStatus === "approved" && month && statusByMonth.get(month) === "reconciled" ? "reconciled" : "review";
-    return db.update(sourceTable).set({ ingestionStatus: status, ingestionError: null, processedAt: new Date() }).where(eq(sourceTable.id, id));
+    return db.update(sourceTable).set({ ingestionStatus: status, ingestionError: null, processedAt: new Date() }).where(and(eq(sourceTable.id, id), eq(sourceTable.companyId, context.company.id)));
   }));
   await db.delete(reconciliationEntries).where(eq(reconciliationEntries.companyId, context.company.id));
   if (ledgerEntries.length) await db.insert(reconciliationEntries).values(ledgerEntries.map((entry) => ({ companyId: context.company.id, eventId: entry.eventId, ...(entry.counterpartEventId ? { counterpartEventId: entry.counterpartEventId } : {}), month: entry.month, kind: entry.kind, matchKey: entry.matchKey, evidence: JSON.stringify(entry.evidence) })));

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { companies, getDatabase } from "@finance/database";
+import { companies, getDatabase, recordAudit } from "@finance/database";
 import { auth, requireCompanyAccess } from "@/lib/auth";
 import { deleteSourceBlob, storeSourceBlob } from "@/lib/blob-store";
 
@@ -28,7 +28,7 @@ export async function PATCH(request: Request) {
   if (!name || name.length > 160) return NextResponse.json({ error: "Company name is required and must be 160 characters or fewer" }, { status: 400 });
   if (!/^[A-Z]{3}$/.test(baseCurrency)) return NextResponse.json({ error: "Base currency must be a three-letter code" }, { status: 400 });
   const db = getDatabase();
-  const [current] = await db.select({ faviconStorageReference: companies.faviconStorageReference }).from(companies).where(eq(companies.id, context.company.id)).limit(1);
+  const [current] = await db.select({ name: companies.name, baseCurrency: companies.baseCurrency, faviconStorageReference: companies.faviconStorageReference }).from(companies).where(eq(companies.id, context.company.id)).limit(1);
   let favicon: { storageReference: string; mime: string; hash: string } | undefined;
   const upload = form?.get("favicon");
   if (upload instanceof File && upload.size > 0) {
@@ -44,6 +44,7 @@ export async function PATCH(request: Request) {
     ...(favicon ? { faviconStorageReference: favicon.storageReference, faviconMime: favicon.mime, faviconHash: favicon.hash } : {}),
     updatedAt: new Date(),
   }).where(eq(companies.id, context.company.id)).returning({ id: companies.id, name: companies.name, baseCurrency: companies.baseCurrency });
+  if (company) await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: "company.settings_changed", entityType: "company", entityId: context.company.id, summary: `Changed company settings for ${company.name}`, before: { name: current?.name ?? null, baseCurrency: current?.baseCurrency ?? null }, after: { name: company.name, baseCurrency: company.baseCurrency, ...(favicon ? { faviconHash: favicon.hash } : {}) } });
   if (favicon && current?.faviconStorageReference && current.faviconStorageReference !== favicon.storageReference) {
     await deleteSourceBlob(current.faviconStorageReference).catch(() => undefined);
   }

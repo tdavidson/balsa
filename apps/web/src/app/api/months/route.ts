@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { getDatabase, journalPeriodClosures, reportingPeriods } from "@finance/database";
+import { getDatabase, journalPeriodClosures, recordAudit, reportingPeriods } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { closeJournalPeriod } from "@/lib/journal-period-close";
@@ -26,8 +26,10 @@ export async function PATCH(request: Request) {
   }
   const closure = await getDatabase().select({ id: journalPeriodClosures.id }).from(journalPeriodClosures).where(and(eq(journalPeriodClosures.companyId, context.company.id), eq(journalPeriodClosures.period, body.month))).limit(1);
   if (closure[0]) return NextResponse.json({ error: "A closed period cannot be reopened. Post an explicit adjustment or reversal instead." }, { status: 409 });
-  let [period] = await getDatabase().update(reportingPeriods).set({ status: "open", updatedAt: new Date() }).where(and(eq(reportingPeriods.companyId, context.company.id), eq(reportingPeriods.month, body.month))).returning();
+  // An open period has no closer; clearing the column keeps the row honest.
+  let [period] = await getDatabase().update(reportingPeriods).set({ status: "open", closedByUserId: null, updatedAt: new Date() }).where(and(eq(reportingPeriods.companyId, context.company.id), eq(reportingPeriods.month, body.month))).returning();
   if (!period) [period] = await getDatabase().insert(reportingPeriods).values({ companyId: context.company.id, month: body.month, status: "open" }).onConflictDoNothing().returning();
   if (!period) return NextResponse.json({ error: "Reporting period not found" }, { status: 404 });
+  await recordAudit(getDatabase(), { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: "period.reopened", entityType: "reporting_period", entityId: period.id, summary: `Reopened reporting period ${body.month}`, after: { period: body.month } });
   return NextResponse.json({ period, calculationRun: await refreshCurrentCalculationRun(context.company.id) });
 }

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { chartAccounts, getDatabase, journalBatches, journalEntries, journalLineLineage, journalLines, journalPeriodCloseEntries, journalPeriodClosures, journalPeriodPromotions, reportingPeriods } from "@finance/database";
+import { chartAccounts, getDatabase, journalBatches, journalEntries, journalLineLineage, journalLines, journalPeriodCloseEntries, journalPeriodClosures, journalPeriodPromotions, recordAudit, reportingPeriods } from "@finance/database";
 import { previewRetainedEarningsClose, type RetainedEarningsClosePreview } from "@nevermodel/finance-engine";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
@@ -71,21 +71,28 @@ export async function closeJournalPeriod(input: { companyId: string; userId: str
   if (!state.eligible || !state.promotion) return { ok: false as const, blockers: state.blockers };
 
   const db = getDatabase();
-  const [closure] = await db.insert(journalPeriodClosures).values({
-    companyId: input.companyId,
-    period: input.period,
-    promotionId: state.promotion.id,
-    closedByUserId: input.userId,
-    note: input.note,
-  }).onConflictDoNothing().returning();
-  const [reportingPeriod] = await db.insert(reportingPeriods).values({
-    companyId: input.companyId,
-    month: input.period,
-    status: "closed",
-  }).onConflictDoUpdate({
-    target: [reportingPeriods.companyId, reportingPeriods.month],
-    set: { status: "closed", updatedAt: new Date() },
-  }).returning();
+  // The closure, the reporting-period status, and the audit record are one
+  // fact about the company: a period is never half closed.
+  const { closure, reportingPeriod } = await db.transaction(async (tx) => {
+    const [closed] = await tx.insert(journalPeriodClosures).values({
+      companyId: input.companyId,
+      period: input.period,
+      promotionId: state.promotion!.id,
+      closedByUserId: input.userId,
+      note: input.note,
+    }).onConflictDoNothing().returning();
+    const [period] = await tx.insert(reportingPeriods).values({
+      companyId: input.companyId,
+      month: input.period,
+      status: "closed",
+      closedByUserId: input.userId,
+    }).onConflictDoUpdate({
+      target: [reportingPeriods.companyId, reportingPeriods.month],
+      set: { status: "closed", closedByUserId: input.userId, updatedAt: new Date() },
+    }).returning();
+    await recordAudit(tx, { companyId: input.companyId, actorUserId: input.userId, via: "ui", action: "period.closed", entityType: "reporting_period", ...(period ? { entityId: period.id } : {}), summary: `Closed reporting period ${input.period}`, after: { period: input.period, ...(input.note ? { note: input.note } : {}) } });
+    return { closure: closed ?? null, reportingPeriod: period };
+  });
   const calculationRun = await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period] });
-  return { ok: true as const, closure: closure ?? null, reportingPeriod, calculationRun };
+  return { ok: true as const, closure, reportingPeriod, calculationRun };
 }
