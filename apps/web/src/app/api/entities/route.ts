@@ -40,7 +40,11 @@ export async function POST(request: Request) {
     const calculationRun = await refreshCurrentCalculationRun(context.company.id);
     return NextResponse.json({ entity: row, created: true, calculationRun });
   }
-  const ownerEntityId = body.data.ownerEntityId ?? structure.resolveEntityName(body.data.ownerName) ?? structure.defaultEntityId;
+  // An owner named by id is a foreign key from the request: it may only be one
+  // of this company's own legal entities, never another company's.
+  const requestedOwnerEntityId = body.data.ownerEntityId;
+  if (requestedOwnerEntityId && !structure.legalEntities.some((entity) => entity.id === requestedOwnerEntityId)) return NextResponse.json({ error: "Owner entity not found" }, { status: 404 });
+  const ownerEntityId = requestedOwnerEntityId ?? structure.resolveEntityName(body.data.ownerName) ?? structure.defaultEntityId;
   if (body.data.ownerName && !ownerEntityId) return NextResponse.json({ error: `No legal entity named ${body.data.ownerName}. Create it first with "entity: ${body.data.ownerName}".` }, { status: 404 });
   const attributes = { ...(body.data.accountIdentifier ? { accountIdentifier: body.data.accountIdentifier } : {}), ...(body.data.accountHolder ? { accountHolder: body.data.accountHolder } : {}) };
   const existing = structure.accounts.find((account) => account.name.toLowerCase() === body.data.name.toLowerCase());
@@ -61,6 +65,9 @@ export async function PATCH(request: Request) {
   const body = patchSchema.safeParse(await request.json());
   if (!body.success) return NextResponse.json({ error: "Invalid entity update" }, { status: 400 });
   const context = await requireCompanyAccess();
+  // A reparenting request names another stored row: prove it is this company's
+  // legal entity before it is written onto the account.
+  if (body.data.ownerEntityId && !(await getDatabase().select({ id: entities.id }).from(entities).where(and(eq(entities.id, body.data.ownerEntityId), eq(entities.companyId, context.company.id), eq(entities.type, "legal_entity"))).limit(1))[0]) return NextResponse.json({ error: "Owner entity not found" }, { status: 404 });
   const [row] = await getDatabase().update(entities).set({ ...(body.data.name ? { name: body.data.name } : {}), ...(body.data.consolidated !== undefined ? { consolidated: body.data.consolidated ? "Y" : "N" } : {}), ...(body.data.functionalCurrency !== undefined ? { functionalCurrency: body.data.functionalCurrency } : {}), ...(body.data.consolidationMethod ? { consolidationMethod: body.data.consolidationMethod } : {}), ...(body.data.ownershipPercent !== undefined ? { ownershipPercent: body.data.ownershipPercent } : {}), ...(body.data.effectiveFrom !== undefined ? { effectiveFrom: body.data.effectiveFrom } : {}), ...(body.data.effectiveTo !== undefined ? { effectiveTo: body.data.effectiveTo } : {}), ...(body.data.ownerEntityId !== undefined ? { ownerEntityId: body.data.ownerEntityId } : {}), updatedAt: new Date() }).where(and(eq(entities.id, body.data.id), eq(entities.companyId, context.company.id))).returning({ id: entities.id, name: entities.name, type: entities.type, consolidated: entities.consolidated, ownerEntityId: entities.ownerEntityId });
   if (!row) return NextResponse.json({ error: "Entity not found" }, { status: 404 });
   const calculationRun = await refreshCurrentCalculationRun(context.company.id);
