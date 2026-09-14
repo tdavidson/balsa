@@ -5,6 +5,7 @@ import {
   char,
   date,
   index,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -14,7 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const companyRole = pgEnum("company_role", ["owner"]);
+export const companyRole = pgEnum("company_role", ["owner", "member"]);
 export const evidenceStatus = pgEnum("evidence_status", ["pending", "approved", "rejected"]);
 export const economicItemType = pgEnum("economic_item_type", ["agreement", "obligation"]);
 export const economicDirection = pgEnum("economic_direction", ["receipt", "spend"]);
@@ -290,6 +291,8 @@ export const knowledgeDocuments = pgTable(
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     content: text("content").notNull(),
+    /** The person behind the last edit; null for agent or migration writes. */
+    updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [uniqueIndex("knowledge_documents_company_slug_unique").on(table.companyId, table.slug), index("knowledge_documents_company_index").on(table.companyId)],
@@ -306,6 +309,7 @@ export const decisions = pgTable(
     /** Structured effect applied when the decision is accepted (JSON: add_item, end_item, change_amount, set_category). */
     effect: text("effect"),
     status: text("status").default("applied").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [index("decisions_company_index").on(table.companyId, table.createdAt)],
@@ -347,6 +351,32 @@ export const companyMembers = pgTable(
     primaryKey({ columns: [table.companyId, table.userId] }),
     index("company_members_user_index").on(table.userId),
   ],
+);
+
+/**
+ * Who changed what. Written in the same transaction as the change it describes,
+ * so the record and the change commit or roll back together.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    /** Null for worker actions, and for a user deleted after the fact. */
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    via: text("via").default("ui").notNull(),
+    action: text("action").notNull(),
+    entityType: text("entity_type"),
+    entityId: uuid("entity_id"),
+    summary: text("summary").notNull(),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    requestId: text("request_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("audit_log_company_index").on(table.companyId, table.createdAt)],
 );
 
 export const evidence = pgTable(
@@ -391,6 +421,7 @@ export const reviewItems = pgTable(
     question: text("question").notNull(),
     answer: text("answer"),
     status: text("status").default("open").notNull(),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [index("review_items_company_index").on(table.companyId, table.status), index("review_items_evidence_index").on(table.evidenceId), index("review_items_key_index").on(table.companyId, table.reviewKey)],
@@ -615,6 +646,7 @@ export const economicItems = pgTable(
     entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
     status: economicItemStatus("status").default("draft").notNull(),
     policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [index("economic_items_company_index").on(table.companyId, table.status), index("economic_items_scenario_index").on(table.scenarioId)],
@@ -683,6 +715,7 @@ export const reportingPeriods = pgTable(
     month: text("month").notNull(),
     openingCash: text("opening_cash").default("0").notNull(),
     status: reportingPeriodStatus("status").default("open").notNull(),
+    closedByUserId: uuid("closed_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [uniqueIndex("reporting_period_company_month_unique").on(table.companyId, table.month)],

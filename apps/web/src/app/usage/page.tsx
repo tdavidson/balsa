@@ -3,7 +3,7 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { getDatabase, llmMessages, llmRuns } from "@finance/database";
-import { requireCompanyAccess } from "@/lib/auth";
+import { listCompanies, requireCompanyAccess } from "@/lib/auth";
 import { AccountMenu } from "@/components/account-menu";
 import { UsageHistory } from "@/components/usage-history";
 
@@ -44,6 +44,7 @@ function operationLabel(operation: string) {
 export default async function UsagePage() {
   await auth.protect({ unauthenticatedUrl: "/login" });
   const context = await requireCompanyAccess();
+  const companies = await listCompanies();
   const db = getDatabase();
   const costSum = sql<string>`coalesce(sum(nullif(${llmRuns.cost}, '')::numeric), 0)`;
   const averageLatency = sql<string>`coalesce(avg(nullif(${llmRuns.latencyMs}, '')::numeric), 0)`;
@@ -83,7 +84,7 @@ export default async function UsagePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
+        <AccountMenu company={{ id: context.company.id, name: context.company.name, baseCurrency: context.company.baseCurrency }} companies={companies.map(({ id, name, baseCurrency, role }) => ({ id, name, baseCurrency, role }))} role={context.company.role} staleSelection={context.selection.staleSelection} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[960px] flex-1 content-start gap-10 px-7 pt-6 pb-24">

@@ -3,6 +3,7 @@
 import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { CompanyRole } from "@finance/auth";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,6 +17,9 @@ import { cn } from "@/lib/utils";
 import { UsageModal } from "@/components/usage-modal";
 import { AccountingModal } from "@/components/accounting-modal";
 import { FinancialInspector } from "@/components/financial-inspector";
+
+// Next inlines NEXT_PUBLIC_ variables at build time, so this is a build-time constant.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
 const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 const shortMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
@@ -297,7 +301,11 @@ function Figure({ label, value, note, pencil, negative }: { label: string; value
 }
 
 type AppShellProps = {
-  company: { name: string; currency: string };
+  company: { id: string; name: string; currency: string };
+  companies: { id: string; name: string; baseCurrency: string; role: CompanyRole }[];
+  /** The signed-in user's role in the active company, passed straight through to the account menu. */
+  role: CompanyRole;
+  staleSelection: boolean;
   user: { email: string; name: string | null; hasAvatar?: boolean };
   modelOptions: { value: string; label: string }[];
   loginEnabled: boolean;
@@ -413,7 +421,7 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
   }));
 }
 
-export function AppShell({ company, user, modelOptions, loginEnabled }: AppShellProps) {
+export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled }: AppShellProps) {
   const [message, setMessage] = useState("");
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
   const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
@@ -1261,7 +1269,7 @@ export function AppShell({ company, user, modelOptions, loginEnabled }: AppShell
   return (
     <div className="flex min-h-screen flex-col" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={company.name} baseCurrency={company.currency} user={user} loginEnabled={loginEnabled} />
+        <AccountMenu company={{ id: company.id, name: company.name, baseCurrency: company.currency }} companies={companies} role={role} staleSelection={staleSelection} user={user} loginEnabled={loginEnabled} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">
@@ -1426,9 +1434,11 @@ export function AppShell({ company, user, modelOptions, loginEnabled }: AppShell
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
             </div>
-            <Link href="/about" className={quietButton}>
-              <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
-            </Link>
+            {siteUrl && (
+              <a href={siteUrl} target="_blank" rel="noreferrer" className={quietButton}>
+                <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
+              </a>
+            )}
           </div>
           {notice && (
             <p className="prose-serif text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }} role="status">

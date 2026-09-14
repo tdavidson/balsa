@@ -16,6 +16,20 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: nevermodel_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d nevermodel_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -27,7 +41,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The database package's tests run against a real Postgres; migrate first
+      # so the row level security policies under test exist.
+      - run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci
       - run: pnpm test
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci
       - run: pnpm build
         env:
           AUTH_MODE: disabled

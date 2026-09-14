@@ -79,8 +79,7 @@ authorization, silently confirm its own inference, or perform the authoritative
 financial math. A reported figure can be traced back through its formula and
 posted lines to the source and human judgment that produced it.
 
-Read [How Nevermodel works](apps/web/src/app/about/page.tsx) for the full product
-idea and [the security model](docs/security.md) for the current application
+Read [the security model](docs/security.md) for the current application
 boundary.
 
 ## Current status
@@ -100,24 +99,15 @@ financial system without weakening its company boundaries or audit trail.
 | --- | --- | --- | --- |
 | Private local | One | One | Available now, with optional no-login mode |
 | Authenticated self-hosted | One | One | Available now with Better Auth |
-| Local multi-company | One | Many | Next product step; switch between separately scoped companies in one private installation |
-| Hosted multi-user | Many | One or many | Planned; role-based company memberships and server-enforced tenant isolation |
-| Hosted multi-company | Many | Many | Planned; shared operators can work across authorized companies without crossing data boundaries |
+| Local multi-company | One | Many | Available now; one operator switches between and creates separately scoped companies from the account menu, or declares them in `COMPANIES` |
+| Self-hosted multi-user | Many | Many | Available now; every registered user can open every company, and an activity log records who changed what |
 
 “Multi-company” and “multi-user” are deliberately separate concerns. Local
 multi-company means one operator can manage several companies from a private
 installation; it does not imply collaboration or public network exposure.
-Hosted multi-user adds identity, invitations, roles, and company membership.
-Hosted multi-company then lets an authorized operator—such as a fractional CFO
-or finance team—work across multiple isolated company contexts.
-
-The accounting core is already company-scoped. The path forward is to finish
-the single-company close and forecast loop, add local company creation and
-switching, then harden the worker, storage, authorization, and row-level tenant
-controls required for a hosted service. The plans are documented separately in
-[local multi-company](docs/plans/local-multi-company.md),
-[hosted multi-tenant](docs/plans/multi-tenant-hosted.md), and
-[post-single-player scale-up](docs/plans/post-single-player-scale-up.md).
+Self-hosted multi-user means everyone admitted by the sign-up code works across
+all of the installation's companies. Per-company membership, invitations,
+and hosted tenant operations are outside the scope of this repository.
 
 ## Quick start
 
@@ -141,17 +131,41 @@ pnpm dev
 Open [http://localhost:3000](http://localhost:3000).
 
 For the shortest private local setup, set `AUTH_MODE=disabled` in `.env` and
-configure `LOCAL_OWNER_EMAIL`. Disabled auth does not protect the application
-from the network: use it only on a trusted device or behind a VPN or access-
-controlled reverse proxy. Production use also requires
-`ALLOW_AUTH_DISABLED=true`.
+configure `LOCAL_OWNER_EMAIL`. That address names the installation owner
+permanently: in disabled mode it is the operator identity, and in Better Auth
+mode the account registered with it owns the original company and its data.
+Disabled auth does not protect the application from the network: use it only on
+a trusted device or behind a VPN or access-controlled reverse proxy. Production
+use also requires `ALLOW_AUTH_DISABLED=true`.
+
+To start with more than one company, list them in `COMPANIES` as `Name` or
+`Name:CUR` entries separated by commas, for example
+`COMPANIES=Acme Holdings:USD,Beta GmbH:EUR`. They are created for the owner on
+first sign-in, the first one becoming the default; names added to the list later
+are created on the next sign-in, and editing or removing an entry never renames
+or deletes a company. The account menu's **New company** does the same thing
+interactively.
 
 For email/password authentication, keep `AUTH_MODE=better-auth`, generate a
 secret with `openssl rand -base64 32`, set `BETTER_AUTH_SECRET`, and set
 `BETTER_AUTH_URL` to the application URL. Set `AUTH_ALLOW_SIGN_UP=true` only
 while provisioning intended users; production sign-up is otherwise disabled.
+Whenever sign-up is enabled on a reachable host, also set `AUTH_SIGN_UP_CODE`:
+every registrant must type that code, so registration stays closed to everyone
+who has not been given it.
 
-The complete configuration surface, including model providers, object storage,
+To work with other people, give each of them that code so they can register.
+Everyone who registers on a self-hosted installation can open every company,
+including companies created later, and can create companies of their own.
+**Activity** in the account menu lists what changed, who changed it, and when,
+newest first. No mail is ever sent: the sign-up code alone decides who may
+register, and registration decides who may work in the installation.
+
+Set `NEXT_PUBLIC_SITE_URL` to the address of a public site carrying the product
+documentation, and the application header shows a **How Nevermodel works** link
+to it; leave it unset and no link is shown.
+
+The complete configuration surface, including model providers, file storage,
 OCR, auth migration, and background reconciliation, is documented inline in
 [`.env.example`](.env.example).
 
@@ -197,9 +211,8 @@ packages/model-providers OpenAI and OpenRouter adapters
 templates                company knowledge templates
 ```
 
-Architecture and implementation notes live in [`docs/plans`](docs/plans), the
-original build specification is in [`docs/specs`](docs/specs), and the design
-system is documented in [`docs/design-language.html`](docs/design-language.html).
+The security posture is described in [`docs/security.md`](docs/security.md) and
+the design system in [`docs/design-language.html`](docs/design-language.html).
 
 ## Contributing
 

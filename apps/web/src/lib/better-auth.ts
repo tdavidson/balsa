@@ -1,7 +1,9 @@
 import "server-only";
 import { Pool } from "pg";
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
+import { matchesSignUpCode } from "./sign-up-code";
 
 export type AuthMode = "better-auth" | "disabled";
 
@@ -22,8 +24,35 @@ export function isSignUpEnabled() {
   return process.env.AUTH_ALLOW_SIGN_UP === "true" || !isProduction;
 }
 
+/**
+ * A registration passcode closes open sign-up at the root: no stranger who can
+ * reach the host can create an identity, so no one can race the operator for a
+ * predictable email (see LOCAL_OWNER_EMAIL).
+ */
+export function isSignUpCodeRequired() {
+  return (process.env.AUTH_SIGN_UP_CODE ?? "").trim().length > 0;
+}
+
+const SIGN_UP_CODE_HEADER = "x-nevermodel-sign-up-code";
+
+/**
+ * Server-side gate, independent of the login UI: every /sign-up/email request
+ * must carry the configured passcode, compared in constant time.
+ */
+const signUpCodeGate = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== "/sign-up/email" || !isSignUpCodeRequired()) return;
+  if (!matchesSignUpCode(ctx.getHeader(SIGN_UP_CODE_HEADER), process.env.AUTH_SIGN_UP_CODE)) {
+    throw new APIError("FORBIDDEN", { message: "A valid sign-up code is required." });
+  }
+});
+
 if (configuredAuthMode() === "better-auth" && !secret) {
   throw new Error("BETTER_AUTH_SECRET is required when AUTH_MODE=better-auth. Generate one with `openssl rand -base64 32`.");
+}
+// A self-hosted operator owns their own policy, so this warns rather than
+// refusing to start; without a passcode, registration is open to the network.
+if (configuredAuthMode() === "better-auth" && isProduction && isSignUpEnabled() && !isSignUpCodeRequired()) {
+  console.warn("AUTH_ALLOW_SIGN_UP is enabled without AUTH_SIGN_UP_CODE: anyone who can reach this host can register. Set AUTH_SIGN_UP_CODE or unset AUTH_ALLOW_SIGN_UP after provisioning.");
 }
 export function assertDisabledAuthAllowed() {
   if (configuredAuthMode() === "disabled" && isProduction && process.env.ALLOW_AUTH_DISABLED !== "true") {
@@ -59,6 +88,7 @@ export const betterAuthServer = configuredAuthMode() === "better-auth"
     account: { fields: { accountId: "account_id", providerId: "provider_id", userId: "user_id", accessToken: "access_token", refreshToken: "refresh_token", idToken: "id_token", accessTokenExpiresAt: "access_token_expires_at", refreshTokenExpiresAt: "refresh_token_expires_at", createdAt: "created_at", updatedAt: "updated_at" } },
     verification: { fields: { expiresAt: "expires_at", createdAt: "created_at", updatedAt: "updated_at" } },
     emailAndPassword: { enabled: true, disableSignUp: !isSignUpEnabled(), minPasswordLength: 12, maxPasswordLength: 128 },
+    hooks: { before: signUpCodeGate },
     plugins: [nextCookies()],
   })
   : null;

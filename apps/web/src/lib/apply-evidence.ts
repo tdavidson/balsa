@@ -63,6 +63,8 @@ export async function applyApprovedEvidence(options: {
   currency?: string;
   modelChoice: z.infer<typeof modelRequestSchema>;
   replace: boolean;
+  /** The person whose approval created these rows; a worker-run approval has none. */
+  actorUserId: string | null;
 }): Promise<ApplyEvidenceResult> {
   const { context, evidenceId } = options;
   const db = getDatabase();
@@ -167,7 +169,7 @@ export async function applyApprovedEvidence(options: {
       const entity = item.counterparty ? await resolveCounterparty(db, companyId, { name: item.counterparty, category: item.category, direction: item.direction, candidates }) : undefined;
       const policy = item.appliedPolicy ? policyRows.find((row) => row.name.toLowerCase() === item.appliedPolicy!.toLowerCase() || item.appliedPolicy!.toLowerCase().includes(row.name.toLowerCase())) : undefined;
       rows.push({
-        companyId, evidenceId, ...(sourceFact?.id ? { factId: sourceFact.id } : {}), type: item.direction === "spend" ? "obligation" as const : "agreement" as const, direction: item.direction, label: item.label, counterparty: item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
+        companyId, evidenceId, createdByUserId: options.actorUserId, ...(sourceFact?.id ? { factId: sourceFact.id } : {}), type: item.direction === "spend" ? "obligation" as const : "agreement" as const, direction: item.direction, label: item.label, counterparty: item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
         amount: String(item.amount), cadence: item.cadence, effectiveFrom: item.effectiveFrom, effectiveTo: item.effectiveTo ?? undefined, category: item.category, basis: item.basis,
         accountingTreatment: item.accountingTreatment, recognitionStart: item.recognitionStart ?? undefined, recognitionEnd: item.recognitionEnd ?? undefined,
         confidence: String(item.confidence), rationale: item.rationale, policyId: policy?.id, entityId: structure.resolveEntityName(item.entity) ?? accountEntity, status: "draft" as const,
