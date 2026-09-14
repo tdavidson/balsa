@@ -10,23 +10,31 @@ import { authClient } from "@/lib/auth-client";
  * cookies; this screen deliberately remains application UI rather than a
  * hosted identity widget.
  */
-export function LoginForm({ allowSignUp }: { allowSignUp: boolean }) {
+export function LoginForm({ allowSignUp, requireSignUpCode }: { allowSignUp: boolean; requireSignUpCode: boolean }) {
   const router = useRouter();
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [signUpCode, setSignUpCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const signUpCodeMissing = mode === "sign-up" && requireSignUpCode && !signUpCode;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!email.trim() || !password) return;
+    if (!email.trim() || !password || signUpCodeMissing) return;
     setMessage(null);
     setBusy(true);
     try {
       const result = mode === "sign-up"
-        ? await authClient.signUp.email({ email: email.trim(), password, name: name.trim() || email.trim() })
+        // The server enforces the code regardless; the header only carries it.
+        ? await authClient.signUp.email({
+          email: email.trim(),
+          password,
+          name: name.trim() || email.trim(),
+          ...(requireSignUpCode ? { fetchOptions: { headers: { "x-nevermodel-sign-up-code": signUpCode } } } : {}),
+        })
         : await authClient.signIn.email({ email: email.trim(), password });
       if (result.error) {
         setMessage(describe(result.error));
@@ -86,10 +94,24 @@ export function LoginForm({ allowSignUp }: { allowSignUp: boolean }) {
         disabled={busy}
       />
 
+      {mode === "sign-up" && requireSignUpCode && (
+        <input
+          className={field}
+          type="password"
+          name="signUpCode"
+          autoComplete="off"
+          placeholder="Sign-up code"
+          aria-label="Sign-up code"
+          value={signUpCode}
+          onChange={(event) => setSignUpCode(event.target.value)}
+          disabled={busy}
+        />
+      )}
+
       <button
         className="mt-3 inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-ink text-[15px] font-medium text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60"
         type="submit"
-        disabled={busy || !email.trim() || !password}
+        disabled={busy || !email.trim() || !password || signUpCodeMissing}
       >
         {mode === "sign-in" ? "Sign in" : "Create account"}
         <ArrowRight className="size-4" aria-hidden="true" />
