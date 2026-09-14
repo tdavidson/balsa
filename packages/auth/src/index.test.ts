@@ -5,6 +5,7 @@ import {
   createAuthService,
   isCompanyId,
   normalizeNewCompanyInput,
+  parseConfiguredCompanies,
   type AuthIdentity,
   type AuthRepository,
   type AuthorizedCompany,
@@ -175,5 +176,37 @@ describe("input helpers", () => {
   it("normalizes new company input", () => {
     expect(normalizeNewCompanyInput({ name: " Acme ", baseCurrency: "usd" })).toEqual({ name: "Acme", baseCurrency: "USD" });
     expect(() => normalizeNewCompanyInput({ name: "x".repeat(161), baseCurrency: "USD" })).toThrow(InvalidCompanyInputError);
+  });
+});
+
+describe("configured companies", () => {
+  it("reads names, optional currencies, and surrounding whitespace", () => {
+    expect(parseConfiguredCompanies(" Acme Holdings:USD , Beta GmbH:eur ,Gamma Partners")).toEqual([
+      { name: "Acme Holdings", baseCurrency: "USD" },
+      { name: "Beta GmbH", baseCurrency: "EUR" },
+      { name: "Gamma Partners", baseCurrency: "USD" },
+    ]);
+  });
+
+  it("treats a trailing colon segment as a currency only when it is three letters", () => {
+    // A name may contain a colon, but only where the last segment is not a
+    // currency code: `Acme:Ltd` is indistinguishable from a currency suffix.
+    expect(parseConfiguredCompanies("Acme: Berlin,Beta:EURO,Gamma:12")).toEqual([
+      { name: "Acme: Berlin", baseCurrency: "USD" },
+      { name: "Beta:EURO", baseCurrency: "USD" },
+      { name: "Gamma:12", baseCurrency: "USD" },
+    ]);
+  });
+
+  it("skips entries that do not normalize instead of throwing", () => {
+    expect(parseConfiguredCompanies(`:EUR,,Kept:GBP,${"x".repeat(161)}:USD`)).toEqual([
+      { name: "Kept", baseCurrency: "GBP" },
+    ]);
+  });
+
+  it("reads blank and unset configuration as no companies", () => {
+    expect(parseConfiguredCompanies(undefined)).toEqual([]);
+    expect(parseConfiguredCompanies("  ")).toEqual([]);
+    expect(parseConfiguredCompanies(",,")).toEqual([]);
   });
 });

@@ -12,10 +12,14 @@ better-auth  default; Nevermodel-styled email/password sign-in
 disabled     explicit single-user local mode; no login UI or session provider
 ```
 
-While sign-up is open during a migration from disabled mode, set
+`LOCAL_OWNER_EMAIL` names the installation owner in both modes. In Better Auth
+mode, the first identity registered with that address adopts the pre-existing
+`disabled` application user rather than starting an empty one, so an
+installation can move from disabled mode to Better Auth without losing its
+companies, files, or settings. While sign-up is open during that migration, set
 `AUTH_SIGN_UP_CODE` so only a registrant holding that code can create an
-identity; it is what keeps the one-time `AUTH_CLAIM_EXISTING_EMAIL` bridge from
-being claimed by a stranger who guesses the owner's address.
+identity; it is what keeps a stranger who guesses the owner's address from
+adopting the owner's user.
 
 `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` are required in Better Auth mode.
 Generate the secret with `openssl rand -base64 32`. Disabled mode must be

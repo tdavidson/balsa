@@ -18,7 +18,11 @@ All six implementation slices below have landed on this branch.
 3. **Account-menu UX** — the account menu lists every authorized company, marks
    the active one, switches through `PUT /api/companies/active` followed by a
    full reload, and opens a **New company** dialog. The app shell is keyed by
-   the active company, and signing out clears the cookie.
+   the active company, and signing out clears the cookie. The same set can be
+   declared up front in the `COMPANIES` environment variable, which provisioning
+   materializes for the installation owner additively: the listed companies
+   replace the single default one on first sign-in, later additions to the list
+   are created on the next sign-in, and nothing is ever renamed or removed.
 4. **Company propagation audit** — foreign keys supplied in request bodies
    (entity owner, scenario, provenance, account, decision, policy, mapping, and
    source-row ids) are verified against the active company before use, and
@@ -72,7 +76,9 @@ distributed infrastructure. Those belong to the
 - `requireCompanyAccess(requestedCompanyId)` already verifies that the current
   user belongs to a requested company.
 - The application-user identity remains stable when switching between disabled
-  mode and Better Auth through the one-time email claim setting.
+  mode and Better Auth: `LOCAL_OWNER_EMAIL` names the installation owner in both
+  modes, and the first Better Auth identity registered with that address adopts
+  the pre-existing local user rather than starting an empty one.
 - Local private file storage already prefixes source objects by company.
 
 Selection, creation, consistent propagation, and isolation testing are the work
