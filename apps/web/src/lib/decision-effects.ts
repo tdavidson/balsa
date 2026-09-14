@@ -94,8 +94,13 @@ async function appendAssumption(db: Database, companyId: string, line: string) {
   else await db.insert(knowledgeDocuments).values({ companyId, slug: "forecast", title: "Forecast", content });
 }
 
-/** Apply a decision's effect to Company State. Returns a short description of what changed. */
-export async function applyDecisionEffect(companyId: string, decisionId: string, effect: DecisionEffect): Promise<{ applied: string; itemId?: string | undefined }> {
+/**
+ * Apply a decision's effect to Company State. Returns a short description of
+ * what changed. `actorUserId` is stamped on the rows the effect creates, so an
+ * item answers "who put this in the forecast" without reading the audit log; a
+ * worker-run application has no actor and stores none.
+ */
+export async function applyDecisionEffect(companyId: string, decisionId: string, effect: DecisionEffect, actorUserId: string | null): Promise<{ applied: string; itemId?: string | undefined }> {
   const db = getDatabase();
   if (effect.kind === "add_item") {
     let scenarioId: string | undefined;
@@ -106,7 +111,7 @@ export async function applyDecisionEffect(companyId: string, decisionId: string,
     const candidates: KnownEntity[] = await db.select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes }).from(entities).where(eq(entities.companyId, companyId));
     const entity = effect.item.counterparty ? await resolveCounterparty(db, companyId, { name: effect.item.counterparty, category: effect.item.category, direction: effect.item.direction, candidates }) : undefined;
     const [row] = await db.insert(economicItems).values({
-      companyId, type: effect.item.direction === "spend" ? "obligation" : "agreement", direction: effect.item.direction, label: effect.item.label, counterparty: effect.item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
+      companyId, createdByUserId: actorUserId, type: effect.item.direction === "spend" ? "obligation" : "agreement", direction: effect.item.direction, label: effect.item.label, counterparty: effect.item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
       amount: String(effect.item.amount), cadence: effect.item.cadence, effectiveFrom: effect.item.effectiveFrom, effectiveTo: effect.item.effectiveTo ?? undefined, category: effect.item.category, basis: "assumed",
       accountingTreatment: effect.item.accountingTreatment, recognitionStart: effect.item.recognitionStart ?? undefined, recognitionEnd: effect.item.recognitionEnd ?? undefined, decisionId, scenarioId, status: "confirmed",
     }).returning({ id: economicItems.id });
@@ -126,7 +131,9 @@ export async function applyDecisionEffect(companyId: string, decisionId: string,
     await db.update(economicItems).set({ effectiveTo: lastMonth, updatedAt: new Date() }).where(eq(economicItems.id, original.id));
     const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...copy } = original;
     void _id; void _createdAt; void _updatedAt;
-    const [row] = await db.insert(economicItems).values({ ...copy, amount: String(effect.amount), effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
+    // The replacement row is written by whoever applied this decision, not by
+    // the author of the row it supersedes, so the copied attribution is dropped.
+    const [row] = await db.insert(economicItems).values({ ...copy, createdByUserId: actorUserId, amount: String(effect.amount), effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
     await appendAssumption(db, companyId, `- [decision:${decisionId}] ${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`);
     return { applied: `${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`, itemId: row?.id };
   }
@@ -141,12 +148,12 @@ export async function applyDecisionEffect(companyId: string, decisionId: string,
 }
 
 /** Apply a stored decision's effect once, when the decision moves to applied. */
-export async function applyDecisionIfEffective(companyId: string, decisionId: string) {
+export async function applyDecisionIfEffective(companyId: string, decisionId: string, actorUserId: string | null) {
   const db = getDatabase();
   const [decision] = await db.select({ effect: decisions.effect, status: decisions.status }).from(decisions).where(and(eq(decisions.id, decisionId), eq(decisions.companyId, companyId)));
   const effect = parseStoredEffect(decision?.effect);
   if (!effect || decision?.status !== "applied") return null;
   const alreadyApplied = effect.kind === "add_item" || effect.kind === "change_amount" ? await db.select({ id: economicItems.id }).from(economicItems).where(and(eq(economicItems.companyId, companyId), eq(economicItems.decisionId, decisionId))).limit(1) : [];
   if (alreadyApplied.length) return { applied: "already applied" };
-  return applyDecisionEffect(companyId, decisionId, effect);
+  return applyDecisionEffect(companyId, decisionId, effect, actorUserId);
 }

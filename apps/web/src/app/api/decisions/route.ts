@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined, effect: data.effect ? JSON.stringify(data.effect) : undefined, createdByUserId: context.user.id }).returning();
   const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: data.answer, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, data.question), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
   // A decision typed by the CFO is applied on creation; run its effect now.
-  const applied = decision && data.effect ? await applyDecisionIfEffective(context.company.id, decision.id).catch((error: unknown) => ({ applied: `failed: ${error instanceof Error ? error.message : "unknown error"}` })) : null;
+  const applied = decision && data.effect ? await applyDecisionIfEffective(context.company.id, decision.id, context.user.id).catch((error: unknown) => ({ applied: `failed: ${error instanceof Error ? error.message : "unknown error"}` })) : null;
   const calculationRun = data.effect ? await refreshCurrentCalculationRun(context.company.id) : null;
   return NextResponse.json({ decision, resolvedReviewCount: resolvedReviews.length, applied, calculationRun });
 }
@@ -44,7 +44,7 @@ export async function PATCH(request: Request) {
   if (body.data.status !== "proposed") await recordAudit(getDatabase(), { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: `decision.${body.data.status}`, entityType: "decision", entityId: decision.id, summary: `${body.data.status === "applied" ? "Applied" : "Rejected"} decision: ${decision.question.slice(0, 120)}`, after: { status: body.data.status } });
   let mutation = null;
   if (body.data.status === "applied" && decision.effect) {
-    try { mutation = await applyDecisionIfEffective(context.company.id, decision.id); } catch (error) { return NextResponse.json({ error: `Decision recorded, but its effect failed: ${error instanceof Error ? error.message : "unknown error"}`, decision }, { status: 502 }); }
+    try { mutation = await applyDecisionIfEffective(context.company.id, decision.id, context.user.id); } catch (error) { return NextResponse.json({ error: `Decision recorded, but its effect failed: ${error instanceof Error ? error.message : "unknown error"}`, decision }, { status: 502 }); }
   }
   if (body.data.status === "applied" && decision.appliesTo) {
     const target = decision.appliesTo.match(/^(assumption|economic_item):([0-9a-f-]{36})=(.+)$/i);

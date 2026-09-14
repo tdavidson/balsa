@@ -6,6 +6,8 @@ import {
   type CompanyRole,
   type MemberRepository,
   type PendingMember,
+  type WithinMemberChange,
+  type WithinMemberResult,
 } from "@finance/auth";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Queryable } from "./company-scope";
@@ -39,7 +41,7 @@ function memberQuery(executor: Queryable, companyId: string, userId?: string) {
     .where(and(...conditions));
 }
 
-export function createDatabaseMemberRepository(database?: Database): MemberRepository {
+export function createDatabaseMemberRepository(database?: Database): MemberRepository<Queryable> {
   const resolveDatabase = () => database ?? getDatabase();
 
   async function listMembers(companyId: string) {
@@ -75,6 +77,7 @@ export function createDatabaseMemberRepository(database?: Database): MemberRepos
     companyId: string,
     input: { email: string; role: CompanyRole },
     actorUserId: string | null,
+    within?: WithinMemberResult<Queryable, AddMemberResult>,
   ): Promise<AddMemberResult> {
     // Normalizing again is idempotent and keeps the stored form correct even
     // when a caller passes a raw address.
@@ -112,10 +115,12 @@ export function createDatabaseMemberRepository(database?: Database): MemberRepos
           .delete(pendingMembers)
           .where(and(eq(pendingMembers.companyId, companyId), eq(pendingMembers.email, email)));
 
-        return {
+        const result: AddMemberResult = {
           status: "active",
           member: toMember({ userId: existing.id, email: existing.email, name: existing.name, role: membership.role, createdAt: membership.createdAt }),
         };
+        await within?.(transaction, result);
+        return result;
       }
 
       // Re-adding a waiting address updates the role it will be attached with.
@@ -129,11 +134,18 @@ export function createDatabaseMemberRepository(database?: Database): MemberRepos
         .returning();
       if (!pending) throw new Error("Unable to record the pending member");
 
-      return { status: "pending", pending: toPending(pending) };
+      const result: AddMemberResult = { status: "pending", pending: toPending(pending) };
+      await within?.(transaction, result);
+      return result;
     });
   }
 
-  async function updateMemberRole(companyId: string, userId: string, role: CompanyRole): Promise<CompanyMember> {
+  async function updateMemberRole(
+    companyId: string,
+    userId: string,
+    role: CompanyRole,
+    within?: WithinMemberResult<Queryable, CompanyMember>,
+  ): Promise<CompanyMember> {
     return resolveDatabase().transaction(async (transaction) => {
       const owners = await lockOwners(transaction, companyId);
       if (role !== "owner" && owners.length <= 1 && owners.some((owner) => owner.userId === userId)) {
@@ -149,11 +161,13 @@ export function createDatabaseMemberRepository(database?: Database): MemberRepos
 
       const [member] = await memberQuery(transaction, companyId, userId);
       if (!member) throw new Error("Unable to read the updated member");
-      return toMember(member);
+      const changed = toMember(member);
+      await within?.(transaction, changed);
+      return changed;
     });
   }
 
-  async function removeMember(companyId: string, userId: string): Promise<void> {
+  async function removeMember(companyId: string, userId: string, within?: WithinMemberChange<Queryable>): Promise<void> {
     await resolveDatabase().transaction(async (transaction) => {
       const owners = await lockOwners(transaction, companyId);
       if (owners.length <= 1 && owners.some((owner) => owner.userId === userId)) throw new LastOwnerError();
@@ -161,14 +175,20 @@ export function createDatabaseMemberRepository(database?: Database): MemberRepos
       await transaction
         .delete(companyMembers)
         .where(and(eq(companyMembers.companyId, companyId), eq(companyMembers.userId, userId)));
+      await within?.(transaction);
     });
   }
 
-  async function removePendingMember(companyId: string, pendingId: string): Promise<void> {
-    // Scoped by company: a pending id from another company must not be removable.
-    await resolveDatabase()
-      .delete(pendingMembers)
-      .where(and(eq(pendingMembers.companyId, companyId), eq(pendingMembers.id, pendingId)));
+  async function removePendingMember(companyId: string, pendingId: string, within?: WithinMemberChange<Queryable>): Promise<void> {
+    // The delete is a single statement, but the callback's write must still
+    // share its fate, so this one runs in a transaction like the others.
+    await resolveDatabase().transaction(async (transaction) => {
+      // Scoped by company: a pending id from another company must not be removable.
+      await transaction
+        .delete(pendingMembers)
+        .where(and(eq(pendingMembers.companyId, companyId), eq(pendingMembers.id, pendingId)));
+      await within?.(transaction);
+    });
   }
 
   return { listMembers, addMember, updateMemberRole, removeMember, removePendingMember };

@@ -133,7 +133,18 @@ export type AuditEntry = {
   requestId?: string | undefined;
 };
 
-export interface MemberRepository {
+/**
+ * Runs inside the repository's own transaction, after the membership change and
+ * before the commit, so whatever the caller writes - an audit row above all -
+ * lands with the change or not at all. The executor type is the implementation's
+ * own (`Queryable` for the database repository); this package keeps it generic
+ * rather than depend on the database package for it.
+ */
+export type WithinMemberChange<TExecutor> = (transaction: TExecutor) => Promise<void>;
+/** The same hook, handed the outcome the caller cannot know before the change runs. */
+export type WithinMemberResult<TExecutor, TResult> = (transaction: TExecutor, result: TResult) => Promise<void>;
+
+export interface MemberRepository<TExecutor = unknown> {
   listMembers(companyId: string): Promise<{ members: CompanyMember[]; pending: PendingMember[] }>;
   /**
    * Add an address to the company. An existing user becomes a member at once;
@@ -144,12 +155,18 @@ export interface MemberRepository {
     companyId: string,
     input: { email: string; role: CompanyRole },
     actorUserId: string | null,
+    within?: WithinMemberResult<TExecutor, AddMemberResult>,
   ): Promise<AddMemberResult>;
   /** Throws `LastOwnerError` rather than leave the company without an owner. */
-  updateMemberRole(companyId: string, userId: string, role: CompanyRole): Promise<CompanyMember>;
+  updateMemberRole(
+    companyId: string,
+    userId: string,
+    role: CompanyRole,
+    within?: WithinMemberResult<TExecutor, CompanyMember>,
+  ): Promise<CompanyMember>;
   /** Throws `LastOwnerError` rather than leave the company without an owner. */
-  removeMember(companyId: string, userId: string): Promise<void>;
-  removePendingMember(companyId: string, pendingId: string): Promise<void>;
+  removeMember(companyId: string, userId: string, within?: WithinMemberChange<TExecutor>): Promise<void>;
+  removePendingMember(companyId: string, pendingId: string, within?: WithinMemberChange<TExecutor>): Promise<void>;
 }
 
 export class AuthenticationRequiredError extends Error {

@@ -21,8 +21,11 @@ rights, removes them, and reads the activity log back.
    rejections, decisions, review answers, journal posting and reversal, period
    close and reopen, policies, company settings, company creation, knowledge
    edits, and every membership change record their action with the acting user,
-   inside the mutation's own transaction wherever one exists. The rows listed
-   under [Row attribution](#row-attribution) store the user who wrote them. A
+   inside the mutation's own transaction wherever one exists. `MemberRepository`
+   owns its transactions, so each mutating method takes the audit write as a
+   `within` callback and runs it before the commit. The rows listed under
+   [Row attribution](#row-attribution) store the user who wrote them, the
+   economic items a decision effect or an evidence approval creates included. A
    company reset records nothing: the cascade deletes the company's log with it.
 4. **Acceptance and documentation** — the isolation script's membership matrix,
    this status, the roles, audit, and attribution entries in
