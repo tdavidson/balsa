@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2 } from "lucide-react";
+import { Building2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +11,9 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
   const [currency, setCurrency] = useState(baseCurrency);
   const [favicon, setFavicon] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
@@ -37,6 +40,28 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
     }
   }
 
+  async function deleteCompany() {
+    if (deleteConfirmation !== company) {
+      setError(`Type exactly “${company}” to delete this company.`);
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/company", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmation: deleteConfirmation }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Unable to delete the company");
+      window.location.reload();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete the company");
+      setDeleting(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-xl border-rule sm:max-w-md">
@@ -58,9 +83,36 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
             <Input type="file" accept="image/x-icon,image/vnd.microsoft.icon,image/png" onChange={(event) => setFavicon(event.target.files?.[0] ?? null)} />
             <span className="text-[12px] text-ink-3">Upload an ICO or PNG favicon up to 512 KB.</span>
           </label>
+          <div className="mt-2 border-t border-rule pt-4">
+            {!confirmingDelete ? (
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[13px] text-ink">Delete company</p>
+                  <p className="text-[12px] text-ink-3">Permanently removes its books, conversations, evidence, and uploaded files.</p>
+                </div>
+                <Button type="button" variant="outline" className="shrink-0 text-red-ink" onClick={() => { setConfirmingDelete(true); setError(null); }}>
+                  <Trash2 className="size-4" aria-hidden="true" /> Delete
+                </Button>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                <div>
+                  <p className="text-[13px] text-red-ink">This cannot be undone.</p>
+                  <p className="text-[12px] text-ink-3">Type <span className="font-medium text-ink">{company}</span> to confirm.</p>
+                </div>
+                <Input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} aria-label="Company name confirmation" autoComplete="off" />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => { setConfirmingDelete(false); setDeleteConfirmation(""); setError(null); }} disabled={deleting}>Cancel</Button>
+                  <Button type="button" className="bg-red-ink text-white hover:bg-red-ink/90" onClick={deleteCompany} disabled={deleting || deleteConfirmation !== company}>
+                    {deleting ? "Deleting…" : "Delete permanently"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
           {error && <p className="text-[13px] text-red-ink" role="alert">{error}</p>}
         </div>
-        <DialogFooter>
+        <DialogFooter className={confirmingDelete ? "hidden" : undefined}>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="button" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save settings"}</Button>
         </DialogFooter>
