@@ -1,5 +1,33 @@
 # Multi-user plan
 
+## Status
+
+Landed on this branch in four slices. The gate is `pnpm isolation` in Better
+Auth mode, which now adds a member by email, exercises the member's bounded
+rights, removes them, and reads the activity log back.
+
+1. **Roles, direct membership, and the log** — `company_role` widens to
+   `owner | member`; `requireCompanyRole` in the auth package and `requireOwner`
+   in the web adapter raise `CompanyRoleRequiredError`, which routes answer with
+   403. `pending_members` holds an address until it first signs in, and
+   provisioning attaches every pending membership before it would create a
+   default company. `MemberRepository` adds, re-roles, and removes members, and
+   refuses to leave a company without an owner. `audit_log`, `recordAudit`, and
+   `listAuditEntries` exist, and the attribution columns are on their tables.
+2. **Members and Activity** — `GET`/`POST`/`PATCH`/`DELETE /api/members` and
+   `GET /api/activity`, with a **Members** dialog the account menu offers to
+   owners and an **Activity** dialog it offers to everyone.
+3. **Audit instrumentation and row attribution** — evidence approvals and
+   rejections, decisions, review answers, journal posting and reversal, period
+   close and reopen, policies, company settings, company creation, knowledge
+   edits, and every membership change record their action with the acting user,
+   inside the mutation's own transaction wherever one exists. The rows listed
+   under [Row attribution](#row-attribution) store the user who wrote them. A
+   company reset records nothing: the cascade deletes the company's log with it.
+4. **Acceptance and documentation** — the isolation script's membership matrix,
+   this status, the roles, audit, and attribution entries in
+   [the security model](../security.md), and the README's account-menu section.
+
 ## Objective
 
 Let several people work in one company on a self-hosted installation, with

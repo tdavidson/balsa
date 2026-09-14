@@ -4,6 +4,30 @@
 
 - Every application route resolves an identity through the app-owned auth
   boundary and scopes records through `requireCompanyAccess`.
+- Membership carries a role. An owner holds every right in the company; a
+  member does all financial work — evidence, chat, knowledge, journals, close,
+  and forecasts — but cannot change company settings, add or remove members,
+  change a role, or reset the company. The role is enforced on the server for
+  every owner-only route and answered with 403, never merely hidden in the
+  interface, and a company always keeps at least one owner: the last one cannot
+  be demoted or removed.
+- An owner adds a person by email. An address that already has an account
+  becomes a member at once; any other address waits in `pending_members` and is
+  attached the first time it signs in, before provisioning would give that user
+  an empty default company. No mail is sent and no link grants access, so
+  `AUTH_SIGN_UP_CODE` remains the gate on who may create an identity at all,
+  while membership decides which company that identity reaches. Removing a
+  member ends their access immediately; their sign-in survives.
+- Every change that matters is recorded in `audit_log`: the acting user, how
+  the change arrived (`ui`, `agent` for a change the agent made on a user's
+  behalf, `worker` for unattended work, which has no actor), the action, the
+  affected entity, a summary, and before/after values. A mutation that already
+  runs in a transaction writes its audit row inside it, so the change and its
+  record commit or roll back together. `GET /api/activity` returns the active
+  company's entries, newest first, to that company's members and no one else.
+- Rows record their author as well as the log: decisions, resolved review
+  items, economic items, closed reporting periods, and knowledge documents
+  carry the acting user, so a row answers "who" without depending on the log.
 - The active company is stored in an HTTP-only, same-site cookie. It is a
   preference, never authorization: membership is re-verified on every request,
   and a stale or unauthorized value falls back to the user's first authorized
