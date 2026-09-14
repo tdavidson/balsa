@@ -106,9 +106,8 @@ financial system without weakening its company boundaries or audit trail.
 multi-company means one operator can manage several companies from a private
 installation; it does not imply collaboration or public network exposure.
 Self-hosted multi-user means everyone admitted by the sign-up code works across
-all of the installation's companies. A hosted service with per-company
-membership, invitations, and tenant operations is developed separately and is
-not part of this repository.
+all of the installation's companies. Per-company membership, invitations,
+and hosted tenant operations are outside the scope of this repository.
 
 The accounting core is already company-scoped; local company creation and
 switching, shared multi-user access, and the audit log are in place. The path
