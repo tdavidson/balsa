@@ -6,5 +6,5 @@
   "exports": { ".": "./src/index.ts" },
   "scripts": { "typecheck": "tsc --noEmit", "lint": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
   "dependencies": { "@nevermodel/company-state": "workspace:*" },
-  "devDependencies": { "typescript": "6.0.3", "vitest": "5.0.0" }
+  "devDependencies": { "typescript": "7.0.2", "vitest": "5.0.0" }
 }
