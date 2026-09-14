@@ -113,6 +113,131 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     expect(listed[0]?.id).toBe(provisioned.company.id);
   });
 
+  /** Configured companies are read from the environment at provisioning time; keep each case's value local to it. */
+  async function withConfiguredCompanies<T>(value: string | undefined, body: () => Promise<T>) {
+    const previous = process.env.COMPANIES;
+    if (value === undefined) delete process.env.COMPANIES;
+    else process.env.COMPANIES = value;
+    try {
+      return await body();
+    } finally {
+      if (previous === undefined) delete process.env.COMPANIES;
+      else process.env.COMPANIES = previous;
+    }
+  }
+
+  async function withOwnerEmail<T>(value: string, body: () => Promise<T>) {
+    const previous = process.env.LOCAL_OWNER_EMAIL;
+    process.env.LOCAL_OWNER_EMAIL = value;
+    try {
+      return await body();
+    } finally {
+      if (previous === undefined) delete process.env.LOCAL_OWNER_EMAIL;
+      else process.env.LOCAL_OWNER_EMAIL = previous;
+    }
+  }
+
+  /** Track everything a provisioning call created so afterAll can remove it. */
+  async function trackProvisioned(userId: string) {
+    createdUserIds.push(userId);
+    for (const company of await repository.listCompaniesForUser(userId)) createdCompanyIds.push(company.id);
+  }
+
+  it("creates the configured companies instead of a default one, in listed order", async () => {
+    const identity: AuthIdentity = { provider: "disabled", providerUserId: `configured-${run}`, email: `configured-${run}@example.test`, name: "Owner" };
+
+    const provisioned = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:eur`, () =>
+      repository.provisionIdentity(identity),
+    );
+    await trackProvisioned(provisioned.user.id);
+
+    const listed = await repository.listCompaniesForUser(provisioned.user.id);
+    expect(listed.map((company) => [company.name, company.baseCurrency])).toEqual([
+      [`Alpha ${run}`, "USD"],
+      [`Beta ${run}`, "EUR"],
+    ]);
+    expect(provisioned.company.id).toBe(listed[0]?.id);
+  });
+
+  it("adds only the configured names the owner does not already have", async () => {
+    const identity: AuthIdentity = { provider: "disabled", providerUserId: `top-up-${run}`, email: `top-up-${run}@example.test`, name: "Owner" };
+
+    const first = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR`, () =>
+      repository.provisionIdentity(identity),
+    );
+    await trackProvisioned(first.user.id);
+
+    const again = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR,Gamma ${run}:GBP`, () =>
+      repository.provisionIdentity(identity),
+    );
+    expect(again.user.id).toBe(first.user.id);
+
+    const listed = await repository.listCompaniesForUser(first.user.id);
+    for (const company of listed) if (!createdCompanyIds.includes(company.id)) createdCompanyIds.push(company.id);
+    expect(listed.map((company) => [company.name, company.baseCurrency])).toEqual([
+      [`Alpha ${run}`, "USD"],
+      [`Beta ${run}`, "EUR"],
+      [`Gamma ${run}`, "GBP"],
+    ]);
+    // The default selection is unchanged by a top-up.
+    expect(again.company.id).toBe(listed[0]?.id);
+  });
+
+  it("gives a non-owner identity one default company and none of the configured ones", async () => {
+    const identity: AuthIdentity = { provider: "better-auth", providerUserId: `not-owner-${run}`, email: `not-owner-${run}@example.test`, name: "Someone" };
+
+    const provisioned = await withOwnerEmail(`owner-${run}@example.test`, () =>
+      withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR`, () => repository.provisionIdentity(identity)),
+    );
+    await trackProvisioned(provisioned.user.id);
+
+    const listed = await repository.listCompaniesForUser(provisioned.user.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.name).not.toMatch(new RegExp(run));
+  });
+
+  it("adopts the local owner's user for a Better Auth identity with the configured email, and no other", async () => {
+    const ownerEmail = `adopted-owner-${run}@example.test`;
+    const local = await database
+      .insert(users)
+      .values({ authProvider: "disabled", authProviderUserId: `local-owner-${run}`, email: ownerEmail, name: "Owner" })
+      .returning();
+    const localUser = local[0];
+    if (!localUser) throw new Error("Unable to create the local owner");
+    createdUserIds.push(localUser.id);
+    const existing = await createCompany(localUser.id, "Adopted");
+
+    const adopted = await withOwnerEmail(ownerEmail, () =>
+      withConfiguredCompanies(undefined, () =>
+        repository.provisionIdentity({ provider: "better-auth", providerUserId: `adopting-${run}`, email: ownerEmail, name: "Owner" }),
+      ),
+    );
+
+    expect(adopted.user.id).toBe(localUser.id);
+    expect(adopted.company.id).toBe(existing.id);
+    const [reloaded] = await database.select().from(users).where(eq(users.id, localUser.id));
+    expect(reloaded).toMatchObject({ authProvider: "better-auth", authProviderUserId: `adopting-${run}`, email: ownerEmail });
+
+    // A second disabled user with a different address is untouched by the same setting.
+    const other = await database
+      .insert(users)
+      .values({ authProvider: "disabled", authProviderUserId: `other-local-${run}`, email: `other-local-${run}@example.test`, name: "Other" })
+      .returning();
+    const otherUser = other[0];
+    if (!otherUser) throw new Error("Unable to create the second local user");
+    createdUserIds.push(otherUser.id);
+
+    const separate = await withOwnerEmail(ownerEmail, () =>
+      withConfiguredCompanies(undefined, () =>
+        repository.provisionIdentity({ provider: "better-auth", providerUserId: `stranger-${run}`, email: `other-local-${run}@example.test`, name: "Other" }),
+      ),
+    );
+    await trackProvisioned(separate.user.id);
+    expect(separate.user.id).not.toBe(otherUser.id);
+    const [untouched] = await database.select().from(users).where(eq(users.id, otherUser.id));
+    expect(untouched?.authProvider).toBe("disabled");
+  });
+
   it("refuses to resolve another user's company", async () => {
     const userA = await createUser("denial-a");
     const userB = await createUser("denial-b");

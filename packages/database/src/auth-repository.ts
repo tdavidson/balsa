@@ -1,10 +1,11 @@
-import type {
-  ApplicationUser,
-  AuthIdentity,
-  AuthRepository,
-  AuthorizedCompany,
-  NewCompanyInput,
-  ProvisionedIdentity,
+import {
+  parseConfiguredCompanies,
+  type ApplicationUser,
+  type AuthIdentity,
+  type AuthRepository,
+  type AuthorizedCompany,
+  type NewCompanyInput,
+  type ProvisionedIdentity,
 } from "@finance/auth";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { getDatabase, type Database } from "./index";
@@ -26,18 +27,38 @@ function normalizedEmail(email: string | null | undefined) {
 }
 
 /**
- * A deliberately narrow, one-time bridge from disabled local mode to Better
- * Auth. The configured address is explicit operator authorization to attach
- * that Better Auth identity to the pre-existing local application user.
+ * `LOCAL_OWNER_EMAIL` names the installation owner permanently: in disabled
+ * mode it is the operator identity, and in Better Auth mode the account
+ * registered with that address owns the original company and its data. A Better
+ * Auth identity seen for the first time with that address therefore adopts the
+ * pre-existing `disabled` application user instead of starting an empty one, so
+ * switching modes keeps the owner's companies, files, and settings.
+ *
+ * This is naturally one-shot: the adopted row stops being a `disabled` user, so
+ * a later identity finds no candidate. It is safe to leave configured because
+ * registration is gated by `AUTH_SIGN_UP_CODE`, so no stranger who can reach
+ * the host can register the owner's address to take the row.
  */
-function canClaimDisabledIdentity(identity: AuthIdentity) {
-  const configuredEmail = normalizedEmail(process.env.AUTH_CLAIM_EXISTING_EMAIL);
+function isConfiguredOwnerIdentity(identity: AuthIdentity) {
+  const ownerEmail = normalizedEmail(process.env.LOCAL_OWNER_EMAIL);
   return (
     identity.provider === "better-auth" &&
-    configuredEmail.length > 0 &&
-    normalizedEmail(identity.email) === configuredEmail
+    ownerEmail.length > 0 &&
+    normalizedEmail(identity.email) === ownerEmail
   );
 }
+
+/** The installation owner in either mode: the local operator, or the Better Auth account holding `LOCAL_OWNER_EMAIL`. */
+function isInstallationOwner(identity: AuthIdentity) {
+  return identity.provider === "disabled" || isConfiguredOwnerIdentity(identity);
+}
+
+/**
+ * Owner ids whose `COMPANIES` top-up has already run in this process, keyed by
+ * the configured value so an edited environment re-syncs on the next request.
+ * The top-up is idempotent; the memo only keeps it off the per-request path.
+ */
+const configuredCompanySyncs = new Set<string>();
 
 export function createDatabaseAuthRepository(
   database?: Database,
@@ -120,6 +141,51 @@ export function createDatabaseAuthRepository(
     });
   }
 
+  /**
+   * Materialize the `COMPANIES` environment list for the installation owner.
+   * The environment is purely additive: a configured name the owner already has
+   * (compared case-insensitively) is left untouched, a name dropped from the
+   * environment is never deleted or renamed, and nothing is ever copied between
+   * companies. Callers run this inside the advisory-locked provisioning
+   * transaction, so concurrent first requests cannot duplicate a company.
+   */
+  async function ensureConfiguredCompanies(transaction: Queryable, userId: string) {
+    const configured = parseConfiguredCompanies(process.env.COMPANIES);
+    if (configured.length === 0) return;
+
+    const syncKey = `${userId}:${process.env.COMPANIES}`;
+    if (configuredCompanySyncs.has(syncKey)) return;
+
+    const existing = await authorizedCompaniesQuery(transaction, userId);
+    const existingNames = new Set(existing.map((company) => company.name.toLocaleLowerCase()));
+
+    // `now()` is the transaction timestamp, so every row inserted here would
+    // otherwise tie on created_at and fall back to the random company id for
+    // ordering. Stamp the memberships in listed order instead: the first
+    // configured company must be the owner's default.
+    const stampedAt = Date.now();
+    for (const [offset, input] of configured.entries()) {
+      const name = input.name.toLocaleLowerCase();
+      if (existingNames.has(name)) continue;
+      existingNames.add(name);
+
+      const [company] = await transaction
+        .insert(companies)
+        .values({ name: input.name, baseCurrency: input.baseCurrency })
+        .returning();
+      if (!company) throw new Error("Unable to create the configured company");
+
+      await transaction.insert(companyMembers).values({
+        companyId: company.id,
+        userId,
+        role: "owner",
+        createdAt: new Date(stampedAt + offset),
+      });
+    }
+
+    configuredCompanySyncs.add(syncKey);
+  }
+
   async function provisionIdentity(
     identity: AuthIdentity,
   ): Promise<ProvisionedIdentity> {
@@ -136,13 +202,13 @@ export function createDatabaseAuthRepository(
       // stale display name.
       let [userRow] = await transaction.select().from(users).where(and(eq(users.authProvider, identity.provider), eq(users.authProviderUserId, identity.providerUserId))).limit(1);
       if (!userRow) {
-        if (canClaimDisabledIdentity(identity)) {
-          const claimEmail = normalizedEmail(identity.email);
-          // Serialize the one-time claim independently from the Better Auth
-          // subject lock. This prevents two simultaneous first sign-ins from
-          // attaching different identities to the same local user.
+        if (isConfiguredOwnerIdentity(identity)) {
+          const ownerEmail = normalizedEmail(identity.email);
+          // Serialize the adoption independently from the Better Auth subject
+          // lock. This prevents two simultaneous first sign-ins from attaching
+          // different identities to the same local user.
           await transaction.execute(
-            sql`select pg_advisory_xact_lock(hashtext(${`better-auth-claim:${claimEmail}`}))`,
+            sql`select pg_advisory_xact_lock(hashtext(${`local-owner-adoption:${ownerEmail}`}))`,
           );
 
           const disabledCandidates = await transaction
@@ -151,14 +217,14 @@ export function createDatabaseAuthRepository(
             .where(
               and(
                 eq(users.authProvider, "disabled"),
-                sql`lower(${users.email}) = ${claimEmail}`,
+                sql`lower(${users.email}) = ${ownerEmail}`,
               ),
             )
             .limit(2);
 
           if (disabledCandidates.length > 1) {
             throw new Error(
-              "Unable to claim the existing local user: more than one disabled user has the configured email.",
+              "Unable to adopt the existing local user: more than one disabled user has the configured LOCAL_OWNER_EMAIL.",
             );
           }
 
@@ -185,6 +251,12 @@ export function createDatabaseAuthRepository(
       }
 
       if (!userRow) throw new Error("Unable to provision application user");
+
+      // The owner's environment-declared companies are created first, so a
+      // first sign-in with COMPANIES set opens the first configured company
+      // rather than a DEFAULT_COMPANY_NAME one, and a later sign-in picks up
+      // names added to the environment since.
+      if (isInstallationOwner(identity)) await ensureConfiguredCompanies(transaction, userRow.id);
 
       // Provisioning creates a company only for a user with no membership at
       // all. A user who already belongs to one or more companies keeps exactly

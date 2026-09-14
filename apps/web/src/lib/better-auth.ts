@@ -27,7 +27,7 @@ export function isSignUpEnabled() {
 /**
  * A registration passcode closes open sign-up at the root: no stranger who can
  * reach the host can create an identity, so no one can race the operator for a
- * predictable email (see AUTH_CLAIM_EXISTING_EMAIL).
+ * predictable email (see LOCAL_OWNER_EMAIL).
  */
 export function isSignUpCodeRequired() {
   return (process.env.AUTH_SIGN_UP_CODE ?? "").trim().length > 0;

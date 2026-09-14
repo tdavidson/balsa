@@ -100,7 +100,7 @@ financial system without weakening its company boundaries or audit trail.
 | --- | --- | --- | --- |
 | Private local | One | One | Available now, with optional no-login mode |
 | Authenticated self-hosted | One | One | Available now with Better Auth |
-| Local multi-company | One | Many | Available now; one operator switches between and creates separately scoped companies from the account menu |
+| Local multi-company | One | Many | Available now; one operator switches between and creates separately scoped companies from the account menu, or declares them in `COMPANIES` |
 | Hosted multi-user | Many | One or many | Planned; role-based company memberships and server-enforced tenant isolation |
 | Hosted multi-company | Many | Many | Planned; shared operators can work across authorized companies without crossing data boundaries |
 
@@ -142,10 +142,20 @@ pnpm dev
 Open [http://localhost:3000](http://localhost:3000).
 
 For the shortest private local setup, set `AUTH_MODE=disabled` in `.env` and
-configure `LOCAL_OWNER_EMAIL`. Disabled auth does not protect the application
-from the network: use it only on a trusted device or behind a VPN or access-
-controlled reverse proxy. Production use also requires
-`ALLOW_AUTH_DISABLED=true`.
+configure `LOCAL_OWNER_EMAIL`. That address names the installation owner
+permanently: in disabled mode it is the operator identity, and in Better Auth
+mode the account registered with it owns the original company and its data.
+Disabled auth does not protect the application from the network: use it only on
+a trusted device or behind a VPN or access-controlled reverse proxy. Production
+use also requires `ALLOW_AUTH_DISABLED=true`.
+
+To start with more than one company, list them in `COMPANIES` as `Name` or
+`Name:CUR` entries separated by commas, for example
+`COMPANIES=Acme Holdings:USD,Beta GmbH:EUR`. They are created for the owner on
+first sign-in, the first one becoming the default; names added to the list later
+are created on the next sign-in, and editing or removing an entry never renames
+or deletes a company. The account menu's **New company** does the same thing
+interactively.
 
 For email/password authentication, keep `AUTH_MODE=better-auth`, generate a
 secret with `openssl rand -base64 32`, set `BETTER_AUTH_SECRET`, and set

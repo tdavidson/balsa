@@ -135,6 +135,37 @@ export function normalizeNewCompanyInput(input: {
   return { name, baseCurrency };
 }
 
+/**
+ * Companies declared in the environment, as comma-separated `Name` or
+ * `Name:CUR` entries. The trailing `:CUR` is a separator only when it is
+ * exactly three letters, so `Acme: Berlin` stays one name; the cost of that
+ * rule is that a name whose own last colon-separated segment is three letters
+ * (`Acme:Ltd`) cannot be expressed and reads as a currency. An entry that does
+ * not normalize is skipped rather than thrown: a typo in installation
+ * configuration must never block the owner's sign-in.
+ */
+export function parseConfiguredCompanies(value: string | undefined): NewCompanyInput[] {
+  const configured: NewCompanyInput[] = [];
+  for (const entry of (value ?? "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.lastIndexOf(":");
+    const suffix = separator === -1 ? "" : trimmed.slice(separator + 1).trim();
+    const hasCurrency = /^[A-Za-z]{3}$/.test(suffix);
+    try {
+      configured.push(
+        normalizeNewCompanyInput({
+          name: hasCurrency ? trimmed.slice(0, separator) : trimmed,
+          baseCurrency: hasCurrency ? suffix : "USD",
+        }),
+      );
+    } catch {
+      // Skipped by design; see the note above.
+    }
+  }
+  return configured;
+}
+
 export function createAuthService(
   provider: IdentityProvider,
   repository: AuthRepository,
