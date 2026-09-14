@@ -262,10 +262,9 @@ If multiple companies exist later, a minimal company selector can be added.
 
 Do not let multi-company UX delay V0.
 
-Implementation after V0 is split between
-[local multi-company](../plans/local-multi-company.md) for one operator and
-[hosted multi-company](../plans/multi-tenant-hosted.md) for multiple users and
-public deployment.
+Implementation after V0 is covered by
+[local multi-company](../plans/local-multi-company.md); multiple users and
+public deployment belong to the hosted service, which is developed separately.
 
 ---
 
