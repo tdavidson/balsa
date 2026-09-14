@@ -1,13 +1,16 @@
 import type {
-  ApplicationContext,
   ApplicationUser,
   AuthIdentity,
   AuthRepository,
   AuthorizedCompany,
+  NewCompanyInput,
+  ProvisionedIdentity,
 } from "@finance/auth";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { getDatabase, type Database } from "./index";
 import { companies, companyMembers, users } from "./schema";
+
+type Queryable = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 function toUser(row: typeof users.$inferSelect): ApplicationUser {
   return { id: row.id, email: row.email, name: row.name, hasAvatar: Boolean(row.avatarStorageReference) };
@@ -56,16 +59,14 @@ export function createDatabaseAuthRepository(
     return row ? toUser(row) : null;
   }
 
-  async function findCompanyForUser(
-    userId: string,
-    requestedCompanyId?: string,
-  ): Promise<AuthorizedCompany | null> {
+  /**
+   * Membership order is the default-company order everywhere: the earliest
+   * membership first, with the company id as a stable tie-breaker.
+   */
+  function authorizedCompaniesQuery(database: Queryable, userId: string, companyId?: string) {
     const conditions = [eq(companyMembers.userId, userId)];
-    if (requestedCompanyId) {
-      conditions.push(eq(companyMembers.companyId, requestedCompanyId));
-    }
-
-    const [row] = await resolveDatabase()
+    if (companyId) conditions.push(eq(companyMembers.companyId, companyId));
+    return database
       .select({
         id: companies.id,
         name: companies.name,
@@ -76,15 +77,52 @@ export function createDatabaseAuthRepository(
       .from(companyMembers)
       .innerJoin(companies, eq(companies.id, companyMembers.companyId))
       .where(and(...conditions))
-      .orderBy(asc(companyMembers.createdAt))
-      .limit(1);
+      .orderBy(asc(companyMembers.createdAt), asc(companies.id));
+  }
 
+  async function findCompanyForUser(
+    userId: string,
+    requestedCompanyId?: string,
+  ): Promise<AuthorizedCompany | null> {
+    const [row] = await authorizedCompaniesQuery(resolveDatabase(), userId, requestedCompanyId).limit(1);
     return row ?? null;
+  }
+
+  async function listCompaniesForUser(userId: string): Promise<AuthorizedCompany[]> {
+    return authorizedCompaniesQuery(resolveDatabase(), userId);
+  }
+
+  async function createCompanyForUser(
+    userId: string,
+    input: NewCompanyInput,
+  ): Promise<AuthorizedCompany> {
+    return resolveDatabase().transaction(async (transaction) => {
+      const [user] = await transaction.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) throw new Error("Unable to create company: the application user does not exist");
+
+      // A new company starts empty. Nothing is copied from any other company
+      // the user belongs to; onboarding populates it from its own evidence.
+      const [company] = await transaction
+        .insert(companies)
+        .values({ name: input.name, baseCurrency: input.baseCurrency })
+        .returning();
+      if (!company) throw new Error("Unable to create company");
+
+      await transaction.insert(companyMembers).values({ companyId: company.id, userId: user.id, role: "owner" });
+
+      return {
+        id: company.id,
+        name: company.name,
+        baseCurrency: company.baseCurrency,
+        financialStateRevision: company.financialStateRevision,
+        role: "owner",
+      };
+    });
   }
 
   async function provisionIdentity(
     identity: AuthIdentity,
-  ): Promise<ApplicationContext> {
+  ): Promise<ProvisionedIdentity> {
     return resolveDatabase().transaction(async (transaction) => {
       // Serialize first-login provisioning for one provider identity. This avoids
       // duplicate companies when the browser makes concurrent initial requests.
@@ -148,19 +186,10 @@ export function createDatabaseAuthRepository(
 
       if (!userRow) throw new Error("Unable to provision application user");
 
-      const [membership] = await transaction
-        .select({
-          id: companies.id,
-          name: companies.name,
-          baseCurrency: companies.baseCurrency,
-          financialStateRevision: companies.financialStateRevision,
-          role: companyMembers.role,
-        })
-        .from(companyMembers)
-        .innerJoin(companies, eq(companies.id, companyMembers.companyId))
-        .where(eq(companyMembers.userId, userRow.id))
-        .orderBy(asc(companyMembers.createdAt))
-        .limit(1);
+      // Provisioning creates a company only for a user with no membership at
+      // all. A user who already belongs to one or more companies keeps exactly
+      // those companies; the first one is the default selection.
+      const [membership] = await authorizedCompaniesQuery(transaction, userRow.id).limit(1);
 
       if (membership) {
         return { user: toUser(userRow), company: membership };
@@ -191,5 +220,5 @@ export function createDatabaseAuthRepository(
     });
   }
 
-  return { provisionIdentity, findUser, findCompanyForUser };
+  return { provisionIdentity, findUser, findCompanyForUser, listCompaniesForUser, createCompanyForUser };
 }
