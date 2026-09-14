@@ -109,13 +109,6 @@ Self-hosted multi-user means everyone admitted by the sign-up code works across
 all of the installation's companies. Per-company membership, invitations,
 and hosted tenant operations are outside the scope of this repository.
 
-The accounting core is already company-scoped; local company creation and
-switching, shared multi-user access, and the audit log are in place. The path
-forward is to finish the single-company close and forecast loop, then harden the
-worker, storage, and authorization paths. The plans are documented separately in
-[local multi-company](docs/plans/local-multi-company.md) and
-[multi-user](docs/plans/multi-user.md).
-
 ## Quick start
 
 ### Requirements
@@ -218,9 +211,8 @@ packages/model-providers OpenAI and OpenRouter adapters
 templates                company knowledge templates
 ```
 
-Architecture and implementation notes live in [`docs/plans`](docs/plans), the
-original build specification is in [`docs/specs`](docs/specs), and the design
-system is documented in [`docs/design-language.html`](docs/design-language.html).
+The security posture is described in [`docs/security.md`](docs/security.md) and
+the design system in [`docs/design-language.html`](docs/design-language.html).
 
 ## Contributing
 
