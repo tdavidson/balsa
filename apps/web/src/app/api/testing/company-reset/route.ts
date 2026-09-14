@@ -16,12 +16,15 @@ const requestBody = z.object({ confirmation: z.string() });
  */
 export async function GET() {
   await auth.protect(); const context = await requireCompanyAccess();
+  if (context.company.role !== "owner") return NextResponse.json({ error: "Only the company owner can reset this company" }, { status: 403 });
   const sourceRows = await getDatabase().select({ id: sources.id }).from(sources).where(eq(sources.companyId, context.company.id));
   return NextResponse.json({ company: { id: context.company.id, name: context.company.name }, confirmation: `RESET ${context.company.name}`, sourceCount: sourceRows.length });
 }
 
 export async function POST(request: Request) {
-  await auth.protect(); const context = await requireCompanyAccess(); const parsed = requestBody.safeParse(await request.json());
+  await auth.protect(); const context = await requireCompanyAccess();
+  if (context.company.role !== "owner") return NextResponse.json({ error: "Only the company owner can reset this company" }, { status: 403 });
+  const parsed = requestBody.safeParse(await request.json());
   const expected = `RESET ${context.company.name}`;
   if (!parsed.success || parsed.data.confirmation !== expected) return NextResponse.json({ error: `Type exactly “${expected}” to reset this company.` }, { status: 400 });
 

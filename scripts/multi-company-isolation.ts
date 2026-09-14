@@ -9,11 +9,14 @@
  *
  * ISOLATION_AUTH_MODE=disabled (default) exercises the single operator user;
  * ISOLATION_AUTH_MODE=better-auth signs up two users and runs the full matrix.
+ * Set ISOLATION_SIGN_UP_CODE to match AUTH_SIGN_UP_CODE when the installation
+ * gates registration behind a passcode.
  */
 const baseUrl = (process.env.BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const authMode = process.env.ISOLATION_AUTH_MODE === "better-auth" ? "better-auth" : "disabled";
 const token = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const signUpCode = process.env.ISOLATION_SIGN_UP_CODE ?? "";
 
 let checks = 0;
 const pass = (message: string) => { checks += 1; console.log(`  ok   ${message}`); };
@@ -135,10 +138,13 @@ function assertAbsent(snapshot: Record<string, string>, needles: string[], label
   }
 }
 
+const signUpBody = (label: string, email: string) => ({ name: `Isolation ${label}`, email, password: `Isolation-${token}-passphrase` });
+
 async function signUp(label: string): Promise<{ target: Browser; email: string }> {
   const target = browser(label);
   const email = `isolation-${label}-${token}@nevermodel.test`;
-  const response = await call(target, "/api/auth/sign-up/email", { method: "POST", json: { name: `Isolation ${label}`, email, password: `Isolation-${token}-passphrase` } });
+  const headers = signUpCode ? { "x-nevermodel-sign-up-code": signUpCode } : undefined;
+  const response = await call(target, "/api/auth/sign-up/email", { method: "POST", json: signUpBody(label, email), ...(headers ? { headers } : {}) });
   const text = await response.text();
   assert(response.ok, `Sign-up for ${label} failed: ${response.status} ${text.slice(0, 300)}`);
   assert(target.jar.size > 0, `Sign-up for ${label} returned no session cookie`);
@@ -154,6 +160,15 @@ async function deleteActiveCompany(target: Browser, expectedName: string) {
 
 async function main() {
   console.log(`Multi-company isolation acceptance — ${baseUrl} (ISOLATION_AUTH_MODE=${authMode})`);
+  if (authMode === "better-auth" && signUpCode) {
+    // The passcode is the whole registration gate: an unauthenticated stranger
+    // must not be able to create an identity on this installation at all.
+    const stranger = browser("stranger");
+    const denied = await json(stranger, "/api/auth/sign-up/email", { method: "POST", json: signUpBody("stranger", `isolation-stranger-${token}@nevermodel.test`) });
+    assert(denied.status === 403, `Sign-up without the sign-up code returned ${denied.status}, expected 403`);
+    assert(stranger.jar.size === 0, "A rejected sign-up still returned a session cookie");
+    pass("signing up without the sign-up code is rejected (403) and sets no session cookie");
+  }
   const one = authMode === "better-auth" ? await signUp("user1").then((session) => { pass(`signed up ${session.email} and received a session cookie`); return session.target; }) : browser("user1");
 
   step("1. Two companies, creation selects the new one");

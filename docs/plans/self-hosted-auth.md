@@ -12,6 +12,11 @@ better-auth  default; Nevermodel-styled email/password sign-in
 disabled     explicit single-user local mode; no login UI or session provider
 ```
 
+While sign-up is open during a migration from disabled mode, set
+`AUTH_SIGN_UP_CODE` so only a registrant holding that code can create an
+identity; it is what keeps the one-time `AUTH_CLAIM_EXISTING_EMAIL` bridge from
+being claimed by a stranger who guesses the owner's address.
+
 `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` are required in Better Auth mode.
 Generate the secret with `openssl rand -base64 32`. Disabled mode must be
 protected by the deployment environment (local device, VPN, or reverse proxy);

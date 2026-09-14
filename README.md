@@ -151,6 +151,9 @@ For email/password authentication, keep `AUTH_MODE=better-auth`, generate a
 secret with `openssl rand -base64 32`, set `BETTER_AUTH_SECRET`, and set
 `BETTER_AUTH_URL` to the application URL. Set `AUTH_ALLOW_SIGN_UP=true` only
 while provisioning intended users; production sign-up is otherwise disabled.
+Whenever sign-up is enabled on a reachable host, also set `AUTH_SIGN_UP_CODE`:
+every registrant must type that code, so registration stays closed to everyone
+who has not been given it.
 
 The complete configuration surface, including model providers, object storage,
 OCR, auth migration, and background reconciliation, is documented inline in

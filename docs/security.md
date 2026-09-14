@@ -23,6 +23,13 @@
 - Better Auth uses an explicit base URL and trusted-origin allowlist. Public
   registration is disabled by default in production; enable it only while
   provisioning an owner.
+- When `AUTH_SIGN_UP_CODE` is set, registration requires that code: the
+  `/sign-up/email` request hook compares the submitted value in constant time
+  and answers 403 otherwise, server-side and independent of the login UI. It is
+  the mechanism that admits each registrant on a multi-user installation, and
+  the reason no stranger can race the operator for the `AUTH_CLAIM_EXISTING_EMAIL`
+  address. Production logs a warning at startup when sign-up is enabled without
+  one.
 - API mutations reject cross-site browser requests. Responses use no-store,
   anti-framing, no-sniff, referrer, permissions, and production HSTS headers.
 - Source-file reads, writes, and deletes validate their local storage path;
@@ -40,6 +47,10 @@
 - Set `BETTER_AUTH_URL` (and `NEXT_PUBLIC_APP_URL`, if used) to the canonical
   HTTPS origin. Add extra origins only through `BETTER_AUTH_TRUSTED_ORIGINS`.
 - Keep `AUTH_ALLOW_SIGN_UP` unset after the initial owner has been created.
+- Set `AUTH_SIGN_UP_CODE` whenever sign-up is enabled on a host anyone else can
+  reach, and share it only with the people who should be able to register. Set
+  `AUTH_CLAIM_EXISTING_EMAIL` only together with a sign-up code, and remove it
+  once the claim has succeeded.
 - Set `CRON_SECRET` before enabling scheduled reconciliation/calculation work.
 - Set `HEALTHCHECK_SECRET`; production health checks return 404 without it.
 - Connect the application to PostgreSQL as a dedicated non-superuser role
