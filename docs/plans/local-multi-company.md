@@ -13,8 +13,8 @@ All six implementation slices below have landed on this branch.
    reads the `nevermodel_company` cookie and passes it to `createAuthService`
    as a `CompanySelectionStore`. `requireCompanyAccess` re-verifies membership
    on every request and reports `selection.staleSelection` when a stored id is
-   no longer authorized. Provisioning creates a company only when the user has
-   no membership at all.
+   no longer authorized. Provisioning joins every user to every company on the
+   installation and creates a default company only when none exists yet.
 3. **Account-menu UX** — the account menu lists every authorized company, marks
    the active one, switches through `PUT /api/companies/active` followed by a
    full reload, and opens a **New company** dialog. The app shell is keyed by
@@ -131,9 +131,9 @@ company, rather than whichever company is active in the browser later.
 - Read the active-company cookie in the application auth adapter.
 - Pass its value to `requireCompanyAccess`.
 - Keep membership validation server-side.
-- Make initial provisioning create a company only when the user has no existing
-  membership; an existing multi-company user must never receive an accidental
-  empty company.
+- Make initial provisioning create a company only when the installation has
+  none; a user joining an installation that already has companies must never
+  receive an accidental empty company.
 
 ### 3. Account-menu UX
 

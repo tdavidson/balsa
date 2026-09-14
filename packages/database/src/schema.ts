@@ -354,34 +354,6 @@ export const companyMembers = pgTable(
 );
 
 /**
- * An address added to a company before an account with it exists. Provisioning
- * consumes the row on that address's first sign-in, so nothing here grants
- * access on its own.
- */
-export const pendingMembers = pgTable(
-  "pending_members",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    companyId: uuid("company_id")
-      .notNull()
-      .references(() => companies.id, { onDelete: "cascade" }),
-    /** Always stored trimmed and lowercased: the stored form is the comparison form. */
-    email: text("email").notNull(),
-    // Deliberately no database default. Migration 0071 adds `member` to
-    // company_role in the transaction that creates this table, and Postgres
-    // refuses to use a new enum value in that same transaction.
-    role: companyRole("role").notNull(),
-    addedByUserId: uuid("added_by_user_id").references(() => users.id, { onDelete: "set null" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    uniqueIndex("pending_members_company_email_unique").on(table.companyId, table.email),
-    // Provisioning looks the address up across every company at once.
-    index("pending_members_email_index").on(table.email),
-  ],
-);
-
-/**
  * Who changed what. Written in the same transaction as the change it describes,
  * so the record and the change commit or roll back together.
  */
