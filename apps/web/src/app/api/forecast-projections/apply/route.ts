@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildProjectedEntries } from "@nevermodel/finance-engine";
-import { economicItems, forecastEntryTemplates, getDatabase, journalBatches, journalEntries, journalLines } from "@finance/database";
+import { economicItems, forecastEntryTemplates, getDatabase, journalBatches, journalEntries, journalLines, scenarios } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { postApprovedJournal } from "@/lib/journal-posting";
 
@@ -15,6 +15,9 @@ export async function POST(request: Request) {
   await auth.protect(); const context = await requireCompanyAccess(); const parsed = body.safeParse(await request.json());
   if (!parsed.success || parsed.data.start > parsed.data.end) return NextResponse.json({ error: "start and end must be an ordered YYYY-MM range" }, { status: 400 });
   const { start, end, scenarioId } = parsed.data; const db = getDatabase();
+  // The scenario id is stamped onto posted journal entries, so it must be one
+  // of this company's scenarios before any entry can carry it.
+  if (scenarioId && !(await db.select({ id: scenarios.id }).from(scenarios).where(and(eq(scenarios.id, scenarioId), eq(scenarios.companyId, context.company.id))).limit(1))[0]) return NextResponse.json({ error: "Scenario not found" }, { status: 404 });
   const [items, templates] = await Promise.all([
     db.select().from(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.status, "confirmed"))),
     db.select().from(forecastEntryTemplates).where(and(eq(forecastEntryTemplates.companyId, context.company.id), eq(forecastEntryTemplates.active, "Y"))),
