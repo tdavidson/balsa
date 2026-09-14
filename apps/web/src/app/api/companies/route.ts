@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, CompanyAccessDeniedError, InvalidCompanyInputError, type CompanySummary } from "@finance/auth";
+import { getDatabase, recordAudit } from "@finance/database";
 import { auth, createCompany, listCompanies, requireCompanyAccess, requireUser } from "@/lib/auth";
 import { setActiveCompanyCookie } from "@/lib/auth/company-selection";
 import { takeRateLimit } from "@/lib/request-rate-limit";
@@ -31,6 +32,9 @@ export async function POST(request: Request) {
     if (!quota.allowed) return NextResponse.json({ error: "Company creation limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } });
     const body = (await request.json().catch(() => ({}))) as { name?: unknown; baseCurrency?: unknown };
     const company = await createCompany(body);
+    // The entry belongs to the company it created, not to whichever company
+    // the caller happened to be looking at when they pressed New company.
+    await recordAudit(getDatabase(), { companyId: company.id, actorUserId: user.id, via: "ui", action: "company.created", entityType: "company", entityId: company.id, summary: `Created company ${company.name} (${company.baseCurrency})`, after: { name: company.name, baseCurrency: company.baseCurrency } });
     await setActiveCompanyCookie(company.id);
     return NextResponse.json({ company: toSummary(company) }, { status: 201 });
   } catch (error) { return errorResponse(error); }

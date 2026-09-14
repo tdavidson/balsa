@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { cashEvents, decisions, evidence, getDatabase, ingestionRuns, knowledgeDocuments, policies, sources } from "@finance/database";
+import { cashEvents, decisions, evidence, getDatabase, ingestionRuns, knowledgeDocuments, policies, recordAudit, sources } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { previewPolicyImpact } from "@/lib/policy-impact";
 import { classifyWithCompanyPolicy } from "@/lib/company-policy-engine";
@@ -35,10 +35,13 @@ export async function POST(request: Request) {
   if (data.action === "preview") return NextResponse.json({ impact: before });
 
   const db = getDatabase();
-  const [decision] = await db.insert(decisions).values({ companyId: context.company.id, question: `Standing policy: ${data.name}`, answer: data.rule }).returning();
+  const [decision] = await db.insert(decisions).values({ companyId: context.company.id, question: `Standing policy: ${data.name}`, answer: data.rule, createdByUserId: context.user.id }).returning();
   // A blank effective date means the CFO reviewed the rule against all loaded
   // history. Store that explicitly so the preview and the applied result agree.
   const [policy] = await db.insert(policies).values({ companyId: context.company.id, decisionId: decision!.id, name: data.name, rule: data.rule, scope: data.scope, effectiveFrom: data.effectiveFrom ? new Date(data.effectiveFrom) : new Date("1970-01-01T00:00:00.000Z"), confidence: String(data.confidence) }).returning();
+  // A standing policy is never edited in place: a correction is a new policy
+  // that supersedes the old one, so only `policy.created` is ever recorded here.
+  await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: "policy.created", entityType: "policy", entityId: policy!.id, summary: `Created standing policy: ${data.name}`, after: { name: data.name, rule: data.rule, scope: data.scope, effectiveFrom: policy!.effectiveFrom.toISOString() } });
   const allEvents = await eventsForPolicy(context.company.id);
   const impact = previewPolicyImpact(allEvents, { id: policy!.id, name: policy!.name, rule: policy!.rule, scope: policy!.scope, effectiveFrom: policy!.effectiveFrom }, policy!.effectiveFrom.toISOString());
   const matchedEvents = allEvents.flatMap((event) => {

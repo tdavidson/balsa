@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
-import { approvalEvents, chartAccounts, decisions, entities, evidence, factRecords, fxRates, fxRateSets, getDatabase, journalBatches, journalEntries, journalLines, policies, postingProposals, reportingPeriods, scenarios, sourceRows, sources } from "@finance/database";
+import { approvalEvents, chartAccounts, decisions, entities, evidence, factRecords, fxRates, fxRateSets, getDatabase, journalBatches, journalEntries, journalLines, policies, postingProposals, recordAudit, reportingPeriods, scenarios, sourceRows, sources } from "@finance/database";
 import { convertMinorAtFxRate, selectApprovedFxRate, validateJournalEntry, type JournalLineInput } from "@nevermodel/finance-engine";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { validatePostingActivity } from "@/lib/posting-controls";
@@ -8,6 +8,8 @@ import { hasPostingBasis } from "@/lib/posting-basis";
 
 export type JournalPostingRequest = {
   idempotencyKey: string;
+  /** The person who posted; omitted by unattended paths, which log as `worker`. */
+  actorUserId?: string;
   label: string;
   source: string;
   /** Cash activity class, if the proposal originated from a source cash row. */
@@ -135,6 +137,11 @@ export async function postApprovedJournal(companyId: string, request: JournalPos
       ? (await tx.update(postingProposals).set({ status: "posted", journalEntryId: entry!.id, approvedAt: new Date(), updatedAt: new Date() }).where(eq(postingProposals.id, existingProposal.id)).returning({ id: postingProposals.id }))[0]
       : (await tx.insert(postingProposals).values({ companyId, sourceId: request.sourceId, sourceRowId: request.sourceRowId, evidenceId: request.evidenceId, factId: request.factId, decisionId: request.decisionId, policyId: request.policyId, externalKey: request.idempotencyKey, proposalJson: JSON.stringify(request), rationale: "Validated deterministic journal posting.", confidence: "1.0", status: "posted", journalEntryId: entry!.id, approvedAt: new Date() }).returning({ id: postingProposals.id }))[0];
     if (!proposal) throw new Error("Unable to record posting proposal.");
+    // Inside the posting transaction: a rolled-back entry must leave no record
+    // of having been posted. A reversal is itself a posting, but reads as its
+    // own action in the log.
+    const reversing = Boolean(request.reversalOfEntryId) || request.source === "journal_reversal";
+    await recordAudit(tx, { companyId, actorUserId: request.actorUserId ?? null, via: request.actorUserId ? "ui" : "worker", action: reversing ? "journal.reversed" : "journal.posted", entityType: "journal_entry", entityId: entry!.id, summary: `${reversing ? "Reversed" : "Posted"} journal ${request.label} in ${request.period}`, after: { batchId: batch!.id, label: request.label, source: request.source, period: request.period, basis } });
     return { batchId: batch!.id, entryId: entry!.id, proposalId: proposal.id, idempotent: false };
   });
   // An idempotent retry must not create a second calculation revision.
