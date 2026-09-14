@@ -28,4 +28,5 @@ export async function closeDatabase() {
 }
 
 export type { Database };
+export * from "./company-scope";
 export * from "./schema";
