@@ -7,11 +7,10 @@ import {
   type NewCompanyInput,
   type ProvisionedIdentity,
 } from "@finance/auth";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { Queryable } from "./company-scope";
 import { getDatabase, type Database } from "./index";
-import { companies, companyMembers, users } from "./schema";
-
-type Queryable = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+import { companies, companyMembers, pendingMembers, users } from "./schema";
 
 function toUser(row: typeof users.$inferSelect): ApplicationUser {
   return { id: row.id, email: row.email, name: row.name, hasAvatar: Boolean(row.avatarStorageReference) };
@@ -186,6 +185,35 @@ export function createDatabaseAuthRepository(
     configuredCompanySyncs.add(syncKey);
   }
 
+  /**
+   * Attach every company that added this address before an account with it
+   * existed. The membership keeps the pending row's timestamp, so an invited
+   * user's default company is the one that invited them first, and the pending
+   * rows are consumed in the same transaction that creates the memberships.
+   * Addresses are stored lowercased, so a plain equality hits the email index.
+   */
+  async function attachPendingMemberships(transaction: Queryable, userId: string, email: string) {
+    const address = normalizedEmail(email);
+    if (!address) return;
+
+    const pending = await transaction
+      .select({ id: pendingMembers.id, companyId: pendingMembers.companyId, role: pendingMembers.role, createdAt: pendingMembers.createdAt })
+      .from(pendingMembers)
+      .where(eq(pendingMembers.email, address))
+      .orderBy(asc(pendingMembers.createdAt));
+    if (pending.length === 0) return;
+
+    for (const row of pending) {
+      // An existing membership wins: a pending row must never downgrade a role
+      // the company already granted.
+      await transaction
+        .insert(companyMembers)
+        .values({ companyId: row.companyId, userId, role: row.role, createdAt: row.createdAt })
+        .onConflictDoNothing();
+    }
+    await transaction.delete(pendingMembers).where(inArray(pendingMembers.id, pending.map((row) => row.id)));
+  }
+
   async function provisionIdentity(
     identity: AuthIdentity,
   ): Promise<ProvisionedIdentity> {
@@ -251,6 +279,11 @@ export function createDatabaseAuthRepository(
       }
 
       if (!userRow) throw new Error("Unable to provision application user");
+
+      // Invitations are honored before anything else can decide this user has
+      // no company: a person added by email must land in that company rather
+      // than in a freshly provisioned empty one.
+      await attachPendingMemberships(transaction, userRow.id, userRow.email);
 
       // The owner's environment-declared companies are created first, so a
       // first sign-in with COMPANIES set opens the first configured company

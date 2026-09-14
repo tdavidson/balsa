@@ -16,8 +16,9 @@ import { CompanySettingsDialog } from "@/components/company-settings-dialog";
 import { NewCompanyDialog } from "@/components/new-company-dialog";
 import { UserSettingsDialog } from "@/components/user-settings-dialog";
 import { authClient } from "@/lib/auth-client";
+import type { CompanyRole } from "@finance/auth";
 
-type CompanyOption = { id: string; name: string; baseCurrency: string; role: "owner" };
+type CompanyOption = { id: string; name: string; baseCurrency: string; role: CompanyRole };
 type AccountMenuProps = {
   company: { id: string; name: string; baseCurrency: string };
   companies: CompanyOption[];

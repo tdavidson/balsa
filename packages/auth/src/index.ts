@@ -12,7 +12,13 @@ export type ApplicationUser = {
   hasAvatar: boolean;
 };
 
-export type CompanyRole = "owner";
+/**
+ * An owner holds every right in the company; a member does all financial work
+ * but cannot change settings, manage members, or reset the company.
+ */
+export const companyRoles = ["owner", "member"] as const;
+
+export type CompanyRole = (typeof companyRoles)[number];
 
 /** The public shape of a company the current user may operate. */
 export type CompanySummary = {
@@ -86,6 +92,66 @@ export interface AuthRepository {
   ): Promise<AuthorizedCompany>;
 }
 
+/** An accepted member of a company: a user row plus the membership's role. */
+export type CompanyMember = {
+  userId: string;
+  email: string;
+  name: string | null;
+  role: CompanyRole;
+  createdAt: string;
+};
+
+/** An address invited to a company before an account with it existed. */
+export type PendingMember = {
+  id: string;
+  email: string;
+  role: CompanyRole;
+  createdAt: string;
+};
+
+export type AddMemberResult =
+  | { status: "active"; member: CompanyMember }
+  | { status: "pending"; pending: PendingMember };
+
+/** `worker` has no actor; `agent` is attributed to the user who asked. */
+export type AuditVia = "ui" | "agent" | "worker";
+
+/**
+ * One recorded change. The optional fields are declared with `| undefined` so
+ * a caller under `exactOptionalPropertyTypes` may pass them through unset.
+ */
+export type AuditEntry = {
+  companyId: string;
+  actorUserId: string | null;
+  via: AuditVia;
+  action: string;
+  entityType?: string | undefined;
+  entityId?: string | undefined;
+  summary: string;
+  before?: unknown;
+  after?: unknown;
+  requestId?: string | undefined;
+};
+
+export interface MemberRepository {
+  listMembers(companyId: string): Promise<{ members: CompanyMember[]; pending: PendingMember[] }>;
+  /**
+   * Add an address to the company. An existing user becomes a member at once;
+   * any other address waits in `pending` until it first signs in. Adding an
+   * address that is already a member is a no-op that reports the membership.
+   */
+  addMember(
+    companyId: string,
+    input: { email: string; role: CompanyRole },
+    actorUserId: string | null,
+  ): Promise<AddMemberResult>;
+  /** Throws `LastOwnerError` rather than leave the company without an owner. */
+  updateMemberRole(companyId: string, userId: string, role: CompanyRole): Promise<CompanyMember>;
+  /** Throws `LastOwnerError` rather than leave the company without an owner. */
+  removeMember(companyId: string, userId: string): Promise<void>;
+  removePendingMember(companyId: string, pendingId: string): Promise<void>;
+}
+
 export class AuthenticationRequiredError extends Error {
   constructor() {
     super("Authentication is required");
@@ -107,13 +173,71 @@ export class InvalidCompanyInputError extends Error {
   }
 }
 
+export class InvalidMemberInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidMemberInputError";
+  }
+}
+
+/** The acting user's role is below what the action needs; adapters map it to 403. */
+export class CompanyRoleRequiredError extends Error {
+  readonly role: CompanyRole;
+
+  constructor(role: CompanyRole) {
+    super(`This action requires the ${role} role`);
+    this.name = "CompanyRoleRequiredError";
+    this.role = role;
+  }
+}
+
+/** A company always keeps one owner, so the last one cannot be demoted or removed. */
+export class LastOwnerError extends Error {
+  constructor() {
+    super("A company must keep at least one owner");
+    this.name = "LastOwnerError";
+  }
+}
+
 export const maxCompanyNameLength = 160;
+/** The longest address RFC 5321 allows; the column is text, the bound is ours. */
+export const maxMemberEmailLength = 254;
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A stored or requested company id must at least look like a company id before it reaches the database. */
 export function isCompanyId(value: unknown): value is string {
   return typeof value === "string" && uuidPattern.test(value);
+}
+
+export function isCompanyRole(value: unknown): value is CompanyRole {
+  return typeof value === "string" && (companyRoles as readonly string[]).includes(value);
+}
+
+/**
+ * Rights are the role's, so a role check is a lattice, not an equality: an
+ * owner satisfies every requirement, a member only its own.
+ */
+export function requireCompanyRole(context: ApplicationContext, role: CompanyRole): void {
+  if (context.company.role === "owner") return;
+  if (context.company.role === role) return;
+  throw new CompanyRoleRequiredError(role);
+}
+
+/**
+ * Addresses are compared lowercased and trimmed, so the stored form is the
+ * comparison form. The shape check stays deliberately weak - no address can be
+ * verified without sending mail, and this installation sends none - it only
+ * rejects values that cannot be an address at all.
+ */
+export function normalizeMemberEmail(value: unknown): string {
+  const email = typeof value === "string" ? value.trim().toLocaleLowerCase() : "";
+  if (!email || email.length > maxMemberEmailLength || !/^[^\s@]+@[^\s@]+$/.test(email)) {
+    throw new InvalidMemberInputError(
+      `A member email address is required and must be ${maxMemberEmailLength} characters or fewer`,
+    );
+  }
+  return email;
 }
 
 /** Normalize and validate the fields a user supplies when creating a company. */

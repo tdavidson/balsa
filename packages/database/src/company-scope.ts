@@ -2,7 +2,8 @@ import { sql } from "drizzle-orm";
 import type { Database } from "./index";
 
 export type CompanyTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
-type Queryable = Database | CompanyTransaction;
+/** Anything statements can run on: the pool, or an open transaction. */
+export type Queryable = Database | CompanyTransaction;
 
 /**
  * Transaction-local company scope. `set_config(..., true)` ties the setting to

@@ -498,6 +498,13 @@
       "when": 1789300000033,
       "tag": "0070_company_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1789300000034,
+      "tag": "0071_multi_user",
+      "breakpoints": true
     }
   ]
 }

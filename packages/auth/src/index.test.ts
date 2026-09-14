@@ -1,14 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CompanyAccessDeniedError,
+  CompanyRoleRequiredError,
   InvalidCompanyInputError,
+  InvalidMemberInputError,
+  companyRoles,
   createAuthService,
   isCompanyId,
+  isCompanyRole,
+  normalizeMemberEmail,
   normalizeNewCompanyInput,
   parseConfiguredCompanies,
+  requireCompanyRole,
+  type ApplicationContext,
   type AuthIdentity,
   type AuthRepository,
   type AuthorizedCompany,
+  type CompanyRole,
   type CompanySelectionStore,
 } from "./index";
 
@@ -176,6 +184,55 @@ describe("input helpers", () => {
   it("normalizes new company input", () => {
     expect(normalizeNewCompanyInput({ name: " Acme ", baseCurrency: "usd" })).toEqual({ name: "Acme", baseCurrency: "USD" });
     expect(() => normalizeNewCompanyInput({ name: "x".repeat(161), baseCurrency: "USD" })).toThrow(InvalidCompanyInputError);
+  });
+});
+
+describe("role checks", () => {
+  function contextFor(role: CompanyRole): ApplicationContext {
+    return {
+      user,
+      company: { ...firstCompany, role },
+      selection: { source: "default", staleSelection: false },
+    };
+  }
+
+  it("lets an owner satisfy every role", () => {
+    for (const role of companyRoles) expect(() => requireCompanyRole(contextFor("owner"), role)).not.toThrow();
+  });
+
+  it("lets a member satisfy only the member role", () => {
+    expect(() => requireCompanyRole(contextFor("member"), "member")).not.toThrow();
+    expect(() => requireCompanyRole(contextFor("member"), "owner")).toThrow(CompanyRoleRequiredError);
+  });
+
+  it("names the missing role on the error the adapter maps to 403", () => {
+    try {
+      requireCompanyRole(contextFor("member"), "owner");
+      expect.unreachable("the member must not pass an owner check");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CompanyRoleRequiredError);
+      expect((error as CompanyRoleRequiredError).role).toBe("owner");
+      expect((error as Error).message).toBe("This action requires the owner role");
+    }
+  });
+
+  it("recognizes exactly the known roles", () => {
+    expect(isCompanyRole("owner")).toBe(true);
+    expect(isCompanyRole("member")).toBe(true);
+    expect(isCompanyRole("admin")).toBe(false);
+    expect(isCompanyRole(undefined)).toBe(false);
+  });
+});
+
+describe("member email normalization", () => {
+  it("trims and lowercases the stored form", () => {
+    expect(normalizeMemberEmail("  CFO@Example.COM ")).toBe("cfo@example.com");
+  });
+
+  it("rejects values that cannot be an address", () => {
+    for (const value of ["", "   ", "nobody", "a b@example.com", "two@@example.com", null, 42, `${"x".repeat(250)}@example.com`]) {
+      expect(() => normalizeMemberEmail(value)).toThrow(InvalidMemberInputError);
+    }
   });
 });
 

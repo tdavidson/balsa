@@ -3,6 +3,7 @@
 import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { CompanyRole } from "@finance/auth";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -298,7 +299,7 @@ function Figure({ label, value, note, pencil, negative }: { label: string; value
 
 type AppShellProps = {
   company: { id: string; name: string; currency: string };
-  companies: { id: string; name: string; baseCurrency: string; role: "owner" }[];
+  companies: { id: string; name: string; baseCurrency: string; role: CompanyRole }[];
   staleSelection: boolean;
   user: { email: string; name: string | null; hasAvatar?: boolean };
   modelOptions: { value: string; label: string }[];
