@@ -21,6 +21,7 @@ import { policyAppliesInContext } from "@/lib/company-policy-engine";
 import { buildEvidencePublication } from "@/lib/evidence-publication";
 import { applyApprovedEvidence } from "@/lib/apply-evidence";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
+import { optionalStatementDateSchema } from "@/lib/statement-date";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -54,8 +55,8 @@ const extractionSchema = z.object({
   statementMetadata: z.object({
     accountHolder: z.string().optional(),
     accountIdentifier: z.string().optional(),
-    statementPeriodStart: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).optional(),
-    statementPeriodEnd: z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).optional(),
+    statementPeriodStart: optionalStatementDateSchema,
+    statementPeriodEnd: optionalStatementDateSchema,
     openingBalance: z.string().optional(),
     endingBalance: z.string().optional(),
   }).optional(),
@@ -162,7 +163,7 @@ export async function POST(request: Request) {
       additionalProperties: false,
       properties: {
         summary: { type: "string" },
-        statementMetadata: { type: "object", additionalProperties: false, properties: { accountHolder: { type: "string" }, accountIdentifier: { type: "string" }, statementPeriodStart: { type: "string" }, statementPeriodEnd: { type: "string" }, openingBalance: { type: "string" }, endingBalance: { type: "string" } } },
+        statementMetadata: { type: "object", additionalProperties: false, properties: { accountHolder: { type: "string" }, accountIdentifier: { type: "string" }, statementPeriodStart: { type: "string", pattern: "^20\\d{2}-\\d{2}-\\d{2}$" }, statementPeriodEnd: { type: "string", pattern: "^20\\d{2}-\\d{2}-\\d{2}$" }, openingBalance: { type: "string" }, endingBalance: { type: "string" } } },
         facts: { type: "array", items: { type: "object", additionalProperties: false, properties: { label: { type: "string" }, value: { type: "string" }, accountingRole: { type: "string", enum: accountingRoles }, confidence: { type: "number" } }, required: ["label", "value", "accountingRole", "confidence"] } },
         questions: { type: "array", items: { type: "string" } },
       },

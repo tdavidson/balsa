@@ -168,6 +168,13 @@ function processingRunDetail(run: NonNullable<EvidenceItem["ingestionRuns"]>[num
   return undefined;
 }
 
+function readableProcessingError(error: string | null | undefined) {
+  if (!error) return "Extraction failed";
+  if (/statementPeriod(?:Start|End)/.test(error) && /invalid_(?:format|string)|must match pattern/.test(error)) return "The model returned an invalid statement date. Retry extraction.";
+  if (/\[\s*\{|ZodError|invalid_(?:format|type)|must match pattern/.test(error)) return "The model returned data in an unexpected format. Retry extraction.";
+  return error.length > 240 ? `${error.slice(0, 237)}…` : error;
+}
+
 function ingestionStatusLabel(item: EvidenceItem) {
   const status = item.ingestionStatus ?? item.status;
   const latestExtraction = [...(item.ingestionRuns ?? [])]
@@ -212,7 +219,7 @@ function processingTimeline(item: EvidenceItem): ProcessingStage[] {
   const latest = (stages: string[]) => [...(item.ingestionRuns ?? [])].filter((run) => stages.includes(run.stage)).sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
   const stage = (key: string, label: string, stages: string[], fallback: ProcessingStage["status"], detail?: string): ProcessingStage => {
     const run = latest(stages);
-    const resolvedDetail = run ? processingRunDetail(run) ?? run.error ?? undefined : detail;
+    const resolvedDetail = run ? processingRunDetail(run) ?? (run.error ? readableProcessingError(run.error) : undefined) : detail;
     return { key, label, status: run?.status as ProcessingStage["status"] ?? fallback, ...(resolvedDetail ? { detail: resolvedDetail } : {}) };
   };
   const classification = item.sourceMetadata?.classification;
@@ -550,7 +557,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const periodLabel = periodPreset === "quarter" ? `Quarter ending ${dateLabel(periodEnd)}` : periodPreset === "ytd" ? `YTD through ${dateLabel(periodEnd)}` : periodPreset === "last12" ? `Last 12 months through ${dateLabel(periodEnd)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${dateLabel(periodStart)} – ${dateLabel(periodEnd)}` : `Month ending ${dateLabel(periodEnd)}`;
   const pendingEvidence = evidence.filter((item) => item.identityStatus !== "rejected" && (item.status !== "approved" || item.extraction?.facts.some((fact) => fact.factStatus !== "treatment_approved")));
   const processingEvidence = evidence.filter((item) => ["stored", "extracting", "reconciling", "processing"].includes(item.ingestionStatus ?? ""));
-  const processingStages = aggregateProcessingTimeline(processingEvidence);
+  const failedEvidence = evidence.filter((item) => item.ingestionStatus === "failed");
+  const processingStages = aggregateProcessingTimeline(evidence);
   const hasFinancialOutput = Boolean(currentForecast && (
     currentForecast.hasCashBalance !== false
     || (currentForecast.trace?.length ?? 0) > 0
@@ -1447,10 +1455,10 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           )}
         </section>
 
-        {processingEvidence.length > 0 && <section className="grid gap-3.5" aria-live="polite" aria-label="Documents processing">
+        {evidence.length > 0 && <section className="grid min-w-0 gap-3.5 overflow-hidden" aria-live="polite" aria-label="Documents processing">
           <div className="flex items-baseline justify-between gap-4">
-            <div><h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Processing run</h2><p className="mt-1 text-[13px] text-ink-2">New evidence is being checked automatically.</p></div>
-            <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Live</span>
+            <div><h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Processing run</h2><p className="mt-1 text-[13px] text-ink-2">{processingEvidence.length > 0 ? "New evidence is being checked automatically." : failedEvidence.length > 0 ? "Some evidence could not be processed. Retry it here or in Documents." : "All loaded documents have completed extraction."}</p></div>
+            {processingEvidence.length > 0 ? <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> Live</span> : failedEvidence.length > 0 ? <span className="text-[13px] text-red-ink">Needs attention</span> : <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><Check className="size-3.5" aria-hidden="true" /> Complete</span>}
           </div>
           <div className="grid gap-4 border-y border-rule py-4 sm:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)]">
             <div className="grid gap-2 text-[13px]">
@@ -1467,8 +1475,17 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <span><strong className="block text-[17px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.exceptions.length, 0)}</strong>exceptions</span>
             </div>
           </div>
-          <div className="grid gap-1 text-[13px]">
-            {processingEvidence.map((item) => <div className="flex items-center justify-between gap-4" key={`processing-${item.id}`}><span className="truncate text-ink" title={item.sourceName}>{shortFileName(item.sourceName)}</span><span className="shrink-0 text-ink-2">{ingestionStatusLabel(item)}</span></div>)}
+          <div className="grid min-w-0 gap-0 text-[13px]">
+            <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_88px] gap-4 border-b border-rule pb-2 text-[11px] uppercase tracking-[0.1em] text-ink-2 sm:grid"><span>Document</span><span>Result</span><span className="text-right">Action</span></div>
+            {evidence.map((item) => {
+              const failed = item.ingestionStatus === "failed";
+              const active = ["stored", "extracting", "reconciling", "processing"].includes(item.ingestionStatus ?? "");
+              return <div className="grid min-w-0 gap-1 border-b border-rule py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_88px] sm:items-center sm:gap-4" key={`processing-${item.id}`}>
+                <span className="min-w-0 truncate text-ink" title={item.sourceName}>{shortFileName(item.sourceName)}</span>
+                <span className={cn("min-w-0 truncate", failed ? "text-red-ink" : "text-ink-2")} title={failed ? item.ingestionError ?? undefined : undefined}>{failed ? readableProcessingError(item.ingestionError) : ingestionStatusLabel(item)}</span>
+                <span className="flex justify-start sm:justify-end">{failed && item.storageReference ? <Button type="button" variant="outline" size="sm" className="w-[88px] shrink-0" onClick={() => void reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Retrying…" : "Retry"}</Button> : failed ? <span className="text-[12px] text-red-ink">Unavailable</span> : active ? <LoaderCircle className="size-3.5 animate-spin text-ink-2" aria-label="Processing" /> : <Check className="size-3.5 text-ink-2" aria-label="Processed" />}</span>
+              </div>;
+            })}
           </div>
         </section>}
 
@@ -1926,7 +1943,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                 const workbookProposal = item.sourceMetadata?.workbookProposal;
                 const reviewedWorksheetCount = Object.keys(workbookReview).length;
                 return <div className="grid gap-5 p-6">
-                  <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div>{item.sourceMetadata?.pdfQuality?.status !== "good" && item.sourceMetadata?.pdfQuality?.warnings?.length ? <div className="mt-2 rounded-lg border border-red-ink/30 bg-red-ink/5 p-3 text-[13px] text-red-ink"><span className="font-medium">PDF extraction needs review.</span> {item.sourceMetadata.pdfQuality.warnings.join(" ")}</div> : null}</div>
+                  <div className="grid min-w-0 gap-1 overflow-hidden"><div className="break-words text-[17px] text-ink [overflow-wrap:anywhere]">{item.extraction?.summary ?? item.sourceName}</div><div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span className="max-w-full break-words [overflow-wrap:anywhere]">{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="max-w-full break-words text-red-ink [overflow-wrap:anywhere]" title={item.ingestionError}>{readableProcessingError(item.ingestionError)}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div>{item.sourceMetadata?.pdfQuality?.status !== "good" && item.sourceMetadata?.pdfQuality?.warnings?.length ? <div className="mt-2 max-w-full break-words rounded-lg border border-red-ink/30 bg-red-ink/5 p-3 text-[13px] text-red-ink [overflow-wrap:anywhere]"><span className="font-medium">PDF extraction needs review.</span> {item.sourceMetadata.pdfQuality.warnings.join(" ")}</div> : null}</div>
                   {isReferenceModel && <section className="grid gap-4 rounded-lg border border-rule bg-rule/30 p-4" aria-label="Reference-model review">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="grid gap-1"><span className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Reference financial model</span><h3 className="text-[16px] font-medium text-ink">Workbook review</h3><p className="max-w-[62ch] text-[13px] leading-5 text-ink-2">This file is onboarding context: it can teach Nevermodel the company&apos;s structure, periods, and drivers. Its formulas and outputs are never posted as actuals or treated as verified financial results.</p></div>

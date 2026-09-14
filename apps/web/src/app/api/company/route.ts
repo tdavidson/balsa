@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { companies, getDatabase, recordAudit } from "@finance/database";
+import { companies, getDatabase, recordAudit, sources } from "@finance/database";
 import { auth, requireCompanyAccess } from "@/lib/auth";
 import { deleteSourceBlob, storeSourceBlob } from "@/lib/blob-store";
+import { clearActiveCompanyCookie } from "@/lib/auth/company-selection";
 
 const faviconMimeTypes = new Set(["image/x-icon", "image/vnd.microsoft.icon", "image/png"]);
 const maxFaviconBytes = 512 * 1024;
@@ -49,4 +50,37 @@ export async function PATCH(request: Request) {
     await deleteSourceBlob(current.faviconStorageReference).catch(() => undefined);
   }
   return company ? NextResponse.json({ company }) : NextResponse.json({ error: "Company not found" }, { status: 404 });
+}
+
+export async function DELETE(request: Request) {
+  await auth.protect();
+  const context = await requireCompanyAccess();
+  if (context.company.role !== "owner") return NextResponse.json({ error: "Only the company owner can delete this company" }, { status: 403 });
+
+  const body = (await request.json().catch(() => ({}))) as { confirmation?: unknown };
+  if (body.confirmation !== context.company.name) {
+    return NextResponse.json({ error: `Type exactly “${context.company.name}” to delete this company.` }, { status: 400 });
+  }
+
+  const db = getDatabase();
+  const [company, sourceRows] = await Promise.all([
+    db.select({ faviconStorageReference: companies.faviconStorageReference }).from(companies).where(eq(companies.id, context.company.id)).limit(1),
+    db.select({ storageReference: sources.storageReference }).from(sources).where(eq(sources.companyId, context.company.id)),
+  ]);
+  if (!company[0]) return NextResponse.json({ error: "Company not found" }, { status: 404 });
+
+  // Database rows cascade from the company. Remove the separately stored file
+  // objects first so a successful deletion cannot leave private source files
+  // behind on disk. References are deduplicated defensively.
+  const storageReferences = new Set(sourceRows.map((row) => row.storageReference).filter((value): value is string => Boolean(value)));
+  if (company[0].faviconStorageReference) storageReferences.add(company[0].faviconStorageReference);
+  for (const storageReference of storageReferences) await deleteSourceBlob(storageReference);
+
+  const deleted = await db.delete(companies).where(eq(companies.id, context.company.id)).returning({ id: companies.id });
+  if (deleted.length === 0) return NextResponse.json({ error: "Company not found" }, { status: 404 });
+
+  // The next request will select another authorized company, or provision a
+  // clean company when this was the user's final company.
+  await clearActiveCompanyCookie();
+  return NextResponse.json({ deleted: true });
 }
