@@ -64,9 +64,9 @@ supported in both authentication modes:
 - `AUTH_MODE=disabled`: one configured local user, several companies.
 - `AUTH_MODE=better-auth`: one signed-in user, several companies.
 
-This plan does not add invitations, multiple human users, hosted billing, or
-distributed infrastructure. Those belong to the
-[hosted multi-company plan](multi-tenant-hosted.md).
+This plan does not add invitations, hosted billing, or distributed
+infrastructure. Those belong to the hosted service, which is developed
+separately.
 
 ## Existing foundation
 
@@ -207,4 +207,7 @@ a running application: set `BASE_URL` and run it once per
 - distributed workers and rate limiting;
 - hosted billing, quotas, support tooling, and tenant operations;
 - public multi-tenant deployment.
+
+The hosted items above belong to the hosted service, which is developed
+separately and is not part of this repository.
 

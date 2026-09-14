@@ -18,6 +18,9 @@ import { UsageModal } from "@/components/usage-modal";
 import { AccountingModal } from "@/components/accounting-modal";
 import { FinancialInspector } from "@/components/financial-inspector";
 
+// Next inlines NEXT_PUBLIC_ variables at build time, so this is a build-time constant.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+
 const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 const shortMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
 
@@ -1431,9 +1434,11 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
             </div>
-            <Link href="/about" className={quietButton}>
-              <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
-            </Link>
+            {siteUrl && (
+              <a href={siteUrl} target="_blank" rel="noreferrer" className={quietButton}>
+                <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
+              </a>
+            )}
           </div>
           {notice && (
             <p className="prose-serif text-[17px] leading-[1.5] text-ink" style={{ fontVariationSettings: '"opsz" 17' }} role="status">

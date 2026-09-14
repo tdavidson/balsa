@@ -677,5 +677,5 @@ quality gates:
    entry then becomes the only allocation impact on entity statements.
 
 Work outside the single-company readiness boundary is tracked separately in
-[Local multi-company](local-multi-company.md) and
-[Post-single-player scale-up](post-single-player-scale-up.md).
+[Local multi-company](local-multi-company.md), and anything specific to the
+hosted service is developed separately.
