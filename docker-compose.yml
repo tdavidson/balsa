@@ -15,5 +15,26 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/finance
+      FILE_STORAGE: local
+      FILE_STORAGE_PATH: /data/files
+      BETTER_AUTH_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - nevermodel_files:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   finance_postgres:
+  nevermodel_files:

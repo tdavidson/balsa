@@ -16,10 +16,8 @@ those that make financial outputs more correct, traceable, secure, and useful.
 You need Node.js 22+, pnpm 10+, Docker, and an OpenAI or OpenRouter API key.
 
 ```bash
-cp .env.example .env
-docker compose up -d
-pnpm install
-pnpm db:migrate
+pnpm run setup
+pnpm run doctor
 pnpm dev
 ```
 
@@ -37,10 +35,8 @@ that mode directly to a network.
 Before opening a pull request, run:
 
 ```bash
+pnpm run verify
 pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
 ```
 
 Run `pnpm acceptance` as well when changing ingestion, financial calculations,

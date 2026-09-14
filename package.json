@@ -13,6 +13,9 @@
     }
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "verify": "pnpm run doctor && pnpm typecheck && pnpm test && pnpm build",
     "build": "pnpm --filter @finance/web build",
     "dev": "pnpm --filter @finance/web dev",
     "lint": "pnpm -r lint",
