@@ -15,17 +15,19 @@ export async function GET(request: Request) {
   if (!hasScheduledJobAuthorization(request.headers.get("authorization"), secret)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
   // Drain extraction first. Successful extraction queues reconciliation, which
-  // can then be claimed in this same invocation.
-  const extractionQueue = await db.select({ evidenceId: evidence.id, companyId: evidence.companyId, sourceId: ingestionRuns.sourceId }).from(ingestionRuns).innerJoin(evidence, eq(evidence.sourceId, ingestionRuns.sourceId)).where(and(eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "waiting"))).limit(10);
+  // can then be claimed in this same invocation. The company comes from the
+  // durable job row, and the evidence must belong to that same company so a
+  // worker request can never be issued for another company's record.
+  const extractionQueue = await db.select({ evidenceId: evidence.id, companyId: ingestionRuns.companyId, sourceId: ingestionRuns.sourceId }).from(ingestionRuns).innerJoin(evidence, and(eq(evidence.sourceId, ingestionRuns.sourceId), eq(evidence.companyId, ingestionRuns.companyId))).where(and(eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "waiting"))).limit(10);
   const extractionCandidates = [...new Map(extractionQueue.map((job) => [job.sourceId, job])).values()];
   const extractionJobs = (await Promise.all(extractionCandidates.map(async (job) => {
-    const claimed = await db.update(ingestionRuns).set({ status: "running", startedAt: new Date(), error: null, updatedAt: new Date() }).where(and(eq(ingestionRuns.sourceId, job.sourceId), eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "waiting"))).returning({ id: ingestionRuns.id });
+    const claimed = await db.update(ingestionRuns).set({ status: "running", startedAt: new Date(), error: null, updatedAt: new Date() }).where(and(eq(ingestionRuns.companyId, job.companyId), eq(ingestionRuns.sourceId, job.sourceId), eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "waiting"))).returning({ id: ingestionRuns.id });
     return claimed.length ? job : null;
   }))).filter((job): job is NonNullable<typeof job> => Boolean(job));
   const extractionResults = await Promise.all(extractionJobs.map(async (job) => {
     const url = new URL(`/api/evidence/${job.evidenceId}/reprocess?companyId=${encodeURIComponent(job.companyId)}`, request.url);
     const response = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" }, body: "{}", cache: "no-store" });
-    if (!response.ok) await db.update(ingestionRuns).set({ status: "waiting", error: `Worker returned ${response.status}`, updatedAt: new Date() }).where(and(eq(ingestionRuns.sourceId, job.sourceId), eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "running")));
+    if (!response.ok) await db.update(ingestionRuns).set({ status: "waiting", error: `Worker returned ${response.status}`, updatedAt: new Date() }).where(and(eq(ingestionRuns.companyId, job.companyId), eq(ingestionRuns.sourceId, job.sourceId), eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "running")));
     return { evidenceId: job.evidenceId, status: response.status, ok: response.ok };
   }));
 
