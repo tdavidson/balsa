@@ -8,9 +8,24 @@
  * another user's company even while holding its UUID.
  *
  * ISOLATION_AUTH_MODE=disabled (default) exercises the single operator user;
- * ISOLATION_AUTH_MODE=better-auth signs up two users and runs the full matrix.
+ * ISOLATION_AUTH_MODE=better-auth signs up separate people and runs the full
+ * matrix, including the membership gate of docs/plans/multi-user.md: an owner
+ * adds someone by email before that address has an account, the member does
+ * financial work but cannot administer the company, and removal ends access.
  * Set ISOLATION_SIGN_UP_CODE to match AUTH_SIGN_UP_CODE when the installation
  * gates registration behind a passcode.
+ *
+ * `next dev` serves one directory at a time, so run the modes one after the
+ * other, each against its own storage directory:
+ *
+ *   AUTH_MODE=disabled ALLOW_AUTH_DISABLED=true FILE_STORAGE_PATH=.data/files-disabled \
+ *     pnpm --filter @finance/web dev --port 3101
+ *   BASE_URL=http://localhost:3101 pnpm isolation
+ *
+ *   AUTH_MODE=better-auth AUTH_ALLOW_SIGN_UP=true AUTH_SIGN_UP_CODE=<code> \
+ *     FILE_STORAGE_PATH=.data/files-better-auth pnpm --filter @finance/web dev --port 3102
+ *   BASE_URL=http://localhost:3102 ISOLATION_AUTH_MODE=better-auth \
+ *     ISOLATION_SIGN_UP_CODE=<code> pnpm isolation
  */
 const baseUrl = (process.env.BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const authMode = process.env.ISOLATION_AUTH_MODE === "better-auth" ? "better-auth" : "disabled";
@@ -87,6 +102,15 @@ function companyIds(value: unknown, found: string[] = []): string[] {
 const cookieHeaderFor = (target: Browser) => [...target.jar].map(([name, value]) => `${name}=${value}`).join("; ");
 
 type Company = { id: string; name: string; baseCurrency: string; role: string };
+type Member = { userId: string; email: string; name: string | null; role: string; createdAt: string };
+type Pending = { id: string; email: string; role: string; createdAt: string };
+type MemberList = { members: Member[]; pending: Pending[]; currentUserId: string };
+type AddMemberResult = { status: "active"; member: Member } | { status: "pending"; pending: Pending };
+type ActivityEntry = {
+  id: string; action: string; via: string; summary: string;
+  entityType: string | null; entityId: string | null;
+  actor: { id: string; name: string | null; email: string } | null; createdAt: string;
+};
 
 async function activeCompanyId(target: Browser) {
   const body = await expectJson<{ companies: Company[]; activeCompanyId: string }>(target, "/api/companies", 200);
@@ -138,11 +162,14 @@ function assertAbsent(snapshot: Record<string, string>, needles: string[], label
   }
 }
 
+/** Derived from the label so an owner can add an address before anyone has registered it. */
+const addressFor = (label: string) => `isolation-${label}-${token}@nevermodel.test`;
+
 const signUpBody = (label: string, email: string) => ({ name: `Isolation ${label}`, email, password: `Isolation-${token}-passphrase` });
 
 async function signUp(label: string): Promise<{ target: Browser; email: string }> {
   const target = browser(label);
-  const email = `isolation-${label}-${token}@nevermodel.test`;
+  const email = addressFor(label);
   const headers = signUpCode ? { "x-nevermodel-sign-up-code": signUpCode } : undefined;
   const response = await call(target, "/api/auth/sign-up/email", { method: "POST", json: signUpBody(label, email), ...(headers ? { headers } : {}) });
   const text = await response.text();
@@ -169,7 +196,9 @@ async function main() {
     assert(stranger.jar.size === 0, "A rejected sign-up still returned a session cookie");
     pass("signing up without the sign-up code is rejected (403) and sets no session cookie");
   }
-  const one = authMode === "better-auth" ? await signUp("user1").then((session) => { pass(`signed up ${session.email} and received a session cookie`); return session.target; }) : browser("user1");
+  const ownerSession = authMode === "better-auth" ? await signUp("user1") : null;
+  if (ownerSession) pass(`signed up ${ownerSession.email} and received a session cookie`);
+  const one = ownerSession?.target ?? browser("user1");
 
   step("1. Two companies, creation selects the new one");
   const initial = await expectJson<{ companies: Company[]; activeCompanyId: string }>(one, "/api/companies", 200);
@@ -287,7 +316,92 @@ async function main() {
     pass("the second user's dashboard, chat, knowledge, journals and calculations show only their own company");
   }
 
-  step("7. Deleting one company leaves the other untouched");
+  step("7. An owner adds a member by email, bounds their rights, and removes them");
+  if (authMode !== "better-auth") {
+    console.log("  note  membership needs two identities; disabled mode has one operator (run with ISOLATION_AUTH_MODE=better-auth).");
+  } else {
+    assert(ownerSession, "Better Auth mode ran without an owner session");
+    // Membership is the company's, so the whole step runs with A active.
+    await selectCompany(one, companyA.id);
+    const memberEmail = addressFor("member");
+    // Added before the address has an account at all: the plan's promise is
+    // that the pending row attaches on first sign-in, so the person lands in
+    // the company that added them instead of an empty default company.
+    const invited = await expectJson<{ result: AddMemberResult }>(one, "/api/members", 201, { method: "POST", json: { email: memberEmail, role: "member" } });
+    assert(invited.result.status === "pending", `Adding an unregistered address returned ${JSON.stringify(invited.result)}, expected a pending record`);
+    const waiting = await expectJson<MemberList>(one, "/api/members", 200);
+    assert(waiting.pending.some((row) => row.email === memberEmail), `GET /api/members does not list ${memberEmail} as pending`);
+    pass(`owner added ${memberEmail} to company A before that address had an account`);
+
+    const member = (await signUp("member")).target;
+    const theirs = await expectJson<{ companies: Company[]; activeCompanyId: string }>(member, "/api/companies", 200);
+    const theirCompany = theirs.companies[0];
+    assert(theirs.companies.length === 1 && theirCompany, `The added member sees ${JSON.stringify(theirs.companies.map((company) => company.id))}, expected company A alone`);
+    assert(theirCompany.id === companyA.id, "Signing up provisioned a default company instead of attaching the pending membership");
+    assert(theirCompany.role === "member", `The added member holds the ${theirCompany.role} role, expected member`);
+    pass("signing up attaches the pending membership: company A is their only company, no default company was created");
+    const theirState = await expectJson<{ companyId: string }>(member, "/api/state", 200);
+    assert(theirState.companyId === companyA.id, `The member's state reports ${theirState.companyId}, expected company A`);
+    await expectJson<{ entries: ActivityEntry[] }>(member, "/api/activity", 200);
+    pass("the member reads company A: financial state and the activity log");
+
+    const denied = [
+      ["PATCH /api/company", await json(member, "/api/company", { method: "PATCH", json: { name: `Member rename ${token}`, baseCurrency: "USD" } })],
+      ["POST /api/members", await json(member, "/api/members", { method: "POST", json: { email: addressFor("intruder"), role: "member" } })],
+      // The role is checked before the confirmation phrase, so holding the
+      // exact phrase still does not let a member delete the company.
+      ["POST /api/testing/company-reset", await json(member, "/api/testing/company-reset", { method: "POST", json: { confirmation: `RESET ${companyA.name}` } })],
+    ] as const;
+    for (const [label, response] of denied) {
+      assert(response.status === 403, `A member calling ${label} returned ${response.status} ${JSON.stringify(response.body).slice(0, 200)}, expected 403`);
+    }
+    pass("a member cannot change company settings, manage members, or reset the company (403)");
+
+    const roster = await expectJson<MemberList>(one, "/api/members", 200);
+    const active = roster.members.find((row) => row.email === memberEmail);
+    assert(active, `GET /api/members does not list ${memberEmail} as an active member`);
+    assert(!roster.pending.some((row) => row.email === memberEmail), "The pending record survived the member's sign-up");
+    const promoted = await expectJson<{ member: Member }>(one, "/api/members", 200, { method: "PATCH", json: { userId: active.userId, role: "owner" } });
+    assert(promoted.member.role === "owner", `Promotion returned the ${promoted.member.role} role`);
+    const demoted = await expectJson<{ member: Member }>(one, "/api/members", 200, { method: "PATCH", json: { userId: active.userId, role: "member" } });
+    assert(demoted.member.role === "member", `Demotion returned the ${demoted.member.role} role`);
+    pass("the owner promotes the member to owner and back to member");
+    const lastOwner = await json(one, "/api/members", { method: "PATCH", json: { userId: roster.currentUserId, role: "member" } });
+    assert(lastOwner.status === 409, `Demoting the only remaining owner returned ${lastOwner.status}, expected 409`);
+    pass("the last owner cannot demote themselves (409)");
+
+    const withdrawn = addressFor("withdrawn");
+    const queued = await expectJson<{ result: AddMemberResult }>(one, "/api/members", 201, { method: "POST", json: { email: withdrawn, role: "member" } });
+    assert(queued.result.status === "pending", `Adding ${withdrawn} returned ${JSON.stringify(queued.result)}, expected a pending record`);
+    const pendingRemoval = await call(one, "/api/members", { method: "DELETE", json: { pendingId: queued.result.pending.id } });
+    await pendingRemoval.arrayBuffer();
+    assert(pendingRemoval.status === 204, `Removing a pending member returned ${pendingRemoval.status}, expected 204`);
+    const afterWithdrawal = await expectJson<MemberList>(one, "/api/members", 200);
+    assert(!afterWithdrawal.pending.some((row) => row.email === withdrawn), `${withdrawn} is still pending after removal`);
+    pass("a waiting address can be withdrawn before it is ever claimed");
+
+    const removal = await call(one, "/api/members", { method: "DELETE", json: { userId: active.userId } });
+    await removal.arrayBuffer();
+    assert(removal.status === 204, `Removing the member returned ${removal.status}, expected 204`);
+    const deniedReturn = await json(member, "/api/companies/active", { method: "PUT", json: { companyId: companyA.id } });
+    assert(deniedReturn.status === 403, `The removed member switching back to company A returned ${deniedReturn.status}, expected 403`);
+    const stranded = await expectJson<{ companies: Company[] }>(member, "/api/companies", 200);
+    assert(!stranded.companies.some((company) => company.id === companyA.id), "Company A is still listed for the removed member");
+    // Removal ends access, not the sign-in: a user with no membership left is
+    // provisioned the empty company any first-time user receives.
+    assert(stranded.companies.length === 1, `The removed member sees ${stranded.companies.length} companies, expected one freshly provisioned company`);
+    pass("removing the member ends their access to company A while their sign-in survives");
+
+    const activity = await expectJson<{ entries: ActivityEntry[] }>(one, "/api/activity?limit=100", 200);
+    for (const action of ["member.added", "member.role_changed", "member.removed"]) {
+      const entry = activity.entries.find((row) => row.action === action);
+      assert(entry, `GET /api/activity has no ${action} entry; it lists ${activity.entries.map((row) => row.action).join(", ")}`);
+      assert(entry.actor?.email === ownerSession.email, `${action} is attributed to ${JSON.stringify(entry.actor)}, expected ${ownerSession.email}`);
+    }
+    pass("the activity log records member.added, member.role_changed and member.removed against the owner");
+  }
+
+  step("8. Deleting one company leaves the other untouched");
   await selectCompany(one, companyB.id);
   const deletedId = await deleteActiveCompany(one, nameB);
   assert(deletedId === companyB.id, `Reset deleted ${deletedId}, expected ${companyB.id}`);
@@ -309,7 +423,8 @@ async function main() {
     pass(`deleted the second user's company ${secondCompany.id}`);
   }
 
-  console.log(`\nMulti-company isolation passed: ${checks} checks in ${authMode} mode — two companies created and switched, blobs and every company-scoped read surface isolated, forged cookies rejected, selection persisted across a cookie-only request, and deletion confined to one company.`);
+  const membership = authMode === "better-auth" ? ", a member added by email then removed with the activity log naming the owner," : ",";
+  console.log(`\nMulti-company isolation passed: ${checks} checks in ${authMode} mode — two companies created and switched, blobs and every company-scoped read surface isolated, forged cookies rejected, selection persisted across a cookie-only request${membership} and deletion confined to one company.`);
 }
 
 main().catch((error: unknown) => {

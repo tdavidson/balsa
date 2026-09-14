@@ -101,22 +101,26 @@ financial system without weakening its company boundaries or audit trail.
 | Private local | One | One | Available now, with optional no-login mode |
 | Authenticated self-hosted | One | One | Available now with Better Auth |
 | Local multi-company | One | Many | Available now; one operator switches between and creates separately scoped companies from the account menu, or declares them in `COMPANIES` |
+| Self-hosted multi-user | Many | Many | Available now; an owner adds people to a company by email, members do the financial work without administering the company, and an activity log records who changed what |
 | Hosted multi-user | Many | One or many | Planned; role-based company memberships and server-enforced tenant isolation |
 | Hosted multi-company | Many | Many | Planned; shared operators can work across authorized companies without crossing data boundaries |
 
 “Multi-company” and “multi-user” are deliberately separate concerns. Local
 multi-company means one operator can manage several companies from a private
 installation; it does not imply collaboration or public network exposure.
-Hosted multi-user adds identity, invitations, roles, and company membership.
-Hosted multi-company then lets an authorized operator—such as a fractional CFO
-or finance team—work across multiple isolated company contexts.
+Self-hosted multi-user adds roles and company membership without leaving the
+operator's own installation; hosted multi-user adds invitation links, email
+delivery, and tenant operations on top of them. Hosted multi-company then lets
+an authorized operator—such as a fractional CFO or finance team—work across
+multiple isolated company contexts.
 
-The accounting core is already company-scoped, and local company creation and
-switching are in place. The path forward is to finish the single-company close
-and forecast loop, then harden the worker, storage, authorization, and
-row-level tenant controls required for a hosted service. The plans are
-documented separately in
+The accounting core is already company-scoped; local company creation and
+switching, member roles, and the audit log are in place. The path forward is to
+finish the single-company close and forecast loop, then harden the worker,
+storage, authorization, and row-level tenant controls required for a hosted
+service. The plans are documented separately in
 [local multi-company](docs/plans/local-multi-company.md),
+[multi-user](docs/plans/multi-user.md),
 [hosted multi-tenant](docs/plans/multi-tenant-hosted.md), and
 [post-single-player scale-up](docs/plans/post-single-player-scale-up.md).
 
@@ -164,6 +168,16 @@ while provisioning intended users; production sign-up is otherwise disabled.
 Whenever sign-up is enabled on a reachable host, also set `AUTH_SIGN_UP_CODE`:
 every registrant must type that code, so registration stays closed to everyone
 who has not been given it.
+
+To work on a company with other people, give each of them that code so they can
+register, then open **Members** in the account menu and add their email address
+with a role. Someone who has not registered yet is simply held until their first
+sign-in, which then opens the company that added them instead of an empty one.
+An owner administers the company—settings, members, and reset—while a member
+does every kind of financial work without those rights, and a company always
+keeps at least one owner. **Activity** in the same menu lists what changed, who
+changed it, and when, newest first. No mail is ever sent: the sign-up code
+decides who may register at all, and membership decides what they can reach.
 
 The complete configuration surface, including model providers, object storage,
 OCR, auth migration, and background reconciliation, is documented inline in
