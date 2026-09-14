@@ -13,6 +13,7 @@ export default async function HomePage() {
       key={context.company.id}
       company={{ id: context.company.id, name: context.company.name, currency: context.company.baseCurrency }}
       companies={companies.map(({ id, name, baseCurrency, role }) => ({ id, name, baseCurrency, role }))}
+      role={context.company.role}
       staleSelection={context.selection.staleSelection}
       user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }}
       modelOptions={getModelOptions()}
