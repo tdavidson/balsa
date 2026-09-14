@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getDatabase, recordAudit, approvalEvents, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sourceRows, sources, users } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -242,7 +242,14 @@ export async function POST(request: Request) {
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const rows = await getDatabase().select({
+  const db = getDatabase();
+  const interruptedAt = new Date(Date.now() - 15 * 60 * 1_000);
+  const staleRuns = await db.update(ingestionRuns).set({ status: "interrupted", error: "Processing was interrupted before completion.", completedAt: new Date(), updatedAt: new Date() }).where(and(eq(ingestionRuns.companyId, context.company.id), eq(ingestionRuns.status, "running"), lt(ingestionRuns.updatedAt, interruptedAt))).returning({ sourceId: ingestionRuns.sourceId });
+  if (staleRuns.length) {
+    const staleSourceIds = [...new Set(staleRuns.map((run) => run.sourceId))];
+    await Promise.all(staleSourceIds.map((sourceId) => db.update(sources).set({ ingestionStatus: "interrupted", ingestionError: "Processing was interrupted before completion.", processedAt: new Date(), updatedAt: new Date() }).where(and(eq(sources.id, sourceId), eq(sources.companyId, context.company.id)))));
+  }
+  const rows = await db.select({
     id: evidence.id,
     sourceName: evidence.sourceName,
     sourceMime: evidence.sourceMime,
@@ -267,7 +274,7 @@ export async function GET() {
     status: evidence.status,
     createdAt: evidence.createdAt,
   }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(100);
-  const runRows = await getDatabase().select({ id: ingestionRuns.id, sourceId: ingestionRuns.sourceId, stage: ingestionRuns.stage, status: ingestionRuns.status, error: ingestionRuns.error, startedAt: ingestionRuns.startedAt, completedAt: ingestionRuns.completedAt, metadata: ingestionRuns.metadata }).from(ingestionRuns).where(eq(ingestionRuns.companyId, context.company.id)).orderBy(desc(ingestionRuns.createdAt));
+  const runRows = await db.select({ id: ingestionRuns.id, sourceId: ingestionRuns.sourceId, stage: ingestionRuns.stage, status: ingestionRuns.status, error: ingestionRuns.error, startedAt: ingestionRuns.startedAt, completedAt: ingestionRuns.completedAt, metadata: ingestionRuns.metadata }).from(ingestionRuns).where(eq(ingestionRuns.companyId, context.company.id)).orderBy(desc(ingestionRuns.createdAt));
   const runsBySource = new Map<string, typeof runRows>();
   for (const run of runRows) runsBySource.set(run.sourceId, [...(runsBySource.get(run.sourceId) ?? []), run]);
   const facts = await getDatabase().select({ id: factRecords.id, evidenceId: factRecords.evidenceId, label: factRecords.label, value: factRecords.value, accountingRole: factRecords.accountingRole, sourceLocation: factRecords.sourceLocation, currency: factRecords.currency, confidence: factRecords.confidence, status: factRecords.status }).from(factRecords).where(eq(factRecords.companyId, context.company.id)).orderBy(desc(factRecords.createdAt));

@@ -32,6 +32,7 @@ const evidenceContextSchema = z.object({
 
 const inputSchema = modelRequestSchema.extend({
   message: z.string().trim().min(1).max(20_000),
+  threadId: z.string().trim().min(1).max(100).default("main"),
   month: z.string().regex(/^20\d{2}-\d{2}$/).optional(),
   history: z.array(conversationMessageSchema).max(20).default([]),
   evidence: z.array(evidenceContextSchema).max(20).default([]),
@@ -243,6 +244,6 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
   const reviewContext = focusedReview ? { type: "question" as const, text: focusedReview.question } : focusedDecision ? { type: "decision" as const, text: focusedDecision.question } : undefined;
-  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments, ...(reviewContext ? { reviewContext } : {}) });
+  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, threadId: body.data.threadId, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments, ...(reviewContext ? { reviewContext } : {}) });
   return NextResponse.json({ ...result, proposedDecisions: result.proposedDecisions.map((proposal) => ({ question: proposal.question, answer: proposal.answer, effectSummary: describeEffect(effectFromFlat(proposal.effect)) })), resolvedQuestionCount, resolvedDecisionIds, appliedEffects, toolsUsed: toolTranscript.map((entry) => entry.tool) });
 }

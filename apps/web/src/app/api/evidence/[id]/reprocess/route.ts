@@ -66,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       eq(ingestionRuns.companyId, context.company.id),
       eq(ingestionRuns.sourceId, source.sourceId!),
       eq(ingestionRuns.stage, "extraction"),
-      or(eq(ingestionRuns.status, "waiting"), eq(ingestionRuns.status, "running")),
+      or(eq(ingestionRuns.status, "waiting"), eq(ingestionRuns.status, "running"), eq(ingestionRuns.status, "interrupted")),
     ));
   };
   let bytes: Buffer;
