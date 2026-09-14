@@ -1,10 +1,16 @@
 import { auth, authMode } from "@/lib/auth";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { AccountMenu } from "@/components/account-menu";
 import { requireCompanyAccess } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "How Nevermodel works",
+  description: "How Nevermodel turns evidence and company knowledge into auditable accounting, financial statements, and forecasts.",
+};
 
 const serif = (size: number) => ({ fontVariationSettings: `"opsz" ${size}` });
 
