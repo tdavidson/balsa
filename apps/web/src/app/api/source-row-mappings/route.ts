@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { chartAccounts, factRecords, getDatabase, sourceRowMappings, sourceRows } from "@finance/database";
+import { chartAccounts, decisions, factRecords, getDatabase, policies, sourceRowMappings, sourceRows } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 
 const body = z.object({ sourceRowId: z.string().uuid().optional(), factId: z.string().uuid().optional(), chartAccountId: z.string().uuid().optional(), offsetAccountId: z.string().uuid().optional(), mappingType: z.enum(["account_balance", "journal_template", "counterparty", "recognition"]), template: z.record(z.string(), z.unknown()), decisionId: z.string().uuid().optional(), policyId: z.string().uuid().optional(), effectiveFrom: z.string().regex(/^\d{4}-\d{2}$/).optional(), effectiveTo: z.string().regex(/^\d{4}-\d{2}$/).optional(), supersedesId: z.string().uuid().optional() }).refine((value) => value.sourceRowId || value.factId, "A source row or fact is required");
@@ -23,6 +23,8 @@ export async function POST(request: Request) {
   if (value.factId && !(await db.select({ id: factRecords.id }).from(factRecords).where(and(eq(factRecords.id, value.factId), eq(factRecords.companyId, context.company.id))).limit(1))[0]) return NextResponse.json({ error: "Fact not found" }, { status: 404 });
   const accountIds = [value.chartAccountId, value.offsetAccountId].filter((id): id is string => Boolean(id));
   if (accountIds.length && (await db.select({ id: chartAccounts.id }).from(chartAccounts).where(and(eq(chartAccounts.companyId, context.company.id), inArray(chartAccounts.id, accountIds)))).length !== accountIds.length) return NextResponse.json({ error: "Mapping account not found" }, { status: 404 });
+  if (value.decisionId && !(await db.select({ id: decisions.id }).from(decisions).where(and(eq(decisions.id, value.decisionId), eq(decisions.companyId, context.company.id))).limit(1))[0]) return NextResponse.json({ error: "Mapping decision not found" }, { status: 404 });
+  if (value.policyId && !(await db.select({ id: policies.id }).from(policies).where(and(eq(policies.id, value.policyId), eq(policies.companyId, context.company.id))).limit(1))[0]) return NextResponse.json({ error: "Mapping policy not found" }, { status: 404 });
   if (value.supersedesId && !(await db.select({ id: sourceRowMappings.id }).from(sourceRowMappings).where(and(eq(sourceRowMappings.id, value.supersedesId), eq(sourceRowMappings.companyId, context.company.id), eq(sourceRowMappings.status, "approved"))).limit(1))[0]) return NextResponse.json({ error: "Superseded mapping must be an approved company mapping" }, { status: 409 });
   const prior = await db.select({ version: sourceRowMappings.version }).from(sourceRowMappings).where(and(eq(sourceRowMappings.companyId, context.company.id), eq(sourceRowMappings.mappingType, value.mappingType), value.sourceRowId ? eq(sourceRowMappings.sourceRowId, value.sourceRowId) : eq(sourceRowMappings.factId, value.factId!)));
   const version = String(Math.max(0, ...prior.map((row) => Number(row.version) || 0)) + 1);
