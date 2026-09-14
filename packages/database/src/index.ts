@@ -28,5 +28,7 @@ export async function closeDatabase() {
 }
 
 export type { Database };
+export * from "./audit";
 export * from "./company-scope";
+export * from "./member-repository";
 export * from "./schema";

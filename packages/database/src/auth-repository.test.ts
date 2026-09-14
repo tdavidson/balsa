@@ -8,7 +8,7 @@ import postgres from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 import { createDatabaseAuthRepository } from "./auth-repository";
 import * as schema from "./schema";
-import { companies, companyMembers, evidence, journalEntries, sources, users } from "./schema";
+import { companies, companyMembers, evidence, journalEntries, pendingMembers, sources, users } from "./schema";
 
 config({ path: fileURLToPath(new URL("../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -236,6 +236,60 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     expect(separate.user.id).not.toBe(otherUser.id);
     const [untouched] = await database.select().from(users).where(eq(users.id, otherUser.id));
     expect(untouched?.authProvider).toBe("disabled");
+  });
+
+  it("attaches a pending membership on first provisioning instead of creating a default company", async () => {
+    const owner = await createUser("inviting-owner");
+    const company = await createCompany(owner.id, "Inviting");
+    const invitedEmail = `invited-${run}@example.test`;
+    await database.insert(pendingMembers).values({ companyId: company.id, email: invitedEmail, role: "member", addedByUserId: owner.id });
+
+    const provisioned = await withConfiguredCompanies(undefined, () =>
+      repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `invited-${run}`, email: invitedEmail, name: "Invited" }),
+    );
+    await trackProvisioned(provisioned.user.id);
+
+    // The invited person lands in the company that added them, and nothing else.
+    expect(provisioned.company.id).toBe(company.id);
+    expect(provisioned.company.role).toBe("member");
+    expect((await repository.listCompaniesForUser(provisioned.user.id)).map((entry) => entry.id)).toEqual([company.id]);
+
+    // The pending row is consumed, so a second sign-in changes nothing.
+    expect(await database.select().from(pendingMembers).where(eq(pendingMembers.companyId, company.id))).toEqual([]);
+    const again = await repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `invited-${run}`, email: invitedEmail, name: "Invited" });
+    expect(again.company.id).toBe(company.id);
+    expect((await repository.listCompaniesForUser(provisioned.user.id))).toHaveLength(1);
+  });
+
+  it("matches a pending address case-insensitively and leaves an existing membership's role alone", async () => {
+    const owner = await createUser("case-owner");
+    const first = await createCompany(owner.id, "Case First");
+    const second = await createCompany(owner.id, "Case Second");
+    const memberEmail = `Case-Member-${run}@Example.test`;
+
+    // The member already owns `second`; a later pending row for the same
+    // company must not downgrade that.
+    const [existing] = await database
+      .insert(users)
+      .values({ authProvider: `test-${run}`, authProviderUserId: `case-member-${run}`, email: memberEmail, name: "Case" })
+      .returning();
+    if (!existing) throw new Error("Unable to create the test user");
+    createdUserIds.push(existing.id);
+    await database.insert(companyMembers).values({ companyId: second.id, userId: existing.id, role: "owner" });
+    await database.insert(pendingMembers).values([
+      { companyId: first.id, email: memberEmail.toLocaleLowerCase(), role: "member", addedByUserId: owner.id },
+      { companyId: second.id, email: memberEmail.toLocaleLowerCase(), role: "member", addedByUserId: owner.id },
+    ]);
+
+    await repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `case-member-${run}`, email: memberEmail, name: "Case" });
+
+    const listed = await repository.listCompaniesForUser(existing.id);
+    expect(new Map(listed.map((entry) => [entry.id, entry.role]))).toEqual(
+      new Map([
+        [first.id, "member"],
+        [second.id, "owner"],
+      ]),
+    );
   });
 
   it("refuses to resolve another user's company", async () => {
