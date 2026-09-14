@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, policies, reviewItems } from "@finance/database";
+import { decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, policies, recordAudit, reviewItems } from "@finance/database";
 import { isCategory, isValidMonth, type Category } from "@nevermodel/finance-engine";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -214,10 +214,14 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
   for (const resolution of result.resolvedQuestions.filter((item) => item.id === body.data.reviewQuestionId)) {
     const review = openReviewById.get(resolution.id);
     if (!review) continue;
-    const [resolved] = await db.update(reviewItems).set({ answer: body.data.message, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.id, resolution.id), eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
+    const [resolved] = await db.update(reviewItems).set({ answer: body.data.message, status: "resolved", resolvedByUserId: context.user.id, updatedAt: new Date() }).where(and(eq(reviewItems.id, resolution.id), eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
     if (!resolved) continue;
     resolvedQuestionCount += 1;
-    await db.insert(decisions).values({ companyId: context.company.id, question: review.question, answer: body.data.message, status: "applied" });
+    // Chat writes run statement by statement; the resolution is the primary
+    // write, and the CFO who typed the reply owns it even though it came in
+    // through the agent.
+    await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "agent", action: "review.answered", entityType: "review_item", entityId: resolution.id, summary: `Answered review question: ${review.question.slice(0, 120)}`, after: { answer: body.data.message } });
+    await db.insert(decisions).values({ companyId: context.company.id, question: review.question, answer: body.data.message, status: "applied", createdByUserId: context.user.id });
     await recordOnboardingKnowledge(db, context.company.id, { id: review.id, reviewKey: review.reviewKey, question: review.question, answer: body.data.message });
   }
   // Proposed decisions remain proposals until the CFO presses Apply or Reject;
@@ -235,7 +239,7 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
   });
   if (newQuestions.length) await db.insert(reviewItems).values(newQuestions.map((question) => ({ companyId: context.company.id, evidenceId: focusedReview?.evidenceId, question })));
   if (result.proposedDecisions.length) {
-    await db.insert(decisions).values(result.proposedDecisions.map((proposal) => { const effect = effectFromFlat(proposal.effect); return { companyId: context.company.id, question: proposal.question, answer: proposal.answer, status: "proposed", ...(effect ? { effect: JSON.stringify(effect) } : {}) }; }));
+    await db.insert(decisions).values(result.proposedDecisions.map((proposal) => { const effect = effectFromFlat(proposal.effect); return { companyId: context.company.id, question: proposal.question, answer: proposal.answer, status: "proposed", createdByUserId: context.user.id, ...(effect ? { effect: JSON.stringify(effect) } : {}) }; }));
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
   await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });

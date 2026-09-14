@@ -31,6 +31,9 @@ export async function POST(request: Request) {
   const db = getDatabase();
   const fileRows = await db.select({ storageReference: sources.storageReference }).from(sources).where(eq(sources.companyId, context.company.id));
   for (const file of fileRows) if (file.storageReference) await deleteSourceBlob(file.storageReference);
+  // No audit row: `audit_log.company_id` cascades, so the record of the reset
+  // would be deleted by the very statement it describes, and the company has no
+  // other log to hold it.
   await db.delete(companies).where(eq(companies.id, context.company.id));
   // The preference now names a deleted company; clearing it lets the next
   // request fall back to an authorized company instead of a stale id.

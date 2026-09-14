@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
-import { getDatabase, approvalEvents, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sourceRows, sources, users } from "@finance/database";
+import { getDatabase, recordAudit, approvalEvents, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sourceRows, sources, users } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
@@ -294,7 +294,7 @@ export async function PATCH(request: Request) {
   if (!body.success) return NextResponse.json({ error: "Invalid evidence update" }, { status: 400 });
   const context = await requireCompanyAccess();
   const db = getDatabase();
-  const [existing] = await db.select({ id: evidence.id, sourceId: evidence.sourceId, identityStatus: evidence.identityStatus, status: evidence.status, currency: evidence.currency, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, sourceMetadata: sources.metadata }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
+  const [existing] = await db.select({ id: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, identityStatus: evidence.identityStatus, status: evidence.status, currency: evidence.currency, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, sourceMetadata: sources.metadata }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
   if (!existing) return NextResponse.json({ error: "Evidence not found" }, { status: 404 });
 
   const invalidatePublication = async () => {
@@ -323,6 +323,9 @@ export async function PATCH(request: Request) {
       await db.update(evidence).set({ extractedJson: JSON.stringify(extraction), updatedAt: new Date() }).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
     }
     await db.insert(approvalEvents).values({ companyId: context.company.id, evidenceId: body.data.id, factId: body.data.factId, userId: context.user.id, layer: body.data.layer ?? "fact", action: body.data.status ?? "updated", previousValue: JSON.stringify({ status: currentFact.status, accountingRole: currentFact.accountingRole }), nextValue: JSON.stringify({ status: nextStatus, accountingRole: nextRole }), metadata: JSON.stringify({ label: currentFact.label }) });
+    // The approval event is the primary write here; this route runs without a
+    // transaction, so the audit row follows it immediately.
+    if (body.data.status === "approved" || body.data.status === "rejected") await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: `evidence.${body.data.status}`, entityType: "evidence", entityId: body.data.id, summary: `${body.data.status === "approved" ? "Approved" : "Rejected"} ${existing.sourceName} (${body.data.layer ?? "fact"} layer)`, before: { status: currentFact.status, accountingRole: currentFact.accountingRole }, after: { status: nextStatus, accountingRole: nextRole } });
   } else if (body.data.extractedJson) {
     await invalidatePublication();
     const edited = JSON.parse(body.data.extractedJson) as { facts?: { label: string; value: string; accountingRole?: string; confidence: number }[]; questions?: string[] };
@@ -337,6 +340,7 @@ export async function PATCH(request: Request) {
     if (identityStatus !== "approved") await invalidatePublication();
     await db.update(evidence).set({ identityStatus, ...(identityStatus === "rejected" ? { status: "rejected" as const, publishedAt: null } : { status: "pending" as const }), updatedAt: new Date() }).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
     await db.insert(approvalEvents).values({ companyId: context.company.id, evidenceId: body.data.id, userId: context.user.id, layer: "document", action: identityStatus, previousValue: existing.identityStatus, nextValue: identityStatus });
+    if (identityStatus !== "pending") await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: `evidence.${identityStatus}`, entityType: "evidence", entityId: body.data.id, summary: `${identityStatus === "approved" ? "Approved" : "Rejected"} ${existing.sourceName} (document layer)`, before: { identityStatus: existing.identityStatus }, after: { identityStatus } });
   }
 
   const [document] = await db.select({ id: evidence.id, sourceId: evidence.sourceId, identityStatus: evidence.identityStatus, status: evidence.status, currency: evidence.currency, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, sourceMetadata: sources.metadata }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { decisions, getDatabase, policies, reviewItems, assumptions, economicItems } from "@finance/database";
+import { decisions, getDatabase, recordAudit, policies, reviewItems, assumptions, economicItems } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { z } from "zod";
 import { applyDecisionIfEffective, decisionEffectSchema, describeEffect, parseStoredEffect } from "@/lib/decision-effects";
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const body = decisionCreate.safeParse(await request.json());
   if (!body.success) return NextResponse.json({ error: "question and answer are required" }, { status: 400 });
   const data = body.data;
-  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined, effect: data.effect ? JSON.stringify(data.effect) : undefined }).returning();
+  const [decision] = await getDatabase().insert(decisions).values({ companyId: context.company.id, question: data.question, answer: data.answer, appliesTo: data.appliesTo || undefined, effect: data.effect ? JSON.stringify(data.effect) : undefined, createdByUserId: context.user.id }).returning();
   const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: data.answer, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, data.question), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
   // A decision typed by the CFO is applied on creation; run its effect now.
   const applied = decision && data.effect ? await applyDecisionIfEffective(context.company.id, decision.id).catch((error: unknown) => ({ applied: `failed: ${error instanceof Error ? error.message : "unknown error"}` })) : null;
@@ -39,6 +39,9 @@ export async function PATCH(request: Request) {
   const context = await requireCompanyAccess();
   const [decision] = await getDatabase().update(decisions).set({ status: body.data.status, updatedAt: new Date() }).where(and(eq(decisions.id, body.data.id), eq(decisions.companyId, context.company.id))).returning();
   if (!decision) return NextResponse.json({ error: "Decision not found" }, { status: 404 });
+  // The status change is the primary write; the effect below may still fail, so
+  // the log records what the CFO decided, not whether the effect landed.
+  if (body.data.status !== "proposed") await recordAudit(getDatabase(), { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: `decision.${body.data.status}`, entityType: "decision", entityId: decision.id, summary: `${body.data.status === "applied" ? "Applied" : "Rejected"} decision: ${decision.question.slice(0, 120)}`, after: { status: body.data.status } });
   let mutation = null;
   if (body.data.status === "applied" && decision.effect) {
     try { mutation = await applyDecisionIfEffective(context.company.id, decision.id); } catch (error) { return NextResponse.json({ error: `Decision recorded, but its effect failed: ${error instanceof Error ? error.message : "unknown error"}`, decision }, { status: 502 }); }
