@@ -242,6 +242,7 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
     await db.insert(decisions).values(result.proposedDecisions.map((proposal) => { const effect = effectFromFlat(proposal.effect); return { companyId: context.company.id, question: proposal.question, answer: proposal.answer, status: "proposed", createdByUserId: context.user.id, ...(effect ? { effect: JSON.stringify(effect) } : {}) }; }));
   }
   const responseText = JSON.stringify({ answer: result.answer, questions: result.questions, forecastExplanation: result.forecastExplanation });
-  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments });
+  const reviewContext = focusedReview ? { type: "question" as const, text: focusedReview.question } : focusedDecision ? { type: "decision" as const, text: focusedDecision.question } : undefined;
+  await recordConversation(db, { companyId: context.company.id, userId: context.user.id, runId: runIds.at(-1), runIds, question: body.data.message, response: responseText, model: provider.model, attachments: body.data.attachments, ...(reviewContext ? { reviewContext } : {}) });
   return NextResponse.json({ ...result, proposedDecisions: result.proposedDecisions.map((proposal) => ({ question: proposal.question, answer: proposal.answer, effectSummary: describeEffect(effectFromFlat(proposal.effect)) })), resolvedQuestionCount, resolvedDecisionIds, appliedEffects, toolsUsed: toolTranscript.map((entry) => entry.tool) });
 }
