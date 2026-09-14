@@ -111,6 +111,12 @@ and hosted tenant operations are outside the scope of this repository.
 
 ## Quick start
 
+Nevermodel includes an automated, non-destructive setup command. It creates the
+local environment file when needed, generates blank application secrets,
+prepares file storage, installs dependencies, starts local PostgreSQL, and
+applies all checked-in database migrations. Existing configuration and secrets
+are preserved.
+
 ### Requirements
 
 - Node.js 22+
@@ -121,14 +127,16 @@ and hosted tenant operations are outside the scope of this repository.
 ```bash
 git clone https://github.com/tdavidson/nevermodel.git
 cd nevermodel
-cp .env.example .env
-docker compose up -d
-pnpm install
-pnpm db:migrate
+pnpm run setup
+pnpm run doctor
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+See the [Nevermodel getting-started guide](https://nevermodel.com/docs/getting-started)
+for detailed installation, configuration, authentication, and deployment
+instructions.
 
 For the shortest private local setup, set `AUTH_MODE=disabled` in `.env` and
 configure `LOCAL_OWNER_EMAIL`. That address names the installation owner
@@ -169,6 +177,11 @@ The complete configuration surface, including model providers, file storage,
 OCR, auth migration, and background reconciliation, is documented inline in
 [`.env.example`](.env.example).
 
+Coding agents should begin with [`AGENTS.md`](AGENTS.md). The complete automated
+workflow, setup flags, diagnostics, and full-app Docker quickstart are in
+[`docs/agent-setup.md`](docs/agent-setup.md). To run the entire application in
+containers after configuring `.env`, use `docker compose --profile full up --build`.
+
 ## Try the operating loop
 
 1. Enter an opening cash balance, such as `opening cash 2026-09 $10,000`.
@@ -186,6 +199,9 @@ Reusable sample inputs live in [`fixtures/company-zero`](fixtures/company-zero).
 ## Development
 
 ```bash
+pnpm run setup    # non-destructive first-run setup
+pnpm run doctor   # diagnose environment and migration readiness
+pnpm run verify   # doctor, typecheck, test, and build
 pnpm dev          # start the web application
 pnpm build        # create a production build
 pnpm typecheck    # typecheck every package

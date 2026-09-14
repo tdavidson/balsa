@@ -1,0 +1,17 @@
+.git
+.github
+.next
+**/.next
+node_modules
+**/node_modules
+coverage
+**/coverage
+dist
+**/dist
+.env
+.env.*
+!.env.example
+.data
+*.log
+*.tsbuildinfo
+.DS_Store
