@@ -1427,7 +1427,7 @@ export function AppShell({ company, user, modelOptions, loginEnabled }: AppShell
               </Link>
             </div>
             <Link href="/about" className={quietButton}>
-              <CircleHelp className="size-3.5" aria-hidden="true" /> How to use
+              <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
             </Link>
           </div>
           {notice && (
