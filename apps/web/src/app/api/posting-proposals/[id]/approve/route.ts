@@ -14,7 +14,7 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (proposal.status === "rejected") return NextResponse.json({ error: "Rejected proposals cannot be posted" }, { status: 409 });
   try {
     const posted = await postApprovedJournal(context.company.id, JSON.parse(proposal.proposalJson) as JournalPostingRequest);
-    await getDatabase().update(postingProposals).set({ status: "posted", journalEntryId: posted.entryId, approvedAt: new Date(), updatedAt: new Date() }).where(eq(postingProposals.id, proposal.id));
+    await getDatabase().update(postingProposals).set({ status: "posted", journalEntryId: posted.entryId, approvedAt: new Date(), updatedAt: new Date() }).where(and(eq(postingProposals.id, proposal.id), eq(postingProposals.companyId, context.company.id)));
     await getDatabase().update(postingRuleApplications).set({ outcome: "posted", updatedAt: new Date() }).where(and(eq(postingRuleApplications.companyId, context.company.id), eq(postingRuleApplications.postingProposalId, proposal.id)));
     return NextResponse.json(posted);
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Proposal approval failed" }, { status: 409 }); }

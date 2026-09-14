@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { postingProposals, getDatabase } from "@finance/database";
-import { and, desc, eq } from "drizzle-orm";
+import { approvalEvents, chartAccounts, decisions, evidence, factRecords, policies, postingProposals, getDatabase, sourceRows, sources } from "@finance/database";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { requireCompanyAccess } from "@/lib/auth";
 
 const line = z.object({ accountId: z.string().uuid(), currency: z.string().regex(/^[A-Z]{3}$/), debitMinor: z.string().regex(/^\d+$/), creditMinor: z.string().regex(/^\d+$/), entityId: z.string().uuid().optional(), externalKey: z.string().min(1).optional(), sourceId: z.string().uuid().optional(), sourceRowId: z.string().uuid().optional(), evidenceId: z.string().uuid().optional(), factId: z.string().uuid().optional(), decisionId: z.string().uuid().optional(), policyId: z.string().uuid().optional(), approvalEventId: z.string().uuid().optional(), sourceLocation: z.string().optional(), memo: z.string().optional() });
@@ -23,6 +23,13 @@ export async function POST(request: Request) {
   const parsed = body.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid posting proposal", details: parsed.error.flatten() }, { status: 400 });
   const value = parsed.data;
+  const db = getDatabase();
+  // Provenance and account ids arrive from a model-assisted client, so a draft may never reference another company's records.
+  const references = [["source", sources, [value.sourceId, ...value.lines.map((row) => row.sourceId)]], ["source row", sourceRows, [value.sourceRowId, ...value.lines.map((row) => row.sourceRowId)]], ["evidence", evidence, [value.evidenceId, ...value.lines.map((row) => row.evidenceId)]], ["fact", factRecords, [value.factId, ...value.lines.map((row) => row.factId)]], ["decision", decisions, [value.decisionId, ...value.lines.map((row) => row.decisionId)]], ["policy", policies, [value.policyId, ...value.lines.map((row) => row.policyId)]], ["approval event", approvalEvents, [value.approvalEventId, ...value.lines.map((row) => row.approvalEventId)]], ["account", chartAccounts, value.lines.map((row) => row.accountId)]] as const;
+  for (const [label, table, candidates] of references) {
+    const ids = [...new Set((candidates as readonly (string | undefined)[]).filter((id): id is string => Boolean(id)))];
+    if (ids.length && (await db.select({ id: table.id }).from(table).where(and(eq(table.companyId, context.company.id), inArray(table.id, ids)))).length !== ids.length) return NextResponse.json({ error: `Every referenced ${label} must belong to the company.` }, { status: 404 });
+  }
   try {
     const [proposal] = await getDatabase().insert(postingProposals).values(JSON.parse(JSON.stringify({ companyId: context.company.id, sourceId: value.sourceId, sourceRowId: value.sourceRowId, evidenceId: value.evidenceId, factId: value.factId, decisionId: value.decisionId, policyId: value.policyId, externalKey: value.idempotencyKey, proposalJson: JSON.stringify(value), rationale: value.rationale, confidence: value.confidence, status: "draft" }))).returning();
     return NextResponse.json({ proposal }, { status: 201 });
