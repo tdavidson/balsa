@@ -46,6 +46,17 @@ pnpm build
 Run `pnpm acceptance` as well when changing ingestion, financial calculations,
 database behavior, or the Company Zero workflow.
 
+`pnpm test` includes database-backed tests in `packages/database` whenever
+`DATABASE_URL` (or `TEST_DATABASE_URL`) points at a migrated PostgreSQL; they
+skip themselves when neither is set, so run `pnpm db:migrate` first if you want
+the company repository and row level security coverage.
+
+Run `pnpm isolation` when changing company selection, company-scoped routes, or
+row level security. It is a black-box acceptance script rather than a unit test:
+start the application first, point it at the instance with `BASE_URL`, and pick
+the mode with `ISOLATION_AUTH_MODE=disabled` or
+`ISOLATION_AUTH_MODE=better-auth`. Both modes must pass.
+
 In the pull request, explain the problem, behavior before and after, verification,
 and any schema, security, migration, deployment, or accounting impact. Clarify
 whether AI proposes the result or deterministic code authorizes and calculates it.

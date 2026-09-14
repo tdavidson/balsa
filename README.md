@@ -100,7 +100,7 @@ financial system without weakening its company boundaries or audit trail.
 | --- | --- | --- | --- |
 | Private local | One | One | Available now, with optional no-login mode |
 | Authenticated self-hosted | One | One | Available now with Better Auth |
-| Local multi-company | One | Many | Next product step; switch between separately scoped companies in one private installation |
+| Local multi-company | One | Many | Available now; one operator switches between and creates separately scoped companies from the account menu |
 | Hosted multi-user | Many | One or many | Planned; role-based company memberships and server-enforced tenant isolation |
 | Hosted multi-company | Many | Many | Planned; shared operators can work across authorized companies without crossing data boundaries |
 
@@ -111,10 +111,11 @@ Hosted multi-user adds identity, invitations, roles, and company membership.
 Hosted multi-company then lets an authorized operator—such as a fractional CFO
 or finance team—work across multiple isolated company contexts.
 
-The accounting core is already company-scoped. The path forward is to finish
-the single-company close and forecast loop, add local company creation and
-switching, then harden the worker, storage, authorization, and row-level tenant
-controls required for a hosted service. The plans are documented separately in
+The accounting core is already company-scoped, and local company creation and
+switching are in place. The path forward is to finish the single-company close
+and forecast loop, then harden the worker, storage, authorization, and
+row-level tenant controls required for a hosted service. The plans are
+documented separately in
 [local multi-company](docs/plans/local-multi-company.md),
 [hosted multi-tenant](docs/plans/multi-tenant-hosted.md), and
 [post-single-player scale-up](docs/plans/post-single-player-scale-up.md).
