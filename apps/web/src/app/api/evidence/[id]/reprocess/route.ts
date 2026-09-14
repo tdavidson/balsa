@@ -20,6 +20,7 @@ import { takeRateLimit } from "@/lib/request-rate-limit";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { hasScheduledJobAuthorization } from "@/lib/cron-auth";
 import { optionalStatementDateSchema } from "@/lib/statement-date";
+import { validQuestionsForSource } from "@/lib/source-review-questions";
 
 const extractionSchema = z.object({
   summary: z.string(),
@@ -107,7 +108,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       name: "financial_evidence_reprocess",
       schema: extractionSchema,
       jsonSchema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, statementMetadata: { type: "object", additionalProperties: false, properties: { accountHolder: { type: "string" }, accountIdentifier: { type: "string" }, statementPeriodStart: { type: "string", pattern: "^20\\d{2}-\\d{2}-\\d{2}$" }, statementPeriodEnd: { type: "string", pattern: "^20\\d{2}-\\d{2}-\\d{2}$" }, openingBalance: { type: "string" }, endingBalance: { type: "string" } } }, facts: { type: "array", items: { type: "object", additionalProperties: false, properties: { label: { type: "string" }, value: { type: "string" }, accountingRole: { type: "string", enum: ["transaction", "opening_balance", "ending_balance", "transfer", "investment_movement", "revenue", "expense", "financing", "summary", "agreement", "unknown"] }, confidence: { type: "number" } }, required: ["label", "value", "accountingRole", "confidence"] } }, questions: { type: "array", items: { type: "string" } } }, required: ["summary", "facts", "questions"] },
-      instructions: `Re-extract only explicit facts from this retained source. Preserve full dates, amounts, account identifiers, counterparties, descriptions, notes, and statement metadata. Do not invent details. ${sourceRole === "reference_model" ? "This is a reference financial model. Describe its structure, schedules, periods, and explicit drivers, but do not treat spreadsheet formulas or model outputs as actual transactions, approved balances, or accounting facts. Use unknown for treatment unless independently evidenced." : ""} Combine duplicative questions. If PDF text extraction is weak, ask for a searchable or OCR-processed copy instead of inferring values. Apply these company policies: ${JSON.stringify(activePolicies)}`,
+      instructions: `Re-extract only explicit facts from this retained source. Preserve full dates, amounts, account identifiers, counterparties, descriptions, notes, and statement metadata. Do not invent details. ${sourceRole === "reference_model" ? "This is a reference financial model. Describe its structure, schedules, periods, and explicit drivers, but do not treat spreadsheet formulas or model outputs as actual transactions, approved balances, or accounting facts. Use unknown for treatment unless independently evidenced." : ""} Combine duplicative questions.${pdfQuality && pdfQuality.status !== "good" ? ` This is a PDF with ${pdfQuality.status} text extraction quality. Ask for a searchable or OCR-processed copy instead of inferring missing values.` : ""} Apply these company policies: ${JSON.stringify(activePolicies)}`,
       messages: [{ role: "user", content }],
     });
   } catch (error) {
@@ -120,7 +121,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const sourceClassification = classifySource({ filename: source.sourceName, mimeType: source.sourceMime, text: content, sourceRole });
   const detectedCurrencies = detectSourceCurrencies(content);
   const sourceCurrency = detectedCurrencies.length === 1 ? detectedCurrencies[0] : undefined;
-  const extraction = { ...extracted, facts: mergeStatementFacts(extracted.facts, extractStructuredStatementFacts(content, sourceClassification.kind)) };
+  const extraction = { ...extracted, facts: mergeStatementFacts(extracted.facts, extractStructuredStatementFacts(content, sourceClassification.kind)), questions: validQuestionsForSource(extracted.questions, { isPdf: source.sourceMime?.includes("pdf") === true || /\.pdf$/i.test(source.sourceName) }) };
   const previousFacts = (() => { try { const parsed = source.previousExtractedJson ? JSON.parse(source.previousExtractedJson) as { facts?: EvidenceFact[] } : {}; return parsed.facts ?? []; } catch { return []; } })();
   const changes = compareEvidenceFacts(previousFacts, extraction.facts);
   const statementMetadata = extraction.statementMetadata;

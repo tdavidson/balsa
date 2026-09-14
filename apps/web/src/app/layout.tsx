@@ -20,7 +20,7 @@ const serif = localFont({
 
 export const metadata: Metadata = {
   title: "Nevermodel",
-  description: "An auditable, LLM-native financial operating system.",
+  description: "A radical approach to an LLM-native financial operating system",
   icons: { icon: "/api/company/favicon" },
 };
 

@@ -34,19 +34,22 @@ export async function GET() {
   for (const row of rows) {
     if (row.role !== "user") continue;
     const raw = row.runId ? answers.get(row.runId) : undefined;
-    const attachments = readAttachments(row.metadata);
-    turns.push({ id: row.id, question: row.content, answer: readableAnswer(raw), ...(attachments ? { attachments } : {}), model: row.model, createdAt: row.createdAt.toISOString() });
+    const metadata = readConversationMetadata(row.metadata);
+    turns.push({ id: row.id, question: row.content, answer: readableAnswer(raw), ...(metadata.attachments ? { attachments: metadata.attachments } : {}), ...(metadata.reviewContext ? { reviewContext: metadata.reviewContext } : {}), model: row.model, createdAt: row.createdAt.toISOString() });
   }
   return NextResponse.json({ turns });
 }
 
-function readAttachments(metadata: string | null) {
-  if (!metadata) return undefined;
+function readConversationMetadata(metadata: string | null): Pick<ConversationTurn, "attachments" | "reviewContext"> {
+  if (!metadata) return {};
   try {
-    const parsed = JSON.parse(metadata) as { attachments?: unknown };
-    return Array.isArray(parsed.attachments) ? parsed.attachments.filter((name): name is string => typeof name === "string") : undefined;
+    const parsed = JSON.parse(metadata) as { attachments?: unknown; reviewContext?: unknown };
+    const attachments = Array.isArray(parsed.attachments) ? parsed.attachments.filter((name): name is string => typeof name === "string") : undefined;
+    const candidate = parsed.reviewContext as { type?: unknown; text?: unknown } | undefined;
+    const reviewContext: ConversationTurn["reviewContext"] = candidate && (candidate.type === "question" || candidate.type === "decision") && typeof candidate.text === "string" ? { type: candidate.type, text: candidate.text } : undefined;
+    return { ...(attachments ? { attachments } : {}), ...(reviewContext ? { reviewContext } : {}) };
   } catch {
-    return undefined;
+    return {};
   }
 }
 

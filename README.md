@@ -1,6 +1,6 @@
 # Nevermodel
 
-**An open-source financial operating system you talk to—and that never does the math by talking.**
+**A radical approach to an LLM-native financial operating system.**
 
 Nevermodel turns the evidence a company already produces into an auditable,
 continuously maintained financial model. Upload bank activity, invoices,

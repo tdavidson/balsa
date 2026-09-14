@@ -22,6 +22,7 @@ import { buildEvidencePublication } from "@/lib/evidence-publication";
 import { applyApprovedEvidence } from "@/lib/apply-evidence";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { optionalStatementDateSchema } from "@/lib/statement-date";
+import { validQuestionsForSource } from "@/lib/source-review-questions";
 
 const inputSchema = modelRequestSchema.extend({
   text: z.string().trim().min(3).max(100_000),
@@ -183,7 +184,7 @@ export async function POST(request: Request) {
   const resolvedReportingMonth = reportingMonth ?? statementMetadata?.statementPeriodEnd?.slice(0, 7);
   const sourceDate = statementMetadata?.statementPeriodStart ?? sourceName.match(/(?:^|[-_])dt-(20\d{2}-\d{2}-\d{2})(?:[-_.]|$)/i)?.[1] ?? (resolvedReportingMonth ? `${resolvedReportingMonth}-01` : undefined);
   const statementFacts = extractStructuredStatementFacts(rawText, sourceClassification.kind);
-  const extraction = { ...extracted, facts: expandFinancialFactDates(mergeStatementFacts(extracted.facts, statementFacts), sourceDate) };
+  const extraction = { ...extracted, facts: expandFinancialFactDates(mergeStatementFacts(extracted.facts, statementFacts), sourceDate), questions: validQuestionsForSource(extracted.questions, { isPdf: /\.pdf$/i.test(sourceName) || sourceMime?.includes("pdf") === true }) };
   await recordLlmRun({ db: getDatabase(), provider, companyId: context.company.id, userId: context.user.id, operation: "evidence_extraction", request: { sourceName, sourceMime, reportingMonth, content: csv }, response: JSON.stringify(extraction) });
 
   await getDatabase().update(evidence).set({ reportingMonth: resolvedReportingMonth, accountHolder: statementMetadata?.accountHolder, accountIdentifier: statementMetadata?.accountIdentifier, statementPeriodStart: statementMetadata?.statementPeriodStart, statementPeriodEnd: statementMetadata?.statementPeriodEnd, openingBalance: statementMetadata?.openingBalance ? String(parseFinancialAmount(statementMetadata.openingBalance) ?? "") : undefined, endingBalance: statementMetadata?.endingBalance ? String(parseFinancialAmount(statementMetadata.endingBalance) ?? "") : undefined, extractedJson: JSON.stringify(extraction), updatedAt: new Date() }).where(and(eq(evidence.id, row!.id), eq(evidence.companyId, context.company.id)));
