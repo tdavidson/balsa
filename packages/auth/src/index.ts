@@ -9,12 +9,14 @@ export type ApplicationUser = {
   id: string;
   email: string;
   name: string | null;
+  hasAvatar: boolean;
 };
 
 export type AuthorizedCompany = {
   id: string;
   name: string;
   baseCurrency: string;
+  financialStateRevision: string;
   role: "owner";
 };
 

@@ -1,4 +1,3 @@
-import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -20,13 +19,10 @@ const serif = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Hemrock",
+  title: "Nevermodel",
   description: "An auditable, LLM-native financial operating system.",
+  icons: { icon: "/api/company/favicon" },
 };
-
-const publishableKey =
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ??
-  process.env.CLERK_PUBLISHABLE_KEY;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -36,15 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`${sans.variable} ${serif.variable}`}>
         <ThemeProvider>
-          <ClerkProvider
-            {...(publishableKey ? { publishableKey } : {})}
-            signInUrl="/login"
-            signUpUrl="/login"
-            signInFallbackRedirectUrl="/"
-            signUpFallbackRedirectUrl="/"
-          >
-            {children}
-          </ClerkProvider>
+          {children}
         </ThemeProvider>
       </body>
     </html>

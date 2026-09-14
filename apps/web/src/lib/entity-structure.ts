@@ -9,13 +9,13 @@ import { normalizeAlias, parseEntityAttributes } from "@/lib/interpretation";
  * When no legal entity exists the company is one implicit entity; when they
  * exist, anything not stamped with an entity belongs to the oldest one.
  */
-export type LegalEntity = { id: string; name: string; consolidated: boolean };
+export type LegalEntity = { id: string; name: string; consolidated: boolean; functionalCurrency: string | null; consolidationMethod: "full" | "equity" | "exclude"; ownershipPercent: string | null; effectiveFrom: string | null; effectiveTo: string | null };
 export type Account = { id: string; name: string; ownerEntityId: string | null; attributes: string };
 export type EntityStructure = { legalEntities: LegalEntity[]; accounts: Account[]; defaultEntityId?: string; entityOfAccount: (accountId: string | null | undefined) => string | undefined; resolveEntityName: (name: string | null | undefined) => string | undefined };
 
 export async function loadEntityStructure(companyId: string): Promise<EntityStructure> {
-  const rows = await getDatabase().select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes, ownerEntityId: entities.ownerEntityId, consolidated: entities.consolidated }).from(entities).where(eq(entities.companyId, companyId)).orderBy(asc(entities.createdAt));
-  const legalEntities = rows.filter((row) => row.type === "legal_entity").map((row) => ({ id: row.id, name: row.name, consolidated: row.consolidated === "Y" }));
+  const rows = await getDatabase().select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes, ownerEntityId: entities.ownerEntityId, consolidated: entities.consolidated, functionalCurrency: entities.functionalCurrency, consolidationMethod: entities.consolidationMethod, ownershipPercent: entities.ownershipPercent, effectiveFrom: entities.effectiveFrom, effectiveTo: entities.effectiveTo }).from(entities).where(eq(entities.companyId, companyId)).orderBy(asc(entities.createdAt));
+  const legalEntities = rows.filter((row) => row.type === "legal_entity").map((row) => ({ id: row.id, name: row.name, consolidated: row.consolidated === "Y", functionalCurrency: row.functionalCurrency, consolidationMethod: (row.consolidationMethod === "equity" || row.consolidationMethod === "exclude" ? row.consolidationMethod : "full") as LegalEntity["consolidationMethod"], ownershipPercent: row.ownershipPercent, effectiveFrom: row.effectiveFrom, effectiveTo: row.effectiveTo }));
   const accounts = rows.filter((row) => row.type === "account").map((row) => ({ id: row.id, name: row.name, ownerEntityId: row.ownerEntityId, attributes: row.attributes }));
   const defaultEntityId = legalEntities[0]?.id;
   const ownerByAccount = new Map(accounts.map((account) => [account.id, account.ownerEntityId ?? undefined]));

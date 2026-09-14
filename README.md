@@ -1,60 +1,136 @@
-# nevermodel — LLM-native finance system
+# Nevermodel
 
-nevermodel is an auditable financial operating system that separates external
-evidence, interpreted company state, and deterministic financial calculations.
-The interface is conversational; financial math and authorization remain in
-controlled application code.
+**An open-source financial operating system you talk to—and that never does the math by talking.**
 
-## Current milestone: Monthly close and forecast loop
+Nevermodel turns the evidence a company already produces into an auditable,
+continuously maintained financial model. Upload bank activity, invoices,
+contracts, spreadsheets, or accounting exports; review what the system learned;
+then ask questions, close periods, and change the forecast in plain language.
 
-The repository currently implements the secure product foundation and a testable
-monthly close loop:
+Language models interpret meaning. Deterministic code owns the ledger, schedules,
+calculations, controls, and statements. The model is never the calculator and
+never the database.
 
-- Next.js App Router application with a single reading-column page at `/`
-- Clerk authentication with a custom email-code sign-in at `/login` (new emails are provisioned on first sign-in)
-- internal users, companies, and company memberships in PostgreSQL
-- server-side company authorization that never trusts a browser company ID
-- first-login user/company provisioning with concurrency protection
-- Drizzle schema and SQL migration
-- provider-neutral model interface
-- OpenAI Responses API and OpenRouter adapters
-- local PostgreSQL through Docker and hosted PostgreSQL through `DATABASE_URL`
-- Vercel-compatible standalone build
-- PDF text extraction, CSV transaction normalization, XLSX worksheet parsing, and QuickBooks/OFX transaction bootstrap
-- Source metadata, SHA-256 lineage, raw source retention, and linked cash events
-- Evidence review with confidence, unresolved questions, and approve/edit/reject actions
-- An interpretation step that turns approved facts into typed agreements and
-  obligations (dates, cadence, category, treatment, counterparty), drafted for
-  CFO confirmation
-- Bank imports categorized against known counterparties first and the model
-  second, with counterparties remembered as entities
-- A deterministic engine (`packages/finance-engine`) that expands confirmed
-  items on their own calendar, settles them with matching actuals, rolls cash
-  from the opening balance's month, and produces P&L by category, outstanding
-  receivables and payables, intercompany balances from allocations, and a
-  trace for every figure
-- Rolling 12-month forecast with contractual and assumed lines shown apart,
-  closed-period guards, and reconciliation against statement balances
-- Decisions with structured effects (add, end, or change an item; categorize a
-  counterparty) that run when applied, and an in-memory simulation for
-  what-if questions
-- Three statements per legal entity and consolidated: the engine posts every
-  line to a ledger, so the balance sheet balances and the cash flow statement
-  ties to the income statement by construction, with intercompany P&L
-  eliminated between consolidated entities
+> Nevermodel is under active development. It is ready for local evaluation and
+> contribution, not unattended production accounting. Review all outputs before
+> relying on them.
 
-The controlled agent reads a summary from the engine and uses engine-backed
-tools: financials by month, a trace for any figure, obligations, allocations,
-and simulation. It proposes decisions with effects; nothing changes until the
-CFO applies them. The plan behind this layer is in
-`docs/plans/financial-engine.md`.
+## Why Nevermodel
 
-## Local setup
+A CFO already has everything a financial model needs: evidence, context,
+policies, assumptions, and judgment. The expensive part is translating all of
+that into a spreadsheet—and keeping the spreadsheet alive as the business
+changes.
 
-Requirements: Node.js 22+, pnpm 10+, Docker, a Clerk application, and either an
-OpenAI or OpenRouter API key.
+Nevermodel is built around a different operating loop:
+
+```text
+evidence → extracted observations → CFO review → company state
+         → journal and calculation graph → statements and forecast
+```
+
+When the treatment is clear, the system does the work. When it requires
+judgment, Nevermodel asks a precise question. The answer becomes a durable
+decision or policy instead of disappearing into a chat transcript.
+
+This is not Excel in a browser: there is no grid and no collection of formulas
+to maintain. It is not a chatbot wrapped around accounting software either:
+the AI proposes meaning and treatment, while controlled application code posts,
+calculates, reconciles, and reports.
+
+## What it does
+
+- **Ingests the source material you already have.** PDF, CSV, XLSX, XLS, QBO,
+  OFX, Markdown, text, and direct notes are retained with hashes and source
+  metadata.
+- **Turns evidence into reviewable accounting.** Extracted facts retain their
+  source locations, confidence, and lineage. Models draft; people approve.
+- **Maintains a real ledger.** Posting proposals pass deterministic validation
+  before becoming authoritative journal entries.
+- **Closes the books with controls.** Reconciliation, period-aware processing,
+  coverage checks, and close gates make exceptions visible before a period is
+  locked.
+- **Builds three statements from one graph.** Income statement, balance sheet,
+  and cash flow derive from the same journal and calculation path.
+- **Forecasts from economic reality.** Contractual obligations, recurring
+  schedules, assumptions, and actual settlements remain distinct and traceable.
+- **Handles multi-entity finance.** Legal entities, allocations, intercompany
+  balances, eliminations, consolidation, and foreign-currency translation share
+  the same accounting foundation.
+- **Answers questions with evidence.** Ask what changed, why a number exists, or
+  what happens in a scenario; answers use approved state and engine-backed tools.
+- **Learns company judgment.** Decisions, policies, mappings, and knowledge
+  documents make future processing more consistent without silently turning an
+  inference into fact.
+
+## The trust model
+
+Nevermodel separates three kinds of state:
+
+1. **Evidence** — what a source said: a transaction, invoice, contract, export,
+   or message, retained with provenance.
+2. **Company state** — what the business believes exists or happened: entities,
+   agreements, facts, obligations, decisions, policies, and assumptions.
+3. **Financial state** — what follows mathematically: journals, balances,
+   schedules, statements, reconciliations, and forecasts.
+
+AI can interpret evidence and propose changes to company state. It cannot bypass
+authorization, silently confirm its own inference, or perform the authoritative
+financial math. A reported figure can be traced back through its formula and
+posted lines to the source and human judgment that produced it.
+
+Read [How Nevermodel works](apps/web/src/app/about/page.tsx) for the full product
+idea and [the security model](docs/security.md) for the current application
+boundary.
+
+## Current status
+
+The repository contains a working Next.js application, PostgreSQL data layer,
+evidence-ingestion pipeline, controlled finance agent, deterministic accounting
+engine, and local accounting evaluation suite. The current development focus is
+deepening the month-close workflow, calculation graph, and representative
+real-company test corpus.
+
+## Deployment model and direction
+
+Nevermodel is being built from a focused single-player product into a shared
+financial system without weakening its company boundaries or audit trail.
+
+| Mode | Users | Companies | Status |
+| --- | --- | --- | --- |
+| Private local | One | One | Available now, with optional no-login mode |
+| Authenticated self-hosted | One | One | Available now with Better Auth |
+| Local multi-company | One | Many | Next product step; switch between separately scoped companies in one private installation |
+| Hosted multi-user | Many | One or many | Planned; role-based company memberships and server-enforced tenant isolation |
+| Hosted multi-company | Many | Many | Planned; shared operators can work across authorized companies without crossing data boundaries |
+
+“Multi-company” and “multi-user” are deliberately separate concerns. Local
+multi-company means one operator can manage several companies from a private
+installation; it does not imply collaboration or public network exposure.
+Hosted multi-user adds identity, invitations, roles, and company membership.
+Hosted multi-company then lets an authorized operator—such as a fractional CFO
+or finance team—work across multiple isolated company contexts.
+
+The accounting core is already company-scoped. The path forward is to finish
+the single-company close and forecast loop, add local company creation and
+switching, then harden the worker, storage, authorization, and row-level tenant
+controls required for a hosted service. The plans are documented separately in
+[local multi-company](docs/plans/local-multi-company.md),
+[hosted multi-tenant](docs/plans/multi-tenant-hosted.md), and
+[post-single-player scale-up](docs/plans/post-single-player-scale-up.md).
+
+## Quick start
+
+### Requirements
+
+- Node.js 22+
+- pnpm 10+
+- Docker
+- An OpenAI or OpenRouter API key
 
 ```bash
+git clone https://github.com/tdavidson/nevermodel.git
+cd nevermodel
 cp .env.example .env
 docker compose up -d
 pnpm install
@@ -62,110 +138,81 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Add the Clerk publishable and secret keys to `.env`. Configure email
-code sign-in in the Clerk dashboard. The first successful login provisions an
-internal application user, a company, and an `owner` membership.
+Open [http://localhost:3000](http://localhost:3000).
 
-### Optional scanned-PDF OCR
+For the shortest private local setup, set `AUTH_MODE=disabled` in `.env` and
+configure `LOCAL_OWNER_EMAIL`. Disabled auth does not protect the application
+from the network: use it only on a trusted device or behind a VPN or access-
+controlled reverse proxy. Production use also requires
+`ALLOW_AUTH_DISABLED=true`.
 
-For image-only or weak-text PDFs, install an `ocrmypdf`-compatible executable
-in the deployment and set `NEVERMODEL_OCR_COMMAND=ocrmypdf`. Hemrock will use
-its text sidecar only when normal PDF extraction is weak, retain OCR page
-references, and flag OCR-derived facts for review. Without this setting, weak
-PDFs remain blocked for review rather than being guessed.
+For email/password authentication, keep `AUTH_MODE=better-auth`, generate a
+secret with `openssl rand -base64 32`, set `BETTER_AUTH_SECRET`, and set
+`BETTER_AUTH_URL` to the application URL. Set `AUTH_ALLOW_SIGN_UP=true` only
+while provisioning intended users; production sign-up is otherwise disabled.
 
-### Background reconciliation
+The complete configuration surface, including model providers, object storage,
+OCR, auth migration, and background reconciliation, is documented inline in
+[`.env.example`](.env.example).
 
-Set `CRON_SECRET` in the deployment to enable the protected processing drain.
-On Vercel, `vercel.json` invokes `/api/jobs/reconciliation` every five minutes;
-the route drains durable extraction and reconciliation runs through the same
-idempotent handlers used by the interactive app. The endpoint rejects callers
-without `Authorization: Bearer $CRON_SECRET`.
+## Try the operating loop
 
-## Test the monthly workflow
+1. Enter an opening cash balance, such as `opening cash 2026-09 $10,000`.
+2. Attach source files and review the extracted facts, confidence, questions,
+   and provenance.
+3. Confirm interpreted agreements and obligations so they can drive the forecast.
+4. Import bank activity or a general-ledger export and review proposed mappings
+   and journals.
+5. Inspect forecast versus actuals, reconciliation, and close readiness.
+6. Ask `Why is professional services $18,500 in October?` or
+   `What if Fund II stops paying next year?` to trace or simulate the result.
 
-1. Sign in and type `opening cash 2026-09 $10000` in the composer.
-2. Attach one or more evidence files (`.pdf`, `.xlsx`, `.xls`, `.csv`, `.md`,
-   `.txt`, or notes). Files are processed independently, even when they cover
-   different months.
-3. Review extracted facts, confidence, questions, and source metadata. Approving
-   runs the interpretation step: agreements and obligations appear under
-   **Interpreted items** for confirmation, transactions and balances are
-   recorded directly. Confirmed items drive the forecast.
-4. Attach a bank or transaction CSV/XLSX/QBO/OFX. Rows use their own dates; debit and
-   credit columns are normalized, each row is categorized, and known
-   counterparties are reused. Re-uploading the same file is ignored by hash.
-5. Select a month to inspect forecast versus actuals. To close a period, type
-   `close month 2026-09`; later imports or approvals referencing that month are
-   rejected. Use `open month 2026-09` to reopen a period for correction.
-   Persist CFO judgment with `decision: How should contractor invoices be treated? => Cash basis` or
-   `policy: Contractor timing => Recognize on payment date`.
-6. Ask `How much cash will we have in December?` to run the controlled agent.
-   Ask `Why is professional services $18,500 in October?` for a trace, or
-   `What if Fund II stops paying next year?` for a simulation. Tell it
-   `Assume we hire a finance contractor at $6,000 a month from January` and it
-   proposes a decision with an effect; applying it adds an assumed line to
-   the forecast. Any proposed decision appears in Needs your input and must
-   be explicitly applied or rejected.
+Reusable sample inputs live in [`fixtures/company-zero`](fixtures/company-zero).
 
-7. Describe the structure once for entity and consolidated statements:
-   `entity: Acme Management LLC`, `account: Chase 4432 => Acme Management LLC`,
-   and `opening position Acme Management LLC 2026-01 cash=482314, prepaid=6000,
-   payables=12500, investments=250000`. An entity is consolidated unless you add
-   `(standalone)`. Bank imports resolve their account from the note typed with
-   the upload or the file name. The entity selector next to the period switches
-   the statements between each entity and the consolidated group; the balance
-   sheet and cash flow tabs are derived from the same lines as the income
-   statement. The plan is in `docs/plans/consolidated-statements.md`.
-
-Migrations `0035` and `0036` add the schedule, category, settlement, entity,
-account, and opening position columns. The
-`drizzle/meta` snapshots are not committed, so run `pnpm db:migrate` to apply
-the checked-in SQL, or `pnpm db:generate` on a machine with the snapshots to
-regenerate an equivalent migration.
-
-Reusable Company Zero examples are in `fixtures/company-zero/`.
-
-## Commands
+## Development
 
 ```bash
-pnpm dev          # web application
-pnpm build        # production build
-pnpm typecheck    # all packages
-pnpm test         # all package tests
-pnpm acceptance   # Company Zero ingestion + close/forecast acceptance checks
-pnpm lint         # all packages
+pnpm dev          # start the web application
+pnpm build        # create a production build
+pnpm typecheck    # typecheck every package
+pnpm test         # run package tests
+pnpm acceptance   # run the Company Zero acceptance path
+pnpm lint         # lint every package
 pnpm db:generate  # generate a migration from schema changes
 pnpm db:migrate   # apply checked-in migrations
 ```
 
-## Security boundary
-
-Clerk IDs identify external sessions only. Financial records will use internal
-UUIDs and a required `company_id`. Every server-side company operation must call
-the application auth boundary and prove membership before data access. Agent
-tools will receive the authorized company from server context, never from model
-output or an unverified browser parameter.
-
-## Reference
-
-The financial engine plan lives in `docs/plans/financial-engine.md`, the
-consolidated statements plan in `docs/plans/consolidated-statements.md`, and
-the multi-tenant hosted plan in `docs/plans/multi-tenant-hosted.md`.
-The V0 build specification and its authentication additions live in
-`docs/specs/`. The design language is documented in `docs/design-language.html`.
-The in-app version of the manifesto is at `/about`.
-
-## Repository map
+### Repository map
 
 ```text
-apps/web                 Next.js UI and Clerk adapter
-packages/auth            provider-neutral auth service and types
-packages/database        PostgreSQL schema, migrations, repositories
-packages/model-providers OpenAI/OpenRouter boundary
-packages/company-state   next milestone boundary
-packages/finance-engine  deterministic calculation boundary
-packages/agent           controlled finance agent boundary
-packages/ingestion       evidence ingestion boundary
+apps/web                 Next.js interface and application routes
+packages/accounting-evals deterministic accounting evaluation harness
+packages/agent           controlled finance-agent boundary
+packages/auth            provider-neutral authentication boundary
+packages/company-state   canonical company-state types and operations
+packages/database        PostgreSQL schema, migrations, and repositories
+packages/finance-engine  ledger, calculations, statements, and forecasts
+packages/ingestion       evidence ingestion and normalization
+packages/model-providers OpenAI and OpenRouter adapters
 templates                company knowledge templates
 ```
+
+Architecture and implementation notes live in [`docs/plans`](docs/plans), the
+original build specification is in [`docs/specs`](docs/specs), and the design
+system is documented in [`docs/design-language.html`](docs/design-language.html).
+
+## Contributing
+
+Nevermodel is early, and contributions that improve correctness, auditability,
+documentation, test coverage, or the self-hosted experience are welcome. Start
+with [CONTRIBUTING.md](CONTRIBUTING.md). For larger changes, open an issue before
+building so the accounting and product model can be discussed first.
+
+Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+Nevermodel is open source under the [Apache License 2.0](LICENSE). You may use,
+modify, and distribute it for personal or commercial purposes under its terms.
+
+Built by [Taylor Davidson](https://taylordavidson.com).

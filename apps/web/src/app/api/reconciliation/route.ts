@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { cashEvents, companies, evidence, getDatabase, ingestionRuns, reconciliationEntries, reviewItems, sources as sourceTable } from "@finance/database";
@@ -9,6 +9,7 @@ import { matchTransactionsAcrossSources } from "@/lib/transaction-matching";
 import { buildReconciliationReview } from "@/lib/reconciliation-review";
 import { buildReconciliationLedger } from "@/lib/reconciliation-ledger";
 import { compareStatementAndBookBalances } from "@/lib/account-balance-matching";
+import { hasScheduledJobAuthorization } from "@/lib/cron-auth";
 
 type Balance = { amount: number; label: string; sourceName: string };
 
@@ -39,7 +40,7 @@ async function handleReconciliation(request: Request, persist: boolean) {
   const db = getDatabase();
   const requestedCompanyId = new URL(request.url).searchParams.get("companyId");
   const workerSecret = process.env.CRON_SECRET;
-  const isWorkerRequest = Boolean(requestedCompanyId && workerSecret && request.headers.get("authorization") === `Bearer ${workerSecret}`);
+  const isWorkerRequest = Boolean(requestedCompanyId && hasScheduledJobAuthorization(request.headers.get("authorization"), workerSecret));
   let context: Awaited<ReturnType<typeof requireCompanyAccess>> | { company: typeof companies.$inferSelect };
   if (isWorkerRequest) {
     const [company] = await db.select().from(companies).where(eq(companies.id, requestedCompanyId!));

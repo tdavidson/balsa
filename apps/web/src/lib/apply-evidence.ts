@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { cashEvents, decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, openingPositions, policies, reportingPeriods, reviewItems } from "@finance/database";
+import { cashEvents, decisions, economicItems, entities, evidence, factRecords, getDatabase, knowledgeDocuments, openingPositions, policies, reportingPeriods, reviewItems } from "@finance/database";
 import { transactionExternalKey } from "@nevermodel/ingestion";
 import type { ApplicationContext } from "@finance/auth";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
@@ -10,7 +10,37 @@ import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { loadEntityStructure } from "@/lib/entity-structure";
 import type { z } from "zod";
 
-const cashProvingSources = new Set(["bank_statement", "brokerage_statement", "quickbooks_transactions", "general_ledger"]);
+// General-ledger detail proves recognition/posting. It is not cash evidence
+// unless a separately mapped cash-account row establishes that movement.
+const cashProvingSources = new Set(["bank_statement", "brokerage_statement", "quickbooks_transactions"]);
+
+type SourceFact = { id: string; label: string; value: string; accountingRole: string | null; sourceLocation: string | null };
+
+function normalizedFactText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function factAmount(value: string) {
+  const normalized = value.replace(/[$,\s]/g, "").replace(/^\((.+)\)$/, "-$1");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? Math.abs(amount) : undefined;
+}
+
+/**
+ * Preserve fact lineage only when the approved fact makes one unambiguous match.
+ * The model may paraphrase a fact; a unique same-amount fact in the appropriate
+ * accounting role is still safe, while any ambiguity intentionally remains blank.
+ */
+function sourceFactFor(facts: SourceFact[], label: string, amount: number, roles: string[]) {
+  const candidates = facts.filter((fact) => roles.includes(fact.accountingRole ?? "") && factAmount(fact.value) === amount);
+  if (candidates.length === 1) return candidates[0];
+  const labelText = normalizedFactText(label);
+  const textual = candidates.filter((fact) => {
+    const factText = normalizedFactText(fact.label);
+    return factText.length >= 8 && (labelText.includes(factText) || factText.includes(labelText));
+  });
+  return textual.length === 1 ? textual[0] : undefined;
+}
 
 export type ApplyEvidenceResult =
   | { items: number; transactions: number; balances: number; questions: number; interpretation: Interpretation }
@@ -28,6 +58,8 @@ export async function applyApprovedEvidence(options: {
   extraction: { summary?: string; facts?: { label: string; value: string; confidence?: number; accountingRole?: string }[] };
   /** Intake classification of the source; only cash-proving sources may produce transactions. */
   sourceKind?: string;
+  /** A reference workbook teaches structure and drivers, but never publishes its outputs. */
+  sourceRole?: "reference_model";
   currency?: string;
   modelChoice: z.infer<typeof modelRequestSchema>;
   replace: boolean;
@@ -35,7 +67,7 @@ export async function applyApprovedEvidence(options: {
   const { context, evidenceId } = options;
   const db = getDatabase();
   const companyId = context.company.id;
-  const [evidenceRow] = await db.select({ sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, openingBalance: evidence.openingBalance, endingBalance: evidence.endingBalance, statementPeriodEnd: evidence.statementPeriodEnd, accountEntityId: evidence.accountEntityId }).from(evidence).where(and(eq(evidence.id, evidenceId), eq(evidence.companyId, companyId)));
+  const [evidenceRow] = await db.select({ sourceId: evidence.sourceId, sourceName: evidence.sourceName, reportingMonth: evidence.reportingMonth, openingBalance: evidence.openingBalance, endingBalance: evidence.endingBalance, statementPeriodEnd: evidence.statementPeriodEnd, accountEntityId: evidence.accountEntityId }).from(evidence).where(and(eq(evidence.id, evidenceId), eq(evidence.companyId, companyId)));
   if (!evidenceRow) return { error: "Evidence not found", status: 404 };
   const [policyRows, decisionRows, knowledgeRows, entityRows] = await Promise.all([
     db.select({ id: policies.id, name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, companyId), eq(policies.active, "Y"))),
@@ -44,6 +76,7 @@ export async function applyApprovedEvidence(options: {
     db.select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes }).from(entities).where(eq(entities.companyId, companyId)),
   ]);
   const candidates: KnownEntity[] = entityRows.filter((entity) => entity.type !== "legal_entity" && entity.type !== "account");
+  const sourceFacts = await db.select({ id: factRecords.id, label: factRecords.label, value: factRecords.value, accountingRole: factRecords.accountingRole, sourceLocation: factRecords.sourceLocation }).from(factRecords).where(and(eq(factRecords.companyId, companyId), eq(factRecords.evidenceId, evidenceId)));
   const structure = await loadEntityStructure(companyId);
   const accountId = evidenceRow.accountEntityId ?? undefined;
   const accountEntity = structure.entityOfAccount(accountId);
@@ -53,6 +86,10 @@ export async function applyApprovedEvidence(options: {
     interpretation = await interpretEvidence({ provider, sourceName: evidenceRow.sourceName, summary: options.extraction.summary, facts: options.extraction.facts ?? [], reportingMonth: evidenceRow.reportingMonth ?? undefined, policies: policyRows, decisions: decisionRows, knowledge: knowledgeRows, entities: candidates, legalEntities: structure.legalEntities, ...(options.sourceKind ? { sourceKind: options.sourceKind } : {}) });
     // A source that cannot prove cash (an income statement, a balance sheet, an agreement) never creates transactions.
     if (options.sourceKind && !cashProvingSources.has(options.sourceKind)) interpretation = { ...interpretation, transactions: [] };
+    // A reference workbook is a design aid, not financial evidence. Its formulas,
+    // values, and schedules may inform reviewed company knowledge, but never
+    // become balances, draft agreements, or journal activity by approving it.
+    if (options.sourceRole === "reference_model") interpretation = { ...interpretation, transactions: [], balances: [], items: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Interpretation failed";
     await recordLlmRun({ db, provider, companyId, userId: context.user.id, operation: "evidence_interpretation", request: { evidenceId, facts: options.extraction.facts?.length ?? 0 }, status: "failed", error: message });
@@ -88,10 +125,11 @@ export async function applyApprovedEvidence(options: {
     const amount = Math.abs(balance.amount);
     if (balance.kind === "opening") {
       if (accountId) {
+        const sourceFact = sourceFacts.find((fact) => fact.accountingRole === "opening_balance");
         // A statement opening balance is that account's cash position at the start of the month.
         const [existing] = await db.select({ id: openingPositions.id }).from(openingPositions).where(and(eq(openingPositions.companyId, companyId), eq(openingPositions.accountEntityId, accountId), eq(openingPositions.month, month), eq(openingPositions.ledger, "cash")));
-        if (existing) await db.update(openingPositions).set({ amount: String(amount), updatedAt: new Date() }).where(eq(openingPositions.id, existing.id));
-        else await db.insert(openingPositions).values({ companyId, entityId: accountEntity ?? null, accountEntityId: accountId, month, ledger: "cash", amount: String(amount) });
+        if (existing) await db.update(openingPositions).set({ amount: String(amount), ...(evidenceRow.sourceId ? { sourceId: evidenceRow.sourceId } : {}), ...(sourceFact?.id ? { factId: sourceFact.id } : {}), updatedAt: new Date() }).where(eq(openingPositions.id, existing.id));
+        else await db.insert(openingPositions).values({ companyId, entityId: accountEntity ?? null, accountEntityId: accountId, month, ledger: "cash", amount: String(amount), ...(evidenceRow.sourceId ? { sourceId: evidenceRow.sourceId } : {}), ...(sourceFact?.id ? { factId: sourceFact.id } : {}) });
       } else {
         await db.insert(reportingPeriods).values({ companyId, month, openingCash: String(amount) }).onConflictDoUpdate({ target: [reportingPeriods.companyId, reportingPeriods.month], set: { openingCash: String(amount), updatedAt: new Date() } });
       }
@@ -107,9 +145,10 @@ export async function applyApprovedEvidence(options: {
   if (!existingEvents.length && interpretation.transactions.length) {
     const rows = [];
     for (const transaction of interpretation.transactions) {
+      const sourceFact = sourceFactFor(sourceFacts, transaction.description, transaction.amount, ["transaction", "transfer", "investment_movement", "revenue", "expense", "financing"]);
       const entity = transaction.counterparty && transaction.activity === "operating" ? await resolveCounterparty(db, companyId, { name: transaction.counterparty, alias: transaction.description, category: transaction.category, direction: transaction.direction, candidates }) : undefined;
       rows.push({
-        companyId, evidenceId, month: transaction.date.slice(0, 7), transactionDate: transaction.date, description: transaction.description, amount: String(transaction.amount), direction: transaction.direction,
+        companyId, evidenceId, ...(evidenceRow.sourceId ? { sourceId: evidenceRow.sourceId } : {}), ...(sourceFact?.id ? { factId: sourceFact.id, sourceLocation: sourceFact.sourceLocation ?? undefined } : {}), month: transaction.date.slice(0, 7), transactionDate: transaction.date, description: transaction.description, amount: String(transaction.amount), direction: transaction.direction,
         category: transaction.activity, financialCategory: transaction.category ?? undefined, counterpartyEntityId: entity?.id, accountEntityId: accountId, entityId: structure.resolveEntityName(transaction.entity) ?? accountEntity, ...(options.currency ? { currency: options.currency } : {}), isActual: options.evidenceStatus === "approved" ? "Y" as const : "N" as const,
         externalKey: transactionExternalKey({ date: transaction.date.slice(0, 7), postedDate: transaction.date, description: transaction.description, amount: transaction.amount, direction: transaction.direction }),
       });
@@ -124,10 +163,11 @@ export async function applyApprovedEvidence(options: {
   if (!existingItems.length && interpretation.items.length) {
     const rows = [];
     for (const item of interpretation.items) {
+      const sourceFact = sourceFactFor(sourceFacts, item.label, item.amount, ["agreement", "revenue", "expense"]);
       const entity = item.counterparty ? await resolveCounterparty(db, companyId, { name: item.counterparty, category: item.category, direction: item.direction, candidates }) : undefined;
       const policy = item.appliedPolicy ? policyRows.find((row) => row.name.toLowerCase() === item.appliedPolicy!.toLowerCase() || item.appliedPolicy!.toLowerCase().includes(row.name.toLowerCase())) : undefined;
       rows.push({
-        companyId, evidenceId, type: item.direction === "spend" ? "obligation" as const : "agreement" as const, direction: item.direction, label: item.label, counterparty: item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
+        companyId, evidenceId, ...(sourceFact?.id ? { factId: sourceFact.id } : {}), type: item.direction === "spend" ? "obligation" as const : "agreement" as const, direction: item.direction, label: item.label, counterparty: item.counterparty ?? undefined, counterpartyEntityId: entity?.id,
         amount: String(item.amount), cadence: item.cadence, effectiveFrom: item.effectiveFrom, effectiveTo: item.effectiveTo ?? undefined, category: item.category, basis: item.basis,
         accountingTreatment: item.accountingTreatment, recognitionStart: item.recognitionStart ?? undefined, recognitionEnd: item.recognitionEnd ?? undefined,
         confidence: String(item.confidence), rationale: item.rationale, policyId: policy?.id, entityId: structure.resolveEntityName(item.entity) ?? accountEntity, status: "draft" as const,

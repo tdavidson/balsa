@@ -170,7 +170,7 @@
 
   <section class="section">
     <h2>Sign in</h2>
-    <p>One field, one button, left-aligned in a 384px column, centered on the page. No wordmark; the title carries the name. Clerk stays as the identity provider behind the scenes, but its prebuilt form goes away: this is our own markup driven by Clerk's sign-in hook. Email code only. An email Clerk has not seen falls through to sign-up with the same code step, so there is no separate sign-up page.</p>
+    <p>Nevermodel owns the sign-in interface: a small, left-aligned 384px column centered on the page. The title carries the name rather than a wordmark. Better Auth supplies the local email/password session layer, while the form remains normal Nevermodel markup. Sign in and create-account states are explicit.</p>
     <div class="frame">
       <div class="frame-bar"><i></i><i></i><i></i><span>nevermodel.app/login</span></div>
       <div class="signin">
@@ -350,9 +350,9 @@
       <tr><td>Components</td><td>Four shadcn files, mostly unused; a hand-rolled dropdown, dialog, and select</td><td>shadcn Button, Input, Dialog, Select, DropdownMenu. The edit-facts modal, the month picker, and the account menu become the real primitives with keyboard and focus handling for free.</td></tr>
       <tr><td>Fonts</td><td>IBM Plex Mono (local), DM Serif Display, Manrope</td><td>Source Serif 4 and Inter as self-hosted variable WOFF2 files in <code>src/fonts</code>, roman only, loaded with <code>next/font/local</code>. No font CDN, no italics.</td></tr>
       <tr><td>Theme</td><td>next-themes with a three-way icon button in the top bar; dark styles duplicated per component</td><td>next-themes kept. Tokens redefined once under <code>.dark</code>. Segmented light / dark / system control in the account menu and on the sign-in page.</td></tr>
-      <tr><td>Routes</td><td><code>/</code> sign-in, <code>/sign-in</code> redirect, <code>/sign-up</code> Clerk embed, <code>/workspace</code></td><td><code>/login</code> sign-in, <code>/</code> the app. Signed-out visits to <code>/</code> go to <code>/login</code>; signed-in visits to <code>/login</code> go to <code>/</code>. The three old routes are deleted.</td></tr>
-      <tr><td>Auth UI</td><td>Clerk <code>&lt;SignIn&gt;</code> and <code>&lt;SignUp&gt;</code> with appearance overrides</td><td>Our own form using <code>useSignIn</code> and <code>useSignUp</code>: email code only; an unknown email falls through to sign-up. Server auth, middleware, and company provisioning untouched. Requires the Google connection to be off and email code on in the Clerk dashboard.</td></tr>
-      <tr><td>Top bar</td><td>Wordmark, theme toggle, help popover, profile menu opening Clerk's profile modal</td><td>Company name and avatar, right-aligned. The menu holds the theme control and sign out.</td></tr>
+      <tr><td>Routes</td><td><code>/</code> sign-in, <code>/sign-in</code> redirect, <code>/sign-up</code> embedded provider, <code>/workspace</code></td><td><code>/login</code> sign-in, <code>/</code> the app. Signed-out visits to <code>/</code> go to <code>/login</code>; signed-in visits to <code>/login</code> go to <code>/</code>. The three old routes are deleted.</td></tr>
+      <tr><td>Auth UI</td><td>Hosted provider forms with appearance overrides</td><td>Nevermodel-owned Better Auth email/password form. Server auth, middleware, and company provisioning remain behind the app boundary.</td></tr>
+      <tr><td>Top bar</td><td>Wordmark, theme toggle, help popover, provider profile menu</td><td>Company name and avatar, right-aligned. The menu holds the theme control, company settings, and sign out.</td></tr>
       <tr><td>App page</td><td>Greeting, orb, four bordered metric cells, forecast bars in four colours</td><td>Composer, “Waiting on you”, month figures in the sans, ink and pencil chart. Same data, same API calls.</td></tr>
     </table>
     </div>
@@ -361,7 +361,7 @@
   <section class="section">
     <h2>Decisions</h2>
     <div class="decisions">
-      <div class="decision"><i class="done"></i><div><strong>Keep Clerk, drop its UI, email code only</strong><p>Confirmed. Google references removed.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Use Better Auth behind Nevermodel UI</strong><p>Completed. The login screen and sessions are provider-neutral at the application boundary.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Light, dark, and system theme</strong><p>Confirmed. Control lives in the account menu and on the sign-in page, not in the top bar.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Keep Tailwind and shadcn, wire them properly</strong><p>Confirmed. Tokens in <code>@theme</code>, shadcn variables mapped to them.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Source Serif 4 and Inter, sans for all numbers</strong><p>Confirmed. Weights 400 and 500 only, tight tracking.</p></div></div>

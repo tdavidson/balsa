@@ -18,7 +18,7 @@ export function monthFromEvidenceFact(value: string, reportingMonth?: string | n
 }
 
 function sourceCanProveCash(kind: SourceKind | undefined) {
-  return ["bank_statement", "brokerage_statement", "quickbooks_transactions", "general_ledger"].includes(kind ?? "");
+  return ["bank_statement", "brokerage_statement", "quickbooks_transactions"].includes(kind ?? "");
 }
 
 function cashRole(role: string | null | undefined) {
@@ -33,6 +33,7 @@ function cashRole(role: string | null | undefined) {
 export function buildEvidencePublication(input: {
   facts: PublishableFact[];
   sourceKind?: SourceKind;
+  sourceRole?: "reference_model";
   reportingMonth?: string | null;
   currency?: string | null;
   policies?: ExecutableCompanyPolicy[];
@@ -41,6 +42,10 @@ export function buildEvidencePublication(input: {
   const cashEvents: { month: string; transactionDate?: string; description: string; amount: string; currency?: string; direction: "receipt" | "spend"; category: string; policyId?: string }[] = [];
   const economicItems: { type: "agreement" | "obligation"; direction: "receipt" | "spend"; label: string; amount?: string; cadence?: string; policyId?: string }[] = [];
   const blocked: { label: string; reason: string }[] = [];
+
+  // A financial model can be excellent onboarding context, but its values are
+  // never a posting instruction. Keep this gate here as well as at promotion.
+  if (input.sourceRole === "reference_model") return { openingBalances, cashEvents, economicItems, blocked };
 
   for (const fact of input.facts) {
     const role = fact.accountingRole;

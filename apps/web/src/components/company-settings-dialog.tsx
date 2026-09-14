@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrency }: { open: boolean; onOpenChange: (open: boolean) => void; company: string; baseCurrency: string }) {
   const [name, setName] = useState(company);
   const [currency, setCurrency] = useState(baseCurrency);
+  const [favicon, setFavicon] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,9 +21,13 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch("/api/company", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), baseCurrency: currency.trim().toUpperCase() }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Unable to save company settings");
+      const payload = new FormData();
+      payload.set("name", name.trim());
+      payload.set("baseCurrency", currency.trim().toUpperCase());
+      if (favicon) payload.set("favicon", favicon);
+      const response = await fetch("/api/company", { method: "PATCH", body: payload });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Unable to save company settings");
       onOpenChange(false);
       window.location.reload();
     } catch (saveError) {
@@ -34,7 +39,7 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-xl border-rule">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-md rounded-xl border-rule sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="display flex items-center gap-2 text-[28px]" style={{ fontVariationSettings: '"opsz" 28' }}><Building2 className="size-5" aria-hidden="true" /> Company settings</DialogTitle>
           <DialogDescription>These settings describe the company being modeled.</DialogDescription>
@@ -47,6 +52,11 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Base currency
             <Input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} className="max-w-[120px] uppercase" />
+          </label>
+          <label className="grid gap-1.5 text-[13px] text-ink-2">
+            Browser icon
+            <Input type="file" accept="image/x-icon,image/vnd.microsoft.icon,image/png" onChange={(event) => setFavicon(event.target.files?.[0] ?? null)} />
+            <span className="text-[12px] text-ink-3">Upload an ICO or PNG favicon up to 512 KB.</span>
           </label>
           {error && <p className="text-[13px] text-red-ink" role="alert">{error}</p>}
         </div>

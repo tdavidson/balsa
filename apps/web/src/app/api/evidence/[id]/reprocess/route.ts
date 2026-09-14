@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
@@ -15,8 +15,10 @@ import { compareEvidenceFacts, type EvidenceFact } from "@/lib/evidence-diff";
 import { policyAppliesInContext } from "@/lib/company-policy-engine";
 import { z } from "zod";
 import { assertExtractedTextSize, assertUploadSize } from "@/lib/ingestion-guardrails";
-import { extractSpreadsheetText } from "@/lib/spreadsheet-extraction";
+import { inspectSpreadsheet, type WorkbookStructure } from "@/lib/spreadsheet-extraction";
 import { takeRateLimit } from "@/lib/request-rate-limit";
+import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
+import { hasScheduledJobAuthorization } from "@/lib/cron-auth";
 
 const extractionSchema = z.object({
   summary: z.string(),
@@ -37,7 +39,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const requestedCompanyId = new URL(request.url).searchParams.get("companyId");
   const workerSecret = process.env.CRON_SECRET;
-  const isWorkerRequest = Boolean(requestedCompanyId && workerSecret && request.headers.get("authorization") === `Bearer ${workerSecret}`);
+  const isWorkerRequest = Boolean(requestedCompanyId && hasScheduledJobAuthorization(request.headers.get("authorization"), workerSecret));
   let context: Awaited<ReturnType<typeof requireCompanyAccess>> | { company: typeof companies.$inferSelect; user: { id: string } };
   if (isWorkerRequest) {
     const [company] = await db.select().from(companies).where(eq(companies.id, requestedCompanyId!));
@@ -52,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!quota.allowed) return NextResponse.json({ error: "Reprocessing limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } });
   }
   const choice = modelRequestSchema.safeParse(await request.json().catch(() => ({})));
-  const [source] = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, sourceMime: evidence.sourceMime, sourceHash: sources.hash, storageReference: sources.storageReference, reportingMonth: evidence.reportingMonth, accountIdentifier: evidence.accountIdentifier, previousExtractedJson: evidence.extractedJson }).from(evidence).innerJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
+  const [source] = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId, sourceName: evidence.sourceName, sourceMime: evidence.sourceMime, sourceHash: sources.hash, storageReference: sources.storageReference, sourceMetadata: sources.metadata, reportingMonth: evidence.reportingMonth, accountIdentifier: evidence.accountIdentifier, previousExtractedJson: evidence.extractedJson }).from(evidence).innerJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
   if (!source?.storageReference) return NextResponse.json({ error: "This source has no retained original file" }, { status: 404 });
   await db.update(sources).set({ ingestionStatus: "extracting", ingestionError: null, processedAt: null }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
   await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "extraction", status: "running", metadata: JSON.stringify({ reprocess: true }) });
@@ -84,21 +86,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
   let content: string;
   let pdfQuality: PdfExtractionQuality | undefined;
+  let workbookStructure: WorkbookStructure | undefined;
+  const sourceRole = (() => { try { return (JSON.parse(source.sourceMetadata ?? "{}") as { sourceRole?: string }).sourceRole === "reference_model" ? "reference_model" as const : undefined; } catch { return undefined; } })();
   let extracted: z.infer<typeof extractionSchema>;
   try {
     if (source.sourceMime?.includes("pdf") || /\.pdf$/i.test(source.sourceName)) {
       const pdf = await extractPdfDocument(bytes);
       content = pdf.text;
       pdfQuality = pdf.quality;
-    } else content = /\.(xlsx|xls)$/i.test(source.sourceName) ? await extractSpreadsheetText(bytes) : bytes.toString("utf8");
+    } else if (/\.(xlsx|xls)$/i.test(source.sourceName)) {
+      const workbook = await inspectSpreadsheet(bytes);
+      content = workbook.text;
+      workbookStructure = workbook.structure;
+    } else content = bytes.toString("utf8");
     assertExtractedTextSize(content);
-    const sourceClassification = classifySource({ filename: source.sourceName, mimeType: source.sourceMime, text: content });
+    const sourceClassification = classifySource({ filename: source.sourceName, mimeType: source.sourceMime, text: content, sourceRole });
     const activePolicies = (await getDatabase().select({ name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")))).filter((policy) => policyAppliesInContext({ id: "reprocess", ...policy }, "", { ...(source.reportingMonth ? { effectiveDate: `${source.reportingMonth}-01` } : {}), sourceKind: sourceClassification.kind, sourceName: source.sourceName, ...(source.accountIdentifier ? { accountIdentifier: source.accountIdentifier } : {}) }));
     extracted = await provider.generateStructured({
       name: "financial_evidence_reprocess",
       schema: extractionSchema,
       jsonSchema: { type: "object", additionalProperties: false, properties: { summary: { type: "string" }, statementMetadata: { type: "object", additionalProperties: false, properties: { accountHolder: { type: "string" }, accountIdentifier: { type: "string" }, statementPeriodStart: { type: "string" }, statementPeriodEnd: { type: "string" }, openingBalance: { type: "string" }, endingBalance: { type: "string" } } }, facts: { type: "array", items: { type: "object", additionalProperties: false, properties: { label: { type: "string" }, value: { type: "string" }, accountingRole: { type: "string", enum: ["transaction", "opening_balance", "ending_balance", "transfer", "investment_movement", "revenue", "expense", "financing", "summary", "agreement", "unknown"] }, confidence: { type: "number" } }, required: ["label", "value", "accountingRole", "confidence"] } }, questions: { type: "array", items: { type: "string" } } }, required: ["summary", "facts", "questions"] },
-      instructions: `Re-extract only explicit facts from this retained source. Preserve full dates, amounts, account identifiers, counterparties, descriptions, notes, and statement metadata. Do not invent details. Combine duplicative questions. If PDF text extraction is weak, ask for a searchable or OCR-processed copy instead of inferring values. Apply these company policies: ${JSON.stringify(activePolicies)}`,
+      instructions: `Re-extract only explicit facts from this retained source. Preserve full dates, amounts, account identifiers, counterparties, descriptions, notes, and statement metadata. Do not invent details. ${sourceRole === "reference_model" ? "This is a reference financial model. Describe its structure, schedules, periods, and explicit drivers, but do not treat spreadsheet formulas or model outputs as actual transactions, approved balances, or accounting facts. Use unknown for treatment unless independently evidenced." : ""} Combine duplicative questions. If PDF text extraction is weak, ask for a searchable or OCR-processed copy instead of inferring values. Apply these company policies: ${JSON.stringify(activePolicies)}`,
       messages: [{ role: "user", content }],
     });
   } catch (error) {
@@ -108,7 +116,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "extraction", status: "failed", error: message, completedAt: new Date(), metadata: JSON.stringify({ reprocess: true }) });
     return NextResponse.json({ error: message }, { status: 502 });
   }
-  const sourceClassification = classifySource({ filename: source.sourceName, mimeType: source.sourceMime, text: content });
+  const sourceClassification = classifySource({ filename: source.sourceName, mimeType: source.sourceMime, text: content, sourceRole });
   const detectedCurrencies = detectSourceCurrencies(content);
   const sourceCurrency = detectedCurrencies.length === 1 ? detectedCurrencies[0] : undefined;
   const extraction = { ...extracted, facts: mergeStatementFacts(extracted.facts, extractStructuredStatementFacts(content, sourceClassification.kind)) };
@@ -137,7 +145,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     endingBalance: statementMetadata.endingBalance ? String(parseFinancialAmount(statementMetadata.endingBalance) ?? "") : undefined,
     accountEntityId,
   } : {}), updatedAt: new Date() }).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
-  if (source.sourceId) await db.update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date(), metadata: JSON.stringify({ classification: sourceClassification, statementMetadata, currencies: detectedCurrencies, pdfQuality }) }).where(eq(sources.id, source.sourceId));
+  if (source.sourceId) await db.update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date(), metadata: JSON.stringify({ sourceRole, classification: sourceClassification, statementMetadata, currencies: detectedCurrencies, pdfQuality, workbook: workbookStructure }) }).where(eq(sources.id, source.sourceId));
   await db.delete(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, id)));
   await db.delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, id)));
   if (source.sourceId) await db.delete(observations).where(and(eq(observations.companyId, context.company.id), eq(observations.sourceId, source.sourceId)));
@@ -152,5 +160,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     { companyId: context.company.id, sourceId: source.sourceId!, stage: "review", status: "waiting", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true, facts: extraction.facts.length, questions: questions.length, changes, pdfQuality, reconciliation: "pending", forecast: "pending" }) },
     { companyId: context.company.id, sourceId: source.sourceId!, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ trigger: "reprocess", evidenceId: id }) },
   ]);
-  return NextResponse.json({ id, status: "pending", extraction });
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  return NextResponse.json({ id, status: "pending", extraction, calculationRun });
 }

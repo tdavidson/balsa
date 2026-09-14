@@ -1,9 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { allocations, entities, getDatabase } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { z } from "zod";
+import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 export async function GET() {
   await auth.protect();
@@ -30,5 +31,6 @@ export async function PATCH(request: Request) {
   if (!body.success) return NextResponse.json({ error: "Invalid allocation update" }, { status: 400 });
   const [allocation] = await getDatabase().update(allocations).set({ status: body.data.status, updatedAt: new Date() }).where(and(eq(allocations.id, body.data.id), eq(allocations.companyId, context.company.id))).returning();
   if (!allocation) return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
-  return NextResponse.json({ allocation });
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  return NextResponse.json({ allocation, calculationRun });
 }

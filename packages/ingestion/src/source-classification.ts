@@ -5,6 +5,7 @@ export type SourceKind =
   | "profit_and_loss"
   | "balance_sheet"
   | "general_ledger"
+  | "financial_model"
   | "agreement"
   | "unknown";
 
@@ -18,7 +19,7 @@ export type SourceClassification = {
 };
 
 /** Classify the document shape before asking a model to interpret its values. */
-export function classifySource(input: { filename?: string | null; mimeType?: string | null; text?: string | null }): SourceClassification {
+export function classifySource(input: { filename?: string | null; mimeType?: string | null; text?: string | null; sourceRole?: "reference_model" | null | undefined }): SourceClassification {
   const filename = input.filename?.toLowerCase() ?? "";
   const text = input.text?.slice(0, 20_000).toLowerCase() ?? "";
   const combined = `${filename}\n${text}`;
@@ -28,7 +29,13 @@ export function classifySource(input: { filename?: string | null; mimeType?: str
   let kind: SourceKind = "unknown";
   let confidence: SourceClassification["confidence"] = "low";
 
-  if (has(/profit\s*(?:and|&)\s*loss|income\s+statement|statement\s+of\s+operations/)) {
+  if (input.sourceRole === "reference_model") {
+    kind = "financial_model";
+    reasons.push("explicitly uploaded as a reference model");
+  } else if (spreadsheet && has(/financial\s+model|forecast|budget|assumptions|driver|scenario/)) {
+    kind = "financial_model";
+    reasons.push("spreadsheet contains model or forecast language");
+  } else if (has(/profit\s*(?:and|&)\s*loss|income\s+statement|statement\s+of\s+operations/)) {
     kind = "profit_and_loss";
     reasons.push("contains income-statement language");
   } else if (has(/balance\s+sheet|statement\s+of\s+financial\s+position|total\s+assets|total\s+liabilities/)) {

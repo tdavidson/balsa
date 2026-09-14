@@ -1,0 +1,496 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788596306609,
+      "tag": "0000_living_carlie_cooper",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788598311155,
+      "tag": "0001_pale_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788603499183,
+      "tag": "0002_amazing_wallow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788603836068,
+      "tag": "0003_long_human_robot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788605541218,
+      "tag": "0004_cold_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788605995243,
+      "tag": "0005_dashing_praxagora",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788606176096,
+      "tag": "0006_marvelous_thunderbolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788607467154,
+      "tag": "0007_absent_christian_walker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788610174919,
+      "tag": "0008_pink_raza",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788610872554,
+      "tag": "0009_orange_toro",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788611508124,
+      "tag": "0010_amazing_vargas",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788611719623,
+      "tag": "0011_romantic_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788625093712,
+      "tag": "0012_sparkling_captain_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788626079040,
+      "tag": "0013_melodic_silver_fox",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788626135070,
+      "tag": "0014_icy_mastermind",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1788626457976,
+      "tag": "0015_chemical_psylocke",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788626900540,
+      "tag": "0016_absent_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788628828810,
+      "tag": "0017_overrated_ghost_rider",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788629342342,
+      "tag": "0018_regular_next_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788629461244,
+      "tag": "0019_broken_famine",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788629814185,
+      "tag": "0020_unknown_thunderbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788641223043,
+      "tag": "0021_bored_lizard",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788661340951,
+      "tag": "0022_sloppy_spyke",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788916560349,
+      "tag": "0023_wakeful_roulette",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788916574202,
+      "tag": "0024_woozy_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788916820403,
+      "tag": "0025_youthful_magus",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788921224270,
+      "tag": "0026_sour_tyrannus",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788921755821,
+      "tag": "0027_large_mister_fear",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788985395588,
+      "tag": "0028_pretty_forge",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789050000000,
+      "tag": "0029_company_policy_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789051000000,
+      "tag": "0030_reconciliation_review_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789052000000,
+      "tag": "0031_evidence_provenance_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789053000000,
+      "tag": "0032_reconciliation_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789138800000,
+      "tag": "0033_approval_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789225200000,
+      "tag": "0034_evidence_publication_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789225200001,
+      "tag": "0035_dated_schedule_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789225200002,
+      "tag": "0036_consolidated_statements",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789300000000,
+      "tag": "0037_financial_calculation_graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789300000001,
+      "tag": "0038_financial_state_revision_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789300000002,
+      "tag": "0039_calculation_run_revision_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789300000003,
+      "tag": "0040_opening_position_fact_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789300000004,
+      "tag": "0041_cash_and_item_fact_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789300000005,
+      "tag": "0042_authoritative_journals",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789300000006,
+      "tag": "0043_posting_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1789300000007,
+      "tag": "0044_chart_account_statement_section",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1789300000008,
+      "tag": "0045_source_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1789300000009,
+      "tag": "0046_posting_rule_applications",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789300000010,
+      "tag": "0047_source_row_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789300000011,
+      "tag": "0048_source_row_fact_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1789300000012,
+      "tag": "0049_source_row_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789300000013,
+      "tag": "0050_period_aware_calculation_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1789300000014,
+      "tag": "0051_journal_period_promotions",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1789300000015,
+      "tag": "0052_period_close_and_mapping_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1789300000016,
+      "tag": "0053_chart_account_working_capital_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1789300000017,
+      "tag": "0054_journal_entry_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1789300000018,
+      "tag": "0055_forecast_entry_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1789300000019,
+      "tag": "0056_retained_earnings_close_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1789300000020,
+      "tag": "0057_chart_account_balance_timing",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1789300000021,
+      "tag": "0058_chart_account_bank_identifier",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1789300000022,
+      "tag": "0059_testing_discrepancies",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1789300000023,
+      "tag": "0060_entity_consolidation_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1789300000024,
+      "tag": "0061_intercompany_elimination_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1789300000025,
+      "tag": "0062_fx_rate_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1789300000026,
+      "tag": "0063_journal_native_currency",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1789300000027,
+      "tag": "0064_fx_translation_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1789300000028,
+      "tag": "0065_fx_remeasurement",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1789300000029,
+      "tag": "0066_better_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1789300000030,
+      "tag": "0067_user_profile_avatar",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1789300000031,
+      "tag": "0068_company_favicon",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1789300000032,
+      "tag": "0069_rename_legacy_local_defaults",
+      "breakpoints": true
+    }
+  ]
+}

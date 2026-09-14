@@ -1,10 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { allocations, assumptions, entities, getDatabase, relationships, scenarios, sources, observations, economicItems, factRecords, cashEvents, evidence } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { categories } from "@nevermodel/finance-engine";
+import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 const input = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("entity"), type: z.string().min(1), name: z.string().min(1), attributes: z.record(z.string(), z.unknown()).optional() }),
@@ -43,7 +44,9 @@ export async function POST(request: Request) {
   if (value.kind === "agreement" || value.kind === "obligation") {
     if (value.evidenceId && !(await db.select({ id: evidence.id }).from(evidence).where(and(eq(evidence.id, value.evidenceId), eq(evidence.companyId, context.company.id)))).length) return NextResponse.json({ error: "Evidence not found" }, { status: 404 });
     if (value.counterpartyEntityId && !(await db.select({ id: entities.id }).from(entities).where(and(eq(entities.id, value.counterpartyEntityId), eq(entities.companyId, context.company.id)))).length) return NextResponse.json({ error: "Counterparty entity not found" }, { status: 404 });
-    return NextResponse.json({ economicItem: (await db.insert(economicItems).values({ companyId: context.company.id, evidenceId: value.evidenceId, type: value.kind, direction: value.direction, label: value.label, counterparty: value.counterparty, counterpartyEntityId: value.counterpartyEntityId, amount: value.amount, cadence: value.cadence, accountingTreatment: value.accountingTreatment, recognitionStart: value.recognitionStart, recognitionEnd: value.recognitionEnd, effectiveFrom: value.effectiveFrom, effectiveTo: value.effectiveTo, category: value.category, basis: value.basis, scenarioId: value.scenarioId, status: value.status }).returning())[0] });
+    const economicItem = (await db.insert(economicItems).values({ companyId: context.company.id, evidenceId: value.evidenceId, type: value.kind, direction: value.direction, label: value.label, counterparty: value.counterparty, counterpartyEntityId: value.counterpartyEntityId, amount: value.amount, cadence: value.cadence, accountingTreatment: value.accountingTreatment, recognitionStart: value.recognitionStart, recognitionEnd: value.recognitionEnd, effectiveFrom: value.effectiveFrom, effectiveTo: value.effectiveTo, category: value.category, basis: value.basis, scenarioId: value.scenarioId, status: value.status }).returning())[0];
+    const calculationRun = value.status === "confirmed" && !value.scenarioId ? await refreshCurrentCalculationRun(context.company.id) : null;
+    return NextResponse.json({ economicItem, calculationRun });
   }
   if (value.kind === "fact") {
     const row = (await db.select({ id: evidence.id }).from(evidence).where(and(eq(evidence.id, value.evidenceId), eq(evidence.companyId, context.company.id))).limit(1))[0];
@@ -61,7 +64,9 @@ export async function POST(request: Request) {
     if (entityIds.length && (await db.select({ id: entities.id }).from(entities).where(and(eq(entities.companyId, context.company.id), inArray(entities.id, entityIds)))).length !== entityIds.length) return NextResponse.json({ error: "Allocation entities must belong to the current company" }, { status: 404 });
     if (value.sourceId && !(await db.select({ id: sources.id }).from(sources).where(and(eq(sources.id, value.sourceId), eq(sources.companyId, context.company.id)))).length) return NextResponse.json({ error: "Source not found" }, { status: 404 });
     if (value.itemId && !(await db.select({ id: economicItems.id }).from(economicItems).where(and(eq(economicItems.id, value.itemId), eq(economicItems.companyId, context.company.id)))).length) return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    return NextResponse.json({ allocation: (await db.insert(allocations).values({ companyId: context.company.id, eventId: value.eventId, itemId: value.itemId, counterpartyEntityId: value.counterpartyEntityId, payerEntityId: value.payerEntityId, bearerEntityId: value.bearerEntityId, percentage: value.percentage, amount: value.amount, sourceId: value.sourceId, status: value.status }).returning())[0] });
+    const allocation = (await db.insert(allocations).values({ companyId: context.company.id, eventId: value.eventId, itemId: value.itemId, counterpartyEntityId: value.counterpartyEntityId, payerEntityId: value.payerEntityId, bearerEntityId: value.bearerEntityId, percentage: value.percentage, amount: value.amount, sourceId: value.sourceId, status: value.status }).returning())[0];
+    const calculationRun = value.status === "approved" ? await refreshCurrentCalculationRun(context.company.id) : null;
+    return NextResponse.json({ allocation, calculationRun });
   }
   if (value.kind !== "observation") return NextResponse.json({ error: "Unsupported mutation" }, { status: 400 });
   const source = (await db.select({ id: sources.id }).from(sources).where(and(eq(sources.id, value.sourceId), eq(sources.companyId, context.company.id))).limit(1))[0];

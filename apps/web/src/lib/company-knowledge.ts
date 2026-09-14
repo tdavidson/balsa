@@ -48,3 +48,43 @@ export async function recordOnboardingKnowledge(db: Database, companyId: string,
   const line = `- ${reference} Q: ${review.question}\n  A: ${review.answer}`;
   await db.update(knowledgeDocuments).set({ content: `${document.content.trim()}\n\n## CFO-confirmed onboarding\n${line}\n`, updatedAt: new Date() }).where(eq(knowledgeDocuments.id, document.id));
 }
+
+type WorkbookSheetRole = "historical_statement" | "chart_of_accounts" | "forecast_drivers" | "schedule" | "presentation" | "reference_only" | "exclude";
+
+const workbookRoleLabel: Record<WorkbookSheetRole, string> = {
+  historical_statement: "historical statements",
+  chart_of_accounts: "the chart of accounts",
+  forecast_drivers: "forecast drivers",
+  schedule: "a supporting schedule",
+  presentation: "a presentation or dashboard",
+  reference_only: "reference only",
+  exclude: "excluded from onboarding",
+};
+
+function safeWorkbookLabel(value: string) {
+  return value.replace(/[\r\n`<>\[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || "Unnamed worksheet";
+}
+
+/**
+ * Save the CFO's worksheet-role choices as sourced company knowledge. This is
+ * deliberately structural: values and formulas remain in the reference layer.
+ */
+export async function recordReferenceWorkbookKnowledge(db: Database, companyId: string, input: { evidenceId: string; worksheetRoles: Record<string, WorkbookSheetRole> }) {
+  const documents = await ensureCompanyKnowledgeDocuments(db, companyId);
+  const byDestination = new Map<string, string[]>();
+  for (const [worksheet, role] of Object.entries(input.worksheetRoles)) {
+    const destination = role === "forecast_drivers" ? "forecast" : ["historical_statement", "chart_of_accounts", "schedule"].includes(role) ? "accounting" : undefined;
+    if (!destination) continue;
+    const line = `- [source:${input.evidenceId}] Worksheet “${safeWorkbookLabel(worksheet)}” is approved as ${workbookRoleLabel[role]}.`;
+    byDestination.set(destination, [...(byDestination.get(destination) ?? []), line]);
+  }
+  const start = `<!-- reference-workbook:${input.evidenceId}:start -->`;
+  const end = `<!-- reference-workbook:${input.evidenceId}:end -->`;
+  const blockPattern = new RegExp(`\\n?${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?`, "g");
+  for (const document of documents.filter((candidate) => candidate.slug === "accounting" || candidate.slug === "forecast")) {
+    const withoutPrior = document.content.replace(blockPattern, "").trimEnd();
+    const lines = byDestination.get(document.slug) ?? [];
+    const content = lines.length ? `${withoutPrior}\n\n${start}\n## Reference workbook structure\n${lines.join("\n")}\n${end}\n` : `${withoutPrior}\n`;
+    if (content !== document.content) await db.update(knowledgeDocuments).set({ content, updatedAt: new Date() }).where(eq(knowledgeDocuments.id, document.id));
+  }
+}

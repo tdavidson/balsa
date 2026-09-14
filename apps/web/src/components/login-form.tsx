@@ -1,134 +1,118 @@
 "use client";
 
-import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
-import { cn } from "@/lib/utils";
-
-type Step = "email" | "code";
+import { authClient } from "@/lib/auth-client";
 
 /**
- * Email-code sign-in built on Clerk's custom-flow API. An email Clerk has not
- * seen before is created on the fly, so there is no separate sign-up page.
+ * Nevermodel-owned password sign-in. Better Auth handles credentials and session
+ * cookies; this screen deliberately remains application UI rather than a
+ * hosted identity widget.
  */
-export function LoginForm() {
-  const { signIn, errors, fetchStatus } = useSignIn();
+export function LoginForm({ allowSignUp }: { allowSignUp: boolean }) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("email");
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  const busy = fetchStatus === "fetching";
+  const [busy, setBusy] = useState(false);
 
-  async function sendCode(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!signIn || !email.trim()) return;
+    if (!email.trim() || !password) return;
     setMessage(null);
-    const created = await signIn.create({ identifier: email.trim(), signUpIfMissing: true });
-    if (created.error) return setMessage(describe(created.error));
-    const sent = await signIn.emailCode.sendCode();
-    if (sent.error) return setMessage(describe(sent.error));
-    setStep("code");
+    setBusy(true);
+    try {
+      const result = mode === "sign-up"
+        ? await authClient.signUp.email({ email: email.trim(), password, name: name.trim() || email.trim() })
+        : await authClient.signIn.email({ email: email.trim(), password });
+      if (result.error) {
+        setMessage(describe(result.error));
+        return;
+      }
+      router.push("/");
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
   }
-
-  async function verifyCode(event: React.FormEvent) {
-    event.preventDefault();
-    if (!signIn || code.trim().length < 6) return;
-    setMessage(null);
-    const verified = await signIn.emailCode.verifyCode({ code: code.trim() });
-    if (verified.error) return setMessage(describe(verified.error));
-    if (signIn.status !== "complete") return setMessage("Sign-in needs more information than this form collects. Check the Clerk settings for required fields.");
-    const finalized = await signIn.finalize({ navigate: () => router.push("/") });
-    if (finalized.error) setMessage(describe(finalized.error));
-  }
-
-  function startOver() {
-    setStep("email");
-    setCode("");
-    setMessage(null);
-    void signIn?.reset();
-  }
-
-  const fieldError = step === "email" ? errors.fields.identifier?.message : errors.fields.code?.message;
 
   return (
-    <form className="grid w-full max-w-[384px] gap-2" onSubmit={step === "email" ? sendCode : verifyCode} noValidate>
+    <form className="grid w-full max-w-[384px] gap-2" onSubmit={submit} noValidate>
       <h1 className="display text-[32px] leading-[1.15]" style={{ fontVariationSettings: '"opsz" 32' }}>
-        Sign in to Hemrock
+        Sign in to Nevermodel
       </h1>
       <p className="mb-5 text-ink-2">
-        {step === "email" ? "A radical rethink of financial operations for AI-native startups." : <>Thanks! We sent a six-digit code to <span className="text-ink">{email}</span>.</>}
+        {mode === "sign-in" ? "Sign in to continue working with your company’s financial system." : "Create the first sign-in for this Nevermodel installation."}
       </p>
 
-      {step === "email" ? (
+      {mode === "sign-up" && (
         <input
           className={field}
-          type="email"
-          name="email"
-          autoComplete="email"
-          inputMode="email"
-          placeholder="you@company.com"
-          aria-label="Email"
-          autoFocus
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          disabled={busy}
-        />
-      ) : (
-        <input
-          className={cn(field, "tracking-[0.2em]")}
           type="text"
-          name="code"
-          autoComplete="one-time-code"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={6}
-          placeholder="000000"
-          aria-label="Six-digit code"
-          autoFocus
-          value={code}
-          onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+          name="name"
+          autoComplete="name"
+          placeholder="Your name"
+          aria-label="Name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
           disabled={busy}
         />
       )}
-
-      {/* Clerk mounts its bot-protection widget here when sign-up needs it. */}
-      <div id="clerk-captcha" className="empty:hidden" />
+      <input
+        className={field}
+        type="email"
+        name="email"
+        autoComplete="email"
+        inputMode="email"
+        placeholder="you@company.com"
+        aria-label="Email"
+        autoFocus={mode === "sign-in"}
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
+        disabled={busy}
+      />
+      <input
+        className={field}
+        type="password"
+        name="password"
+        autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+        placeholder="Password"
+        aria-label="Password"
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        disabled={busy}
+      />
 
       <button
         className="mt-3 inline-flex h-[52px] items-center justify-center gap-2 rounded-full bg-ink text-[15px] font-medium text-paper transition-colors outline-none hover:bg-ink/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60"
         type="submit"
-        disabled={busy || !signIn || (step === "email" ? !email.trim() : code.length < 6)}
+        disabled={busy || !email.trim() || !password}
       >
-        {step === "email" ? "Send code" : "Continue"}
+        {mode === "sign-in" ? "Sign in" : "Create account"}
         <ArrowRight className="size-4" aria-hidden="true" />
       </button>
 
-      {(message || fieldError) && (
+      {message && (
         <p className="mt-2 text-[14px] text-red-ink" role="alert">
-          {message ?? fieldError}
+          {message}
         </p>
       )}
 
-      <p className="mt-5 text-[14px] text-ink-2">
-        {step === "email" ? (
-          "New here? The same email creates your workspace."
-        ) : (
-          <>
-            Didn’t get it?{" "}
-            <button type="button" className="text-ink underline underline-offset-[3px]" onClick={startOver}>
-              Use a different email
-            </button>
-          </>
-        )}
-      </p>
+      {allowSignUp && <p className="mt-5 text-[14px] text-ink-2">
+        {mode === "sign-in" ? "New here?" : "Already have an account?"}{" "}
+        <button type="button" className="text-ink underline underline-offset-[3px]" onClick={() => { setMode(mode === "sign-in" ? "sign-up" : "sign-in"); setMessage(null); }}>
+          {mode === "sign-in" ? "Create an account" : "Sign in"}
+        </button>
+      </p>}
     </form>
   );
 }
 
 const field =
-  "hemrock-auth-field h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus:bg-background focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
+  "nevermodel-auth-field h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus:bg-background focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
 
 function describe(error: { message?: string | undefined; longMessage?: string | undefined } | null): string {
   return error?.longMessage ?? error?.message ?? "Something went wrong. Try again.";

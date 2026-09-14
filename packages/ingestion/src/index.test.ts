@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessPdfText, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractStructuredStatementFacts, mergeStatementFacts, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey, validateStatementRollforward } from "./index";
+import { adaptGeneralLedgerRows, adaptStatementFacts, adaptTransactionRows, assessPdfText, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractStructuredStatementFacts, mergeStatementFacts, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey, validateStatementRollforward } from "./index";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -17,6 +17,7 @@ describe("transaction ingestion", () => {
   it("classifies source shape before extraction", () => {
     expect(classifySource({ filename: "January bank statement.pdf", text: "Beginning balance 100.00 Account activity Ending balance 125.00" })).toMatchObject({ kind: "bank_statement", containsTransactions: true, containsBalances: true });
     expect(classifySource({ filename: "quickbooks-detail.xlsx", text: "Date,Description,Debit,Credit" })).toMatchObject({ kind: "quickbooks_transactions", containsTransactions: true });
+    expect(classifySource({ filename: "board-model.xlsx", text: "Income statement Forecast Assumptions", sourceRole: "reference_model" })).toMatchObject({ kind: "financial_model", confidence: "high" });
     expect(classifySource({ filename: "balance-sheet.pdf", text: "Balance Sheet Total Assets Total Liabilities" })).toMatchObject({ kind: "balance_sheet", containsBalances: true });
   });
   it("records only explicitly named source currencies", () => {
@@ -45,6 +46,17 @@ describe("transaction ingestion", () => {
       { date: "2026-10", postedDate: "2026-10-15", description: "Contractor", amount: 3200, direction: "spend", sourceLocation: "row:3" },
     ]);
   });
+  it("adapts cash, ledger, and statement sources into distinct typed rows", () => {
+    expect(adaptTransactionRows("bank_statement", [{ date: "2026-09", postedDate: "2026-09-03", description: "Client receipt", amount: 125, direction: "receipt", sourceLocation: "row:2" }], "USD")).toMatchObject([{ rowType: "bank_transaction", period: "2026-09", amount: "125.00", currency: "USD" }]);
+    expect(adaptGeneralLedgerRows(parseCsvRows("Date,Account,Description,Debit,Credit\n2026-09-03,Management Fees,Client invoice,,125.00"), "2026-09", "USD")).toMatchObject([{ rowType: "general_ledger_line", accountName: "Management Fees", debitMinor: "0", creditMinor: "12500" }]);
+    expect(adaptStatementFacts("balance_sheet", [{ label: "Cash", value: "$500.00", accountingRole: "closing_balance" }], "2026-09", "USD")).toMatchObject([{ rowType: "balance", amount: "500.00", currency: "USD" }]);
+  });
+
+  it("adapts common general-ledger export aliases without treating totals as activity", () => {
+    expect(adaptGeneralLedgerRows(parseCsvRows('Posting Date,GL Account,Transaction Description,Debits,Credits\n2026-09-03,Management Fees,Client invoice,,"$1,250.00"'), "2026-09", "USD")).toMatchObject([
+      { rowType: "general_ledger_line", accountName: "Management Fees", transactionDate: "2026-09-03", debitMinor: "0", creditMinor: "125000", sourceLocation: "row:2" },
+    ]);
+  });
   it("bootstraps QuickBooks OFX transactions", () => {
     expect(parseOfx("<STMTTRN><DTPOSTED>20260903<TRNAMT>-3200<NAME>Contractor<MEMO>September invoice</STMTTRN>")).toEqual([{ date: "2026-09", postedDate: "2026-09-03", description: "Contractor · September invoice", amount: 3200, direction: "spend", sourceLocation: "transaction:1" }]);
   });
@@ -59,6 +71,14 @@ describe("transaction ingestion", () => {
       direction: "receipt",
       sourceLocation: "row:2",
     }]);
+  });
+
+  it("handles realistic bank-export headers and financial amount formats", () => {
+    const rows = parseCsvRows('Posted Date,Transaction Description,Money Out,Money In,Details\n2026-08-04,Vendor ACH,"$1,250.50",,Invoice 42\n2026-08-06,Client wire,,"(2,500.00)",August fee');
+    expect(normalizeTransactions(rows, "2026-08")).toEqual([
+      { date: "2026-08", postedDate: "2026-08-04", description: "Vendor ACH · Invoice 42", amount: 1250.5, direction: "spend", sourceLocation: "row:2" },
+      { date: "2026-08", postedDate: "2026-08-06", description: "Client wire · August fee", amount: 2500, direction: "receipt", sourceLocation: "row:3" },
+    ]);
   });
 
   it("expands abbreviated statement dates using the source year", () => {

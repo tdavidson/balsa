@@ -1,5 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
-import { requireCompanyAccess } from "@/lib/auth";
+import { auth, authMode, requireCompanyAccess } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 import { getModelOptions } from "@/lib/models";
 
@@ -11,8 +10,9 @@ export default async function HomePage() {
   return (
     <AppShell
       company={{ name: context.company.name, currency: context.company.baseCurrency }}
-      user={{ email: context.user.email, name: context.user.name }}
+      user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }}
       modelOptions={getModelOptions()}
+      loginEnabled={authMode === "better-auth"}
     />
   );
 }

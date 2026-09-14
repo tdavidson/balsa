@@ -1,15 +1,15 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-// Clerk's request/session plumbing runs here. Authorization is deliberately
-// performed in the protected page and route handlers that access company data,
-// avoiding path-based redirect races during the sign-up handoff.
-export default clerkMiddleware(async (auth, request) => {
+// Authorization is deliberately performed in protected page and route handlers
+// through the app-owned auth boundary. This edge-safe guard still rejects
+// cross-site state changes before they reach a route handler.
+export default function proxy(request: NextRequest) {
   const isApiRequest = request.nextUrl.pathname.startsWith("/api/");
   const isMutation = !["GET", "HEAD", "OPTIONS"].includes(request.method);
   if (isApiRequest && isMutation) {
     const origin = request.headers.get("origin");
-    const expectedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.BETTER_AUTH_URL;
+    const expectedHost = configuredOrigin ? new URL(configuredOrigin).host : request.headers.get("host");
     const fetchSite = request.headers.get("sec-fetch-site");
     let crossOrigin = fetchSite === "cross-site";
     if (origin && expectedHost) {
@@ -18,27 +18,28 @@ export default clerkMiddleware(async (auth, request) => {
     if (crossOrigin) return NextResponse.json({ error: "Cross-site API requests are not allowed" }, { status: 403 });
   }
 
-  // A stale development-browser handoff can be returned as a signed-out
-  // redirect indefinitely. Remove it from the app URL so Clerk can establish
-  // a fresh session instead of preserving the loop token in redirect_url.
-  const { userId } = await auth();
-  if (!userId && (request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/login") && request.nextUrl.searchParams.has("__clerk_db_jwt")) {
-    const cleanUrl = request.nextUrl.clone();
-    cleanUrl.searchParams.delete("__clerk_db_jwt");
-    return NextResponse.redirect(cleanUrl);
-  }
-
   if (isApiRequest) {
     const response = NextResponse.next();
     response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("X-Content-Type-Options", "nosniff");
+    response.headers.set("X-Frame-Options", "DENY");
+    response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    if (process.env.NODE_ENV === "production") response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     return response;
   }
-});
+  const response = NextResponse.next();
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (process.env.NODE_ENV === "production") response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  return response;
+}
 
 export const config = {
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
-    "/__clerk/:path*",
   ],
 };

@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
-  Hemrock design tokens.
+  Nevermodel design tokens.
 
   Ink, pencil, highlighter. Actuals and approved facts are ink. Forecasts and
   unconfirmed facts are pencil. The one thing waiting on you gets a highlighter
@@ -101,9 +101,9 @@
 
 @layer components {
   /* Browser autofill otherwise paints email and one-time-code fields blue. */
-  .hemrock-auth-field:-webkit-autofill,
-  .hemrock-auth-field:-webkit-autofill:hover,
-  .hemrock-auth-field:-webkit-autofill:focus {
+  .nevermodel-auth-field:-webkit-autofill,
+  .nevermodel-auth-field:-webkit-autofill:hover,
+  .nevermodel-auth-field:-webkit-autofill:focus {
     -webkit-text-fill-color: var(--ink);
     -webkit-box-shadow: 0 0 0 1000px var(--paper) inset;
     box-shadow: 0 0 0 1000px var(--paper) inset;
