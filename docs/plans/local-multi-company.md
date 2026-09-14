@@ -1,5 +1,56 @@
 # Local multi-company plan
 
+## Status
+
+All six implementation slices below have landed on this branch.
+
+1. **Company repository and API** — `listCompaniesForUser` and a
+   single-transaction `createCompanyForUser` in the database auth repository;
+   `GET`/`POST /api/companies` and `PUT`/`DELETE /api/companies/active`.
+   Responses expose only company id, name, base currency, and the caller's
+   role. Company creation is rate limited per user.
+2. **Auth-context selection** — `apps/web/src/lib/auth/company-selection.ts`
+   reads the `nevermodel_company` cookie and passes it to `createAuthService`
+   as a `CompanySelectionStore`. `requireCompanyAccess` re-verifies membership
+   on every request and reports `selection.staleSelection` when a stored id is
+   no longer authorized. Provisioning creates a company only when the user has
+   no membership at all.
+3. **Account-menu UX** — the account menu lists every authorized company, marks
+   the active one, switches through `PUT /api/companies/active` followed by a
+   full reload, and opens a **New company** dialog. The app shell is keyed by
+   the active company, and signing out clears the cookie.
+4. **Company propagation audit** — foreign keys supplied in request bodies
+   (entity owner, scenario, provenance, account, decision, policy, mapping, and
+   source-row ids) are verified against the active company before use, and
+   follow-up updates constrain the company id instead of matching the record id
+   alone. The reconciliation drain claims extraction jobs under the company
+   stored on the durable ingestion run rather than the joined evidence row.
+5. **Isolation tests** — database-backed tests in `packages/database` cover
+   company listing order, creation, provisioning idempotence, denial for a
+   second user holding a known company UUID, and row level security enforcement
+   inside `withCompanyTransaction`. CI runs them against a migrated Postgres
+   service; they skip when no database URL is configured. The end-to-end gate is
+   `scripts/multi-company-isolation.ts`, run as `pnpm isolation`.
+6. **Defense-in-depth database boundary** — `withCompanyTransaction` sets the
+   transaction-local `app.company_id` scope, and migration
+   `0070_company_row_level_security.sql` enables and forces row level security
+   with a matching policy on every company-bearing table.
+
+What remains:
+
+- Routes adopt `withCompanyTransaction` incrementally. The policies are
+  permissive when no scope is set, so a route that has not adopted the wrapper
+  still relies on application-level `company_id` filtering alone; it gains the
+  database boundary only once its queries run inside the transaction.
+- Row level security is enforced only for a non-superuser application role. A
+  superuser connection—including the default local `postgres` role—bypasses
+  every policy, so the boundary is inert until the application connects as a
+  dedicated unprivileged role.
+- The acceptance gate is `pnpm isolation` against a running application in both
+  `ISOLATION_AUTH_MODE=disabled` and `ISOLATION_AUTH_MODE=better-auth`. It is a
+  black-box script against a live instance, so it is not part of CI and must be
+  run deliberately.
+
 ## Objective
 
 Allow one Nevermodel user to create, operate, and switch among multiple
@@ -24,8 +75,8 @@ distributed infrastructure. Those belong to the
   mode and Better Auth through the one-time email claim setting.
 - Local private file storage already prefixes source objects by company.
 
-The missing work is selection, creation, consistent propagation, and isolation
-testing.
+Selection, creation, consistent propagation, and isolation testing are the work
+this plan adds; see **Status** above for what has landed.
 
 ## Product behavior
 
@@ -123,10 +174,12 @@ scope.
 ### 6. Defense-in-depth database boundary
 
 The local feature can function through verified `company_id` application
-scoping, but PostgreSQL row-level security and a company transaction wrapper
-should follow before the same code is exposed as a hosted service. Implementing
-them during this pass is preferred because they detect missing company filters
-while the surface is still small. Hosted launch treats them as mandatory.
+scoping alone, but PostgreSQL row-level security and a company transaction
+wrapper are installed during this pass, because they detect missing company
+filters while the surface is still small. Policies are permissive when no scope
+is set, so routes adopt the wrapper incrementally without breaking. Enforcement
+requires the application to connect as a non-superuser role; hosted launch
+treats both the wrapper and that role as mandatory.
 
 ## Acceptance gate
 
@@ -134,6 +187,10 @@ Local multi-company is complete when one user can create two clean companies,
 switch between them repeatedly, run ingestion and calculations concurrently,
 restart the application, and observe no state or file leakage between them.
 This must pass in both disabled and Better Auth modes.
+
+`scripts/multi-company-isolation.ts` (`pnpm isolation`) checks the gate against
+a running application: set `BASE_URL` and run it once per
+`ISOLATION_AUTH_MODE`.
 
 ## Explicitly deferred
 
