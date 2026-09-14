@@ -2,13 +2,13 @@
  * Black-box acceptance for local multi-company isolation.
  *
  * Runs against a live Nevermodel (BASE_URL, default http://localhost:3000) and
- * proves the acceptance gate in docs/plans/local-multi-company.md: two clean
+ * proves the local multi-company acceptance gate: two clean
  * companies, repeated switching, no state or blob leakage, and cookies that are
  * a preference and never authorization.
  *
  * ISOLATION_AUTH_MODE=disabled (default) exercises the single operator user;
- * ISOLATION_AUTH_MODE=better-auth signs up a second person and runs the model
- * of docs/plans/multi-user.md: the sign-up code is the only gate on who may
+ * ISOLATION_AUTH_MODE=better-auth signs up a second person and runs the
+ * self-hosted multi-user model: the sign-up code is the only gate on who may
  * join, everyone who passes it works in every company on the installation, and
  * isolation is the company's, not the person's — a read under one company
  * contains nothing from the other, whoever is signed in. Set

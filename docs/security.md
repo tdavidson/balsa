@@ -89,5 +89,5 @@
 The current request limiter and Better Auth default limiter are process-local.
 Before multi-instance/serverless deployment, replace them with a shared Redis
 or database-backed limiter, configure trusted proxy IP handling, and schedule
-outbox recovery with `CRON_SECRET`. This work is tracked in
-the hosted service's own plans, which are developed separately.
+outbox recovery with `CRON_SECRET`. That work is outside the scope of this
+repository.
