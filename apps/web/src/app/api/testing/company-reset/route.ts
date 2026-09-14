@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { companies, getDatabase, sources } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
+import { clearActiveCompanyCookie } from "@/lib/auth/company-selection";
 import { deleteSourceBlob } from "@/lib/blob-store";
 
 const requestBody = z.object({ confirmation: z.string() });
@@ -28,5 +29,8 @@ export async function POST(request: Request) {
   const fileRows = await db.select({ storageReference: sources.storageReference }).from(sources).where(eq(sources.companyId, context.company.id));
   for (const file of fileRows) if (file.storageReference) await deleteSourceBlob(file.storageReference);
   await db.delete(companies).where(eq(companies.id, context.company.id));
+  // The preference now names a deleted company; clearing it lets the next
+  // request fall back to an authorized company instead of a stale id.
+  await clearActiveCompanyCookie();
   return NextResponse.json({ reset: true });
 }
