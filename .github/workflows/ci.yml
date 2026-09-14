@@ -29,3 +29,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+        env:
+          AUTH_MODE: disabled
+          ALLOW_AUTH_DISABLED: "true"
+          LOCAL_OWNER_EMAIL: ci@localhost
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci_build
