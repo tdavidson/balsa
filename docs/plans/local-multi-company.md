@@ -65,8 +65,7 @@ supported in both authentication modes:
 - `AUTH_MODE=better-auth`: one signed-in user, several companies.
 
 This plan does not add invitations, hosted billing, or distributed
-infrastructure. Those belong to the hosted service, which is developed
-separately.
+infrastructure. Those are outside the scope of this repository.
 
 ## Existing foundation
 
@@ -208,6 +207,5 @@ a running application: set `BASE_URL` and run it once per
 - hosted billing, quotas, support tooling, and tenant operations;
 - public multi-tenant deployment.
 
-The hosted items above belong to the hosted service, which is developed
-separately and is not part of this repository.
+The hosted items above are outside the scope of this repository.
 

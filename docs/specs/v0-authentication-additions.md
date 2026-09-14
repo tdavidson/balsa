@@ -264,7 +264,7 @@ Do not let multi-company UX delay V0.
 
 Implementation after V0 is covered by
 [local multi-company](../plans/local-multi-company.md); multiple users and
-public deployment belong to the hosted service, which is developed separately.
+public deployment are outside the scope of this repository.
 
 ---
 

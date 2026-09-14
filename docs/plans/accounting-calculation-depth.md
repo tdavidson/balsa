@@ -677,5 +677,5 @@ quality gates:
    entry then becomes the only allocation impact on entity statements.
 
 Work outside the single-company readiness boundary is tracked separately in
-[Local multi-company](local-multi-company.md), and anything specific to the
-hosted service is developed separately.
+[Local multi-company](local-multi-company.md); hosted operation is outside
+the scope of this repository.
