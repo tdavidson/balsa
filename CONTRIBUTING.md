@@ -52,14 +52,14 @@ skip themselves when neither is set, so run `pnpm db:migrate` first if you want
 the company repository and row level security coverage.
 
 Run `pnpm isolation` when changing company selection, company-scoped routes,
-membership and roles, the audit log, or row level security. It is a black-box
+provisioning and roles, the audit log, or row level security. It is a black-box
 acceptance script rather than a unit test: start the application first, point it
 at the instance with `BASE_URL`, and pick the mode with
 `ISOLATION_AUTH_MODE=disabled` or `ISOLATION_AUTH_MODE=better-auth`. Both modes
-must pass. Better Auth mode signs people up and also proves the membership
-rules—an owner adds someone by email before that address has an account, the
-member cannot administer the company, removal ends their access, and the
-activity log names the actor—so run it against an instance with
+must pass. Better Auth mode signs people up and also proves the installation
+rules—registration without the sign-up code is refused, a second user joins
+every company that already exists without being given one of their own, and
+isolation still holds per company for them—so run it against an instance with
 `AUTH_ALLOW_SIGN_UP=true` and pass that installation's `AUTH_SIGN_UP_CODE` as
 `ISOLATION_SIGN_UP_CODE`.
 

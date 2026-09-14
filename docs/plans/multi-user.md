@@ -1,99 +1,53 @@
 # Multi-user plan
 
-## Status
-
-Landed on this branch in four slices. The gate is `pnpm isolation` in Better
-Auth mode, which now adds a member by email, exercises the member's bounded
-rights, removes them, and reads the activity log back.
-
-1. **Roles, direct membership, and the log** — `company_role` widens to
-   `owner | member`; `requireCompanyRole` in the auth package and `requireOwner`
-   in the web adapter raise `CompanyRoleRequiredError`, which routes answer with
-   403. `pending_members` holds an address until it first signs in, and
-   provisioning attaches every pending membership before it would create a
-   default company. `MemberRepository` adds, re-roles, and removes members, and
-   refuses to leave a company without an owner. `audit_log`, `recordAudit`, and
-   `listAuditEntries` exist, and the attribution columns are on their tables.
-2. **Members and Activity** — `GET`/`POST`/`PATCH`/`DELETE /api/members` and
-   `GET /api/activity`, with a **Members** dialog the account menu offers to
-   owners and an **Activity** dialog it offers to everyone.
-3. **Audit instrumentation and row attribution** — evidence approvals and
-   rejections, decisions, review answers, journal posting and reversal, period
-   close and reopen, policies, company settings, company creation, knowledge
-   edits, and every membership change record their action with the acting user,
-   inside the mutation's own transaction wherever one exists. `MemberRepository`
-   owns its transactions, so each mutating method takes the audit write as a
-   `within` callback and runs it before the commit. The rows listed under
-   [Row attribution](#row-attribution) store the user who wrote them, the
-   economic items a decision effect or an evidence approval creates included. A
-   company reset records nothing: the cascade deletes the company's log with it.
-4. **Acceptance and documentation** — the isolation script's membership matrix,
-   this status, the roles, audit, and attribution entries in
-   [the security model](../security.md), and the README's account-menu section.
-
 ## Objective
 
-Let several people work in one company on a self-hosted installation, with
-explicit rights, and record which person took each action that changes
-financial state. This plan covers:
+Let several people work on one self-hosted installation of Nevermodel, and
+record which person took each action that changes financial state.
 
-- member roles and the rights attached to them;
-- adding people to a company directly by email, without an email sender;
-- an audit log written in the same transaction as the change it describes;
-- acting-user attribution on the rows that lacked it;
-- an Activity view and tests.
+The model is deliberately the smallest one that is honest about a self-hosted
+host: the operator decides who may create a sign-in at all, and everyone who
+holds that right works on everything the installation holds.
 
-Invitation links, email delivery, and hosted tenant operations stay in the
-[hosted multi-company plan](multi-tenant-hosted.md). This plan is the
-self-hosted subset that plan builds on.
+- **Admission is the whole gate.** `AUTH_SIGN_UP_CODE` is what admits a person.
+  Registration without it is refused server-side, so the people who can reach
+  the host are exactly the people the operator handed the code to.
+- **Everyone belongs to every company.** A user admitted today joins every
+  company that exists, as an owner, and every company created afterwards joins
+  every user. Nobody is added to a company, so nobody has to be: the company
+  switcher, **New company**, and `COMPANIES` all keep working, and a second
+  person sees the same list as the first.
+- **The default company is the installation's oldest.** Each membership carries
+  its company's `created_at`, so the company a person opens on their first
+  request is the one the installation started with, not one provisioned for
+  them. A default `DEFAULT_COMPANY_NAME` company is created only when the
+  installation has no company at all.
+- **Isolation is the company's, not the person's.** Row level security and
+  `withCompanyTransaction` keep every read and write inside the active company.
+  That boundary is unchanged by who is signed in; what changed is that the set
+  of people who may select a given company is now everyone on the host.
+- **The log says who.** Every change that matters records its acting user, and
+  the rows that record a person's judgment carry that person.
 
-## Starting point
+## Roles
 
-- Registration requires the configured `AUTH_SIGN_UP_CODE`, so the operator
-  decides who can create a sign-in at all.
-- `company_members` already separates membership from users and companies and
-  carries a `role`, currently the single value `owner`.
-- Every request resolves user and company through one boundary, and the
-  active company is a verified cookie preference.
-- The acting user is already stored on LLM runs and messages, evidence,
-  approval events, period closures and promotions, close entries, FX
-  remeasurement, elimination entries, and source-row mappings.
-- Row level security and `withCompanyTransaction` exist; the audit writer runs
-  inside that transaction when the mutation does.
-
-## Roles and rights
-
-`company_role` widens to `owner | member`.
+`company_role` is `owner | member`, and `requireCompanyRole` in the auth package
+enforces it as a lattice: an owner satisfies every requirement, a member only
+its own. `requireOwner` in the web adapter is what owner-only routes call, and
+routes map `CompanyRoleRequiredError` to 403.
 
 | Right | Owner | Member |
 | --- | --- | --- |
 | All financial work: evidence, chat, knowledge, journals, close, forecasts | yes | yes |
 | Company settings (name, currency, favicon) | yes | no |
-| Add, remove, or change members | yes | no |
 | Reset (delete) the company | yes | no |
-| Create a new company (becomes its owner) | yes | yes |
+| Create a new company | yes | yes |
 
-The auth package exposes `requireCompanyRole(context, role)`, which throws
-`CompanyRoleRequiredError`; the web adapter exports `requireOwner()` and routes
-map the error to 403. A company always keeps at least one owner: the last owner
-cannot be demoted or removed, and cannot remove themselves.
-
-## Adding people directly
-
-An owner opens **Members** from the account menu, enters an email and a role,
-and the person is added immediately:
-
-- if a user with that email already exists, the membership is inserted;
-- otherwise a `pending_members` row holds the email, role, company, and the
-  owner who added it. When someone signs in with that email for the first
-  time, provisioning attaches every pending membership before it would create
-  a default company, so the person lands in the company that added them rather
-  than in an empty one.
-
-Emails are compared lowercased and trimmed. Removing a pending member deletes
-the row; removing an active member deletes the membership, and their next
-request falls back to another authorized company or, if none remains, to a
-newly provisioned empty company. A removed member keeps their sign-in.
+In this repository every membership is an owner membership, so the member row
+of that table is never reached in practice. The enum, the check, and the
+owner-only routes stay because they are the mechanism a deployment needs the
+moment membership stops being installation-wide — and because a right that is
+only hidden in the interface is not a right at all.
 
 ## Audit log
 
@@ -103,7 +57,7 @@ audit_log
   company_id      uuid, not null, cascade
   actor_user_id   uuid, null for worker actions, set null on user delete
   via             text: ui | agent | worker
-  action          text  (evidence.approved, decision.applied, journal.posted, period.closed, member.added, ...)
+  action          text  (evidence.approved, decision.applied, journal.posted, period.closed, ...)
   entity_type     text
   entity_id       uuid, nullable
   summary         text
@@ -121,10 +75,11 @@ Mutations that are single statements record the row immediately after the
 write. Agent-proposed writes are attributed to the user who asked, with
 `via = agent`. Cron and worker actions have no actor and use `via = worker`.
 
-First-pass audited actions: evidence approved or rejected, decision applied or
-rejected, review question answered, journal posted and reversed, period closed
-and reopened, policy created or changed, company settings changed, company
-created, company reset, member added, role changed, member removed.
+Audited actions: evidence approved or rejected, decision applied or rejected,
+review question answered, journal posted and reversed, period closed and
+reopened, policy created or changed, company settings changed, company created,
+knowledge edited. A company reset records nothing: the cascade deletes the
+company's log with it.
 
 ## Row attribution
 
@@ -138,25 +93,44 @@ Added so the row itself answers "who", independent of the log:
 
 ## Activity view
 
-`GET /api/activity` returns the company's most recent audit entries with the
-actor's name and email. The account menu gains **Activity**, which opens a
-dialog listing them newest first. Traces that already show an approval or
+`GET /api/activity` returns the active company's most recent audit entries with
+the actor's name and email. The account menu offers **Activity**, which opens a
+dialog listing them newest first. Traces that already show an approval or a
 decision keep showing the actor name where the row records one.
 
-## Tests
+## Hosted
 
-- Unit: role check, last-owner protection, email normalization.
-- Database: pending membership attaches on first provisioning and suppresses
-  the default company; a member cannot be promoted past the rules; audit rows
-  land with the right company and actor.
-- Acceptance (`pnpm isolation`, Better Auth mode): the owner adds a second user
-  by email; that user sees the company in their switcher; the member cannot
-  change settings, manage members, or reset the company; the owner removes
-  them and their access ends; the activity log lists the actions with actors.
+Per-company membership — adding a specific person to a specific company,
+invitations, pending addresses, and role administration — is developed
+separately for the hosted service and is not part of this repository. Nothing
+here depends on it: the roles enum, `requireCompanyRole`, `requireOwner`, the
+audit log, and row attribution are the pieces that model would build on.
+
+## Status
+
+Implemented on this branch:
+
+- `ensureInstallationMemberships` joins a provisioning user to every company on
+  the installation, and `createCompanyForUser`, the `COMPANIES` top-up, and the
+  first-company bootstrap each give the new company to every user, in one
+  statement, with the company's `created_at` as the membership timestamp.
+- A default company is created only for an installation that has none.
+- `company_role` widens to `owner | member`; `requireCompanyRole`,
+  `CompanyRoleRequiredError`, and `requireOwner` are enforced server-side.
+- `audit_log`, `recordAudit`, `listAuditEntries`, `GET /api/activity`, and the
+  **Activity** dialog.
+- Attribution columns on the rows listed under [Row attribution](#row-attribution),
+  the economic items a decision effect or an evidence approval creates included.
+- Tests: the auth package's role checks; database tests for installation-wide
+  membership, the default-company rule, the `COMPANIES` top-up, local-owner
+  adoption, and the audit log; and `pnpm isolation` in Better Auth mode, where a
+  second user admitted by the sign-up code sees the same companies with no
+  default company of their own, opens one of them, and still reads nothing of
+  the other.
 
 ## Explicitly deferred
 
-- invitation links and email delivery;
+- per-company membership, invitations, and role administration (hosted);
 - an `admin` role or per-feature permissions;
 - audit coverage of every remaining mutation (mechanical follow-up);
 - per-user model-provider keys, hosted billing, and tenant operations.

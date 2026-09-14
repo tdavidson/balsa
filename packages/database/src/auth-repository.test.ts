@@ -1,6 +1,6 @@
 import type { AuthIdentity } from "@finance/auth";
 import { config } from "dotenv";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,7 @@ import postgres from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 import { createDatabaseAuthRepository } from "./auth-repository";
 import * as schema from "./schema";
-import { companies, companyMembers, evidence, journalEntries, pendingMembers, sources, users } from "./schema";
+import { companies, companyMembers, evidence, journalEntries, sources, users } from "./schema";
 
 config({ path: fileURLToPath(new URL("../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -45,6 +45,38 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     return { provider: `test-${run}`, providerUserId: `${label}-${run}`, email: `${label}-${run}@example.test`, name: label };
   }
 
+  /**
+   * Membership is installation-wide, so a test database shared with other runs
+   * always holds companies these cases did not create. Every assertion below is
+   * therefore about the companies the case made, and cleanup tracks exactly the
+   * companies a call created rather than everything the user can reach.
+   */
+  async function companyIdsByAge() {
+    const rows = await database
+      .select({ id: companies.id })
+      .from(companies)
+      .orderBy(asc(companies.createdAt), asc(companies.id));
+    return rows.map((row) => row.id);
+  }
+
+  async function trackCompaniesCreatedBy<T>(body: () => Promise<T>) {
+    const before = new Set(await companyIdsByAge());
+    const result = await body();
+    const created = (await companyIdsByAge()).filter((id) => !before.has(id));
+    createdCompanyIds.push(...created);
+    return { result, created };
+  }
+
+  async function namesOf(companyIds: string[]) {
+    if (companyIds.length === 0) return [];
+    const rows = await database
+      .select({ id: companies.id, name: companies.name, baseCurrency: companies.baseCurrency })
+      .from(companies)
+      .where(inArray(companies.id, companyIds));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return companyIds.map((id) => [byId.get(id)?.name, byId.get(id)?.baseCurrency]);
+  }
+
   /** Membership order is created_at asc; force distinct values so the assertion never depends on clock resolution. */
   async function spreadMembershipTimes(userId: string, companyIds: string[]) {
     const base = Date.now();
@@ -71,13 +103,28 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     expect(company).toMatchObject({ name: `Atomic New ${run}`, baseCurrency: "USD", role: "owner" });
 
     const members = await database.select().from(companyMembers).where(eq(companyMembers.companyId, company.id));
-    expect(members).toEqual([expect.objectContaining({ companyId: company.id, userId: owner.id, role: "owner" })]);
+    expect(members).toContainEqual(expect.objectContaining({ companyId: company.id, userId: owner.id, role: "owner" }));
 
     // A new company is empty: nothing is carried over from the user's other companies.
     const carriedSources = await database.select({ id: sources.id }).from(sources).where(eq(sources.companyId, company.id));
     const carriedEvidence = await database.select({ id: evidence.id }).from(evidence).where(eq(evidence.companyId, company.id));
     const carriedEntries = await database.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.companyId, company.id));
     expect([carriedSources.length, carriedEvidence.length, carriedEntries.length]).toEqual([0, 0, 0]);
+  });
+
+  it("gives every user on the installation a membership in a new company", async () => {
+    const creator = await createUser("shared-creator");
+    const bystander = await createUser("shared-bystander");
+
+    const company = await createCompany(creator.id, "Shared Creation");
+
+    const members = await database.select().from(companyMembers).where(eq(companyMembers.companyId, company.id));
+    const roles = new Map(members.map((member) => [member.userId, member.role]));
+    expect(roles.get(creator.id)).toBe("owner");
+    // The creator is not privileged: someone who had nothing to do with the
+    // company owns it too, without signing in again.
+    expect(roles.get(bystander.id)).toBe("owner");
+    expect((await repository.listCompaniesForUser(bystander.id)).map((entry) => entry.id)).toContain(company.id);
   });
 
   it("lists every membership in created order", async () => {
@@ -91,26 +138,46 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     expect(listed.map((company) => company.id)).toEqual([first.id, second.id, third.id]);
   });
 
-  it("provisions an identity that already has memberships onto the first company, creating no other", async () => {
+  it("joins a second identity to every company on the installation, oldest first, and creates none", async () => {
+    const established = await createUser("installation-established");
+    const alpha = await createCompany(established.id, "Installation Alpha");
+    const beta = await createCompany(established.id, "Installation Beta");
+
+    const { result: provisioned, created } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(undefined, () => repository.provisionIdentity(identityFor("installation-second"))),
+    );
+    createdUserIds.push(provisioned.user.id);
+
+    // A host that already has companies gives a new person all of them and no
+    // extra default company of their own.
+    expect(created).toEqual([]);
+
+    const listed = await repository.listCompaniesForUser(provisioned.user.id);
+    const ids = listed.map((company) => company.id);
+    expect(ids).toEqual(expect.arrayContaining([alpha.id, beta.id]));
+    expect(listed.every((company) => company.role === "owner")).toBe(true);
+    expect(ids.indexOf(alpha.id)).toBeLessThan(ids.indexOf(beta.id));
+
+    // The oldest company on the installation is the default for everyone.
+    const [oldest] = await companyIdsByAge();
+    expect(ids[0]).toBe(oldest);
+    expect(provisioned.company.id).toBe(oldest);
+  });
+
+  it("provisions an identity that already has memberships onto the oldest company, creating no other", async () => {
     const user = await createUser("existing-identity");
     const first = await createCompany(user.id, "Existing One");
     const second = await createCompany(user.id, "Existing Two");
-    await spreadMembershipTimes(user.id, [first.id, second.id]);
 
-    const provisioned = await repository.provisionIdentity(identityFor("existing-identity"));
+    const { result: provisioned, created } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(undefined, () => repository.provisionIdentity(identityFor("existing-identity"))),
+    );
     expect(provisioned.user.id).toBe(user.id);
-    expect(provisioned.company.id).toBe(first.id);
-    expect((await repository.listCompaniesForUser(user.id)).map((company) => company.id)).toEqual([first.id, second.id]);
-  });
+    expect(created).toEqual([]);
 
-  it("provisions a brand-new identity with exactly one company", async () => {
-    const provisioned = await repository.provisionIdentity(identityFor("fresh-identity"));
-    createdUserIds.push(provisioned.user.id);
-    createdCompanyIds.push(provisioned.company.id);
-
-    const listed = await repository.listCompaniesForUser(provisioned.user.id);
-    expect(listed).toHaveLength(1);
-    expect(listed[0]?.id).toBe(provisioned.company.id);
+    const ids = (await repository.listCompaniesForUser(user.id)).map((company) => company.id);
+    expect(ids).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(provisioned.company.id).toBe(ids[0]);
   });
 
   /** Configured companies are read from the environment at provisioning time; keep each case's value local to it. */
@@ -137,63 +204,76 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     }
   }
 
-  /** Track everything a provisioning call created so afterAll can remove it. */
-  async function trackProvisioned(userId: string) {
-    createdUserIds.push(userId);
-    for (const company of await repository.listCompaniesForUser(userId)) createdCompanyIds.push(company.id);
-  }
-
   it("creates the configured companies instead of a default one, in listed order", async () => {
     const identity: AuthIdentity = { provider: "disabled", providerUserId: `configured-${run}`, email: `configured-${run}@example.test`, name: "Owner" };
 
-    const provisioned = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:eur`, () =>
-      repository.provisionIdentity(identity),
+    const { result: provisioned, created } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:eur`, () => repository.provisionIdentity(identity)),
     );
-    await trackProvisioned(provisioned.user.id);
+    createdUserIds.push(provisioned.user.id);
 
-    const listed = await repository.listCompaniesForUser(provisioned.user.id);
-    expect(listed.map((company) => [company.name, company.baseCurrency])).toEqual([
+    // Exactly the configured companies, in the configured order, and no
+    // DEFAULT_COMPANY_NAME one beside them.
+    expect(await namesOf(created)).toEqual([
       [`Alpha ${run}`, "USD"],
       [`Beta ${run}`, "EUR"],
     ]);
-    expect(provisioned.company.id).toBe(listed[0]?.id);
+
+    const ids = (await repository.listCompaniesForUser(provisioned.user.id)).map((company) => company.id);
+    expect(ids.indexOf(created[0] ?? "")).toBeLessThan(ids.indexOf(created[1] ?? ""));
+    expect(provisioned.company.id).toBe(ids[0]);
   });
 
-  it("adds only the configured names the owner does not already have", async () => {
+  it("adds only the configured names the installation does not already have", async () => {
     const identity: AuthIdentity = { provider: "disabled", providerUserId: `top-up-${run}`, email: `top-up-${run}@example.test`, name: "Owner" };
 
-    const first = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR`, () =>
-      repository.provisionIdentity(identity),
+    const { result: first } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(`Top Alpha ${run}:USD,Top Beta ${run}:EUR`, () => repository.provisionIdentity(identity)),
     );
-    await trackProvisioned(first.user.id);
+    createdUserIds.push(first.user.id);
 
-    const again = await withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR,Gamma ${run}:GBP`, () =>
-      repository.provisionIdentity(identity),
+    const { result: again, created } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(`Top Alpha ${run}:USD,Top Beta ${run}:EUR,Top Gamma ${run}:GBP`, () => repository.provisionIdentity(identity)),
     );
     expect(again.user.id).toBe(first.user.id);
+    expect(await namesOf(created)).toEqual([[`Top Gamma ${run}`, "GBP"]]);
 
-    const listed = await repository.listCompaniesForUser(first.user.id);
-    for (const company of listed) if (!createdCompanyIds.includes(company.id)) createdCompanyIds.push(company.id);
-    expect(listed.map((company) => [company.name, company.baseCurrency])).toEqual([
-      [`Alpha ${run}`, "USD"],
-      [`Beta ${run}`, "EUR"],
-      [`Gamma ${run}`, "GBP"],
-    ]);
     // The default selection is unchanged by a top-up.
-    expect(again.company.id).toBe(listed[0]?.id);
+    const ids = (await repository.listCompaniesForUser(first.user.id)).map((company) => company.id);
+    expect(again.company.id).toBe(ids[0]);
   });
 
-  it("gives a non-owner identity one default company and none of the configured ones", async () => {
+  it("extends a configured company to every user on the installation", async () => {
+    const bystander = await createUser("configured-bystander");
+    const identity: AuthIdentity = { provider: "disabled", providerUserId: `configured-owner-${run}`, email: `configured-owner-${run}@example.test`, name: "Owner" };
+
+    const { result: provisioned, created } = await trackCompaniesCreatedBy(() =>
+      withConfiguredCompanies(`Delta ${run}:USD`, () => repository.provisionIdentity(identity)),
+    );
+    createdUserIds.push(provisioned.user.id);
+    expect(await namesOf(created)).toEqual([[`Delta ${run}`, "USD"]]);
+
+    // The top-up belongs to the installation, not to the owner who triggered it.
+    const listed = await repository.listCompaniesForUser(bystander.id);
+    expect(listed.map((company) => company.id)).toContain(created[0]);
+    expect(listed.find((company) => company.id === created[0])?.role).toBe("owner");
+  });
+
+  it("creates no configured company for an identity that is not the installation owner", async () => {
     const identity: AuthIdentity = { provider: "better-auth", providerUserId: `not-owner-${run}`, email: `not-owner-${run}@example.test`, name: "Someone" };
 
-    const provisioned = await withOwnerEmail(`owner-${run}@example.test`, () =>
-      withConfiguredCompanies(`Alpha ${run}:USD,Beta ${run}:EUR`, () => repository.provisionIdentity(identity)),
+    const { result: provisioned, created } = await trackCompaniesCreatedBy(() =>
+      withOwnerEmail(`owner-${run}@example.test`, () =>
+        withConfiguredCompanies(`Unconfigured ${run}:USD`, () => repository.provisionIdentity(identity)),
+      ),
     );
-    await trackProvisioned(provisioned.user.id);
+    createdUserIds.push(provisioned.user.id);
 
-    const listed = await repository.listCompaniesForUser(provisioned.user.id);
-    expect(listed).toHaveLength(1);
-    expect(listed[0]?.name).not.toMatch(new RegExp(run));
+    // Nothing is created for them at all: the companies they open are the ones
+    // the installation already has.
+    expect(created).toEqual([]);
+    expect(await database.select({ id: companies.id }).from(companies).where(eq(companies.name, `Unconfigured ${run}`))).toEqual([]);
+    expect((await repository.listCompaniesForUser(provisioned.user.id)).length).toBeGreaterThan(0);
   });
 
   it("adopts the local owner's user for a Better Auth identity with the configured email, and no other", async () => {
@@ -207,14 +287,17 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     createdUserIds.push(localUser.id);
     const existing = await createCompany(localUser.id, "Adopted");
 
-    const adopted = await withOwnerEmail(ownerEmail, () =>
-      withConfiguredCompanies(undefined, () =>
-        repository.provisionIdentity({ provider: "better-auth", providerUserId: `adopting-${run}`, email: ownerEmail, name: "Owner" }),
+    const { result: adopted, created } = await trackCompaniesCreatedBy(() =>
+      withOwnerEmail(ownerEmail, () =>
+        withConfiguredCompanies(undefined, () =>
+          repository.provisionIdentity({ provider: "better-auth", providerUserId: `adopting-${run}`, email: ownerEmail, name: "Owner" }),
+        ),
       ),
     );
 
     expect(adopted.user.id).toBe(localUser.id);
-    expect(adopted.company.id).toBe(existing.id);
+    expect(created).toEqual([]);
+    expect((await repository.listCompaniesForUser(localUser.id)).map((company) => company.id)).toContain(existing.id);
     const [reloaded] = await database.select().from(users).where(eq(users.id, localUser.id));
     expect(reloaded).toMatchObject({ authProvider: "better-auth", authProviderUserId: `adopting-${run}`, email: ownerEmail });
 
@@ -227,77 +310,27 @@ describe.skipIf(!connectionString)("createDatabaseAuthRepository", () => {
     if (!otherUser) throw new Error("Unable to create the second local user");
     createdUserIds.push(otherUser.id);
 
-    const separate = await withOwnerEmail(ownerEmail, () =>
-      withConfiguredCompanies(undefined, () =>
-        repository.provisionIdentity({ provider: "better-auth", providerUserId: `stranger-${run}`, email: `other-local-${run}@example.test`, name: "Other" }),
+    const { result: separate } = await trackCompaniesCreatedBy(() =>
+      withOwnerEmail(ownerEmail, () =>
+        withConfiguredCompanies(undefined, () =>
+          repository.provisionIdentity({ provider: "better-auth", providerUserId: `stranger-${run}`, email: `other-local-${run}@example.test`, name: "Other" }),
+        ),
       ),
     );
-    await trackProvisioned(separate.user.id);
+    createdUserIds.push(separate.user.id);
     expect(separate.user.id).not.toBe(otherUser.id);
     const [untouched] = await database.select().from(users).where(eq(users.id, otherUser.id));
     expect(untouched?.authProvider).toBe("disabled");
   });
 
-  it("attaches a pending membership on first provisioning instead of creating a default company", async () => {
-    const owner = await createUser("inviting-owner");
-    const company = await createCompany(owner.id, "Inviting");
-    const invitedEmail = `invited-${run}@example.test`;
-    await database.insert(pendingMembers).values({ companyId: company.id, email: invitedEmail, role: "member", addedByUserId: owner.id });
+  it("resolves any company on the installation and refuses an id that names none", async () => {
+    const creator = await createUser("resolve-creator");
+    const other = await createUser("resolve-other");
+    const company = await createCompany(creator.id, "Resolve");
 
-    const provisioned = await withConfiguredCompanies(undefined, () =>
-      repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `invited-${run}`, email: invitedEmail, name: "Invited" }),
-    );
-    await trackProvisioned(provisioned.user.id);
-
-    // The invited person lands in the company that added them, and nothing else.
-    expect(provisioned.company.id).toBe(company.id);
-    expect(provisioned.company.role).toBe("member");
-    expect((await repository.listCompaniesForUser(provisioned.user.id)).map((entry) => entry.id)).toEqual([company.id]);
-
-    // The pending row is consumed, so a second sign-in changes nothing.
-    expect(await database.select().from(pendingMembers).where(eq(pendingMembers.companyId, company.id))).toEqual([]);
-    const again = await repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `invited-${run}`, email: invitedEmail, name: "Invited" });
-    expect(again.company.id).toBe(company.id);
-    expect((await repository.listCompaniesForUser(provisioned.user.id))).toHaveLength(1);
-  });
-
-  it("matches a pending address case-insensitively and leaves an existing membership's role alone", async () => {
-    const owner = await createUser("case-owner");
-    const first = await createCompany(owner.id, "Case First");
-    const second = await createCompany(owner.id, "Case Second");
-    const memberEmail = `Case-Member-${run}@Example.test`;
-
-    // The member already owns `second`; a later pending row for the same
-    // company must not downgrade that.
-    const [existing] = await database
-      .insert(users)
-      .values({ authProvider: `test-${run}`, authProviderUserId: `case-member-${run}`, email: memberEmail, name: "Case" })
-      .returning();
-    if (!existing) throw new Error("Unable to create the test user");
-    createdUserIds.push(existing.id);
-    await database.insert(companyMembers).values({ companyId: second.id, userId: existing.id, role: "owner" });
-    await database.insert(pendingMembers).values([
-      { companyId: first.id, email: memberEmail.toLocaleLowerCase(), role: "member", addedByUserId: owner.id },
-      { companyId: second.id, email: memberEmail.toLocaleLowerCase(), role: "member", addedByUserId: owner.id },
-    ]);
-
-    await repository.provisionIdentity({ provider: `test-${run}`, providerUserId: `case-member-${run}`, email: memberEmail, name: "Case" });
-
-    const listed = await repository.listCompaniesForUser(existing.id);
-    expect(new Map(listed.map((entry) => [entry.id, entry.role]))).toEqual(
-      new Map([
-        [first.id, "member"],
-        [second.id, "owner"],
-      ]),
-    );
-  });
-
-  it("refuses to resolve another user's company", async () => {
-    const userA = await createUser("denial-a");
-    const userB = await createUser("denial-b");
-    const companyA = await createCompany(userA.id, "Denial A");
-
-    expect(await repository.findCompanyForUser(userB.id, companyA.id)).toBeNull();
-    expect((await repository.findCompanyForUser(userA.id, companyA.id))?.id).toBe(companyA.id);
+    // Company isolation is what row level security enforces; it is not a wall
+    // between the people on one installation, who all own every company.
+    expect((await repository.findCompanyForUser(other.id, company.id))?.id).toBe(company.id);
+    expect(await repository.findCompanyForUser(other.id, randomUUID())).toBeNull();
   });
 });

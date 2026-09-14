@@ -7,10 +7,10 @@ import {
   type NewCompanyInput,
   type ProvisionedIdentity,
 } from "@finance/auth";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { Queryable } from "./company-scope";
 import { getDatabase, type Database } from "./index";
-import { companies, companyMembers, pendingMembers, users } from "./schema";
+import { companies, companyMembers, users } from "./schema";
 
 function toUser(row: typeof users.$inferSelect): ApplicationUser {
   return { id: row.id, email: row.email, name: row.name, hasAvatar: Boolean(row.avatarStorageReference) };
@@ -58,6 +58,58 @@ function isInstallationOwner(identity: AuthIdentity) {
  * The top-up is idempotent; the memo only keeps it off the per-request path.
  */
 const configuredCompanySyncs = new Set<string>();
+
+/**
+ * User ids already joined to every company in this process. Membership here is
+ * installation-wide, so the join is a no-op on all but the first request of a
+ * user's process lifetime — but it must run again as soon as a company appears,
+ * so creating one drops the whole memo. Another process creating a company is
+ * covered by that process's own join and by this one's next restart; the
+ * statement is idempotent either way.
+ */
+const installationMembershipSyncs = new Set<string>();
+
+function forgetInstallationMemberships() {
+  installationMembershipSyncs.clear();
+}
+
+/**
+ * Everyone admitted to this installation works in every company on it. A new
+ * company therefore belongs to every user at once, and the membership carries
+ * the company's own `created_at` so the ordering that picks a default company
+ * is the installation's company order rather than the order people joined.
+ *
+ * One statement, so a company with a thousand users costs one round trip, and
+ * `on conflict do nothing` keeps it safe to repeat.
+ */
+async function joinEveryUserToCompany(transaction: Queryable, companyId: string) {
+  await transaction.execute(sql`
+    insert into company_members (company_id, user_id, role, created_at)
+    select ${companyId}::uuid, ${users.id}, 'owner'::company_role, ${companies.createdAt}
+    from ${users}, ${companies}
+    where ${companies.id} = ${companyId}::uuid
+    on conflict do nothing
+  `);
+}
+
+/**
+ * The same rule from the other side: one user, every company that exists.
+ * Stamping each membership with the company's `created_at` makes the oldest
+ * company this user's default, exactly as it is for everyone else, so a person
+ * admitted today opens the same company as the person who set the host up.
+ */
+async function ensureInstallationMemberships(transaction: Queryable, userId: string) {
+  if (installationMembershipSyncs.has(userId)) return;
+
+  await transaction.execute(sql`
+    insert into company_members (company_id, user_id, role, created_at)
+    select ${companies.id}, ${userId}::uuid, 'owner'::company_role, ${companies.createdAt}
+    from ${companies}
+    on conflict do nothing
+  `);
+
+  installationMembershipSyncs.add(userId);
+}
 
 export function createDatabaseAuthRepository(
   database?: Database,
@@ -128,7 +180,11 @@ export function createDatabaseAuthRepository(
         .returning();
       if (!company) throw new Error("Unable to create company");
 
-      await transaction.insert(companyMembers).values({ companyId: company.id, userId: user.id, role: "owner" });
+      // The creator is not privileged here: a company created on this
+      // installation belongs to everyone on it, including people admitted
+      // later, whose own provisioning joins them.
+      await joinEveryUserToCompany(transaction, company.id);
+      forgetInstallationMemberships();
 
       return {
         id: company.id,
@@ -142,10 +198,10 @@ export function createDatabaseAuthRepository(
 
   /**
    * Materialize the `COMPANIES` environment list for the installation owner.
-   * The environment is purely additive: a configured name the owner already has
-   * (compared case-insensitively) is left untouched, a name dropped from the
-   * environment is never deleted or renamed, and nothing is ever copied between
-   * companies. Callers run this inside the advisory-locked provisioning
+   * The environment is purely additive: a configured name the installation
+   * already has (compared case-insensitively) is left untouched, a name dropped
+   * from the environment is never deleted or renamed, and nothing is ever
+   * copied between companies. Callers run this inside the advisory-locked provisioning
    * transaction, so concurrent first requests cannot duplicate a company.
    */
   async function ensureConfiguredCompanies(transaction: Queryable, userId: string) {
@@ -158,10 +214,11 @@ export function createDatabaseAuthRepository(
     const existing = await authorizedCompaniesQuery(transaction, userId);
     const existingNames = new Set(existing.map((company) => company.name.toLocaleLowerCase()));
 
-    // `now()` is the transaction timestamp, so every row inserted here would
-    // otherwise tie on created_at and fall back to the random company id for
-    // ordering. Stamp the memberships in listed order instead: the first
-    // configured company must be the owner's default.
+    // `now()` is the transaction timestamp, so every company inserted here
+    // would otherwise tie on created_at and fall back to the random company id
+    // for ordering. Stamp the companies in listed order instead: created_at is
+    // what every membership inherits, so the first configured company is the
+    // default for this owner and for everyone else on the installation.
     const stampedAt = Date.now();
     for (const [offset, input] of configured.entries()) {
       const name = input.name.toLocaleLowerCase();
@@ -170,51 +227,31 @@ export function createDatabaseAuthRepository(
 
       const [company] = await transaction
         .insert(companies)
-        .values({ name: input.name, baseCurrency: input.baseCurrency })
+        .values({ name: input.name, baseCurrency: input.baseCurrency, createdAt: new Date(stampedAt + offset) })
         .returning();
       if (!company) throw new Error("Unable to create the configured company");
 
-      await transaction.insert(companyMembers).values({
-        companyId: company.id,
-        userId,
-        role: "owner",
-        createdAt: new Date(stampedAt + offset),
-      });
+      await joinEveryUserToCompany(transaction, company.id);
+      forgetInstallationMemberships();
     }
 
     configuredCompanySyncs.add(syncKey);
   }
 
-  /**
-   * Attach every company that added this address before an account with it
-   * existed. The membership keeps the pending row's timestamp, so an invited
-   * user's default company is the one that invited them first, and the pending
-   * rows are consumed in the same transaction that creates the memberships.
-   * Addresses are stored lowercased, so a plain equality hits the email index.
-   */
-  async function attachPendingMemberships(transaction: Queryable, userId: string, email: string) {
-    const address = normalizedEmail(email);
-    if (!address) return;
-
-    const pending = await transaction
-      .select({ id: pendingMembers.id, companyId: pendingMembers.companyId, role: pendingMembers.role, createdAt: pendingMembers.createdAt })
-      .from(pendingMembers)
-      .where(eq(pendingMembers.email, address))
-      .orderBy(asc(pendingMembers.createdAt));
-    if (pending.length === 0) return;
-
-    for (const row of pending) {
-      // An existing membership wins: a pending row must never downgrade a role
-      // the company already granted.
-      await transaction
-        .insert(companyMembers)
-        .values({ companyId: row.companyId, userId, role: row.role, createdAt: row.createdAt })
-        .onConflictDoNothing();
+  async function provisionIdentity(identity: AuthIdentity): Promise<ProvisionedIdentity> {
+    try {
+      return await provisionWithinTransaction(identity);
+    } catch (error) {
+      // The membership memo is written inside the transaction, so a rollback
+      // would otherwise leave this process believing it had joined a user to
+      // companies it never wrote. Dropping the memo costs one repeated
+      // idempotent statement and keeps the claim honest.
+      forgetInstallationMemberships();
+      throw error;
     }
-    await transaction.delete(pendingMembers).where(inArray(pendingMembers.id, pending.map((row) => row.id)));
   }
 
-  async function provisionIdentity(
+  async function provisionWithinTransaction(
     identity: AuthIdentity,
   ): Promise<ProvisionedIdentity> {
     return resolveDatabase().transaction(async (transaction) => {
@@ -280,10 +317,11 @@ export function createDatabaseAuthRepository(
 
       if (!userRow) throw new Error("Unable to provision application user");
 
-      // Invitations are honored before anything else can decide this user has
-      // no company: a person added by email must land in that company rather
+      // Everyone admitted to this installation belongs to every company on it,
+      // so the join runs before anything can decide this user has no company:
+      // a second person must land in the companies that already exist rather
       // than in a freshly provisioned empty one.
-      await attachPendingMemberships(transaction, userRow.id, userRow.email);
+      await ensureInstallationMemberships(transaction, userRow.id);
 
       // The owner's environment-declared companies are created first, so a
       // first sign-in with COMPANIES set opens the first configured company
@@ -291,9 +329,10 @@ export function createDatabaseAuthRepository(
       // names added to the environment since.
       if (isInstallationOwner(identity)) await ensureConfiguredCompanies(transaction, userRow.id);
 
-      // Provisioning creates a company only for a user with no membership at
-      // all. A user who already belongs to one or more companies keeps exactly
-      // those companies; the first one is the default selection.
+      // The join above put this user in every company that exists, so an empty
+      // result means the installation itself is empty. A default company is
+      // created for that case alone: someone joining a host that already has
+      // companies receives all of them and no extra one.
       const [membership] = await authorizedCompaniesQuery(transaction, userRow.id).limit(1);
 
       if (membership) {
@@ -306,11 +345,8 @@ export function createDatabaseAuthRepository(
         .returning();
       if (!company) throw new Error("Unable to provision company");
 
-      await transaction.insert(companyMembers).values({
-        companyId: company.id,
-        userId: userRow.id,
-        role: "owner",
-      });
+      await joinEveryUserToCompany(transaction, company.id);
+      forgetInstallationMemberships();
 
       return {
         user: toUser(userRow),

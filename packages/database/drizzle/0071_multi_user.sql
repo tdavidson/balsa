@@ -1,5 +1,5 @@
--- Several people in one company: a second role, directly added members, an
--- audit log, and acting-user attribution on the rows that lacked it.
+-- Several people on one installation: a second role, an audit log, and
+-- acting-user attribution on the rows that lacked it.
 --
 -- The migrator runs every pending migration inside ONE transaction, and
 -- Postgres refuses to use an enum value in the transaction that added it
@@ -7,21 +7,6 @@
 -- below, in the ALTER TYPE itself: no column default, no backfill, and no
 -- check constraint may name it here.
 ALTER TYPE "company_role" ADD VALUE IF NOT EXISTS 'member';
---> statement-breakpoint
-CREATE TABLE "pending_members" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE cascade,
-  -- Stored trimmed and lowercased; the stored form is the comparison form.
-  "email" text NOT NULL,
-  "role" "company_role" NOT NULL,
-  "added_by_user_id" uuid REFERENCES "users"("id") ON DELETE set null,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX "pending_members_company_email_unique" ON "pending_members" ("company_id", "email");
---> statement-breakpoint
--- Provisioning looks one address up across every company at once.
-CREATE INDEX "pending_members_email_index" ON "pending_members" ("email");
 --> statement-breakpoint
 CREATE TABLE "audit_log" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -55,14 +40,6 @@ ALTER TABLE "knowledge_documents" ADD COLUMN "updated_by_user_id" uuid REFERENCE
 --> statement-breakpoint
 -- Row level security in the 0070 pattern: permissive while the transaction-local
 -- scope is unset, exact once withCompanyTransaction sets it.
-ALTER TABLE "pending_members" ENABLE ROW LEVEL SECURITY;
---> statement-breakpoint
-ALTER TABLE "pending_members" FORCE ROW LEVEL SECURITY;
---> statement-breakpoint
-DROP POLICY IF EXISTS "pending_members_company_scope" ON "pending_members";
---> statement-breakpoint
-CREATE POLICY "pending_members_company_scope" ON "pending_members" USING (app_current_company_id() IS NULL OR company_id = app_current_company_id()) WITH CHECK (app_current_company_id() IS NULL OR company_id = app_current_company_id());
---> statement-breakpoint
 ALTER TABLE "audit_log" ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE "audit_log" FORCE ROW LEVEL SECURITY;

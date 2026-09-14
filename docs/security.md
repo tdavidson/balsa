@@ -4,20 +4,17 @@
 
 - Every application route resolves an identity through the app-owned auth
   boundary and scopes records through `requireCompanyAccess`.
-- Membership carries a role. An owner holds every right in the company; a
-  member does all financial work — evidence, chat, knowledge, journals, close,
-  and forecasts — but cannot change company settings, add or remove members,
-  change a role, or reset the company. The role is enforced on the server for
-  every owner-only route and answered with 403, never merely hidden in the
-  interface, and a company always keeps at least one owner: the last one cannot
-  be demoted or removed.
-- An owner adds a person by email. An address that already has an account
-  becomes a member at once; any other address waits in `pending_members` and is
-  attached the first time it signs in, before provisioning would give that user
-  an empty default company. No mail is sent and no link grants access, so
-  `AUTH_SIGN_UP_CODE` remains the gate on who may create an identity at all,
-  while membership decides which company that identity reaches. Removing a
-  member ends their access immediately; their sign-in survives.
+- Access to this installation is installation-wide, and `AUTH_SIGN_UP_CODE` is
+  the gate on it: everyone admitted by that code is an owner of every company on
+  the host, existing and future, and no invitation, mail, or link grants access
+  to anything narrower. Treat admitting a person as handing them every company's
+  financial data, and use separate installations where that is not intended. The
+  audit log is what distinguishes the people who share that access: every change
+  that matters names the person who made it. Membership still carries a role and
+  `company_role` still has `owner` and `member`, so an owner-only route is
+  enforced on the server and answered with 403 rather than merely hidden in the
+  interface; per-company membership and role administration are developed
+  separately for the hosted service and are not in this repository.
 - Every change that matters is recorded in `audit_log`: the acting user, how
   the change arrived (`ui`, `agent` for a change the agent made on a user's
   behalf, `worker` for unattended work, which has no actor), the action, the
@@ -93,4 +90,4 @@ The current request limiter and Better Auth default limiter are process-local.
 Before multi-instance/serverless deployment, replace them with a shared Redis
 or database-backed limiter, configure trusted proxy IP handling, and schedule
 outbox recovery with `CRON_SECRET`. This work is tracked in
-[post-single-player-scale-up.md](plans/post-single-player-scale-up.md).
+the hosted service's own plans, which are developed separately.

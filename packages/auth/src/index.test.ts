@@ -3,12 +3,10 @@ import {
   CompanyAccessDeniedError,
   CompanyRoleRequiredError,
   InvalidCompanyInputError,
-  InvalidMemberInputError,
   companyRoles,
   createAuthService,
   isCompanyId,
   isCompanyRole,
-  normalizeMemberEmail,
   normalizeNewCompanyInput,
   parseConfiguredCompanies,
   requireCompanyRole,
@@ -221,18 +219,6 @@ describe("role checks", () => {
     expect(isCompanyRole("member")).toBe(true);
     expect(isCompanyRole("admin")).toBe(false);
     expect(isCompanyRole(undefined)).toBe(false);
-  });
-});
-
-describe("member email normalization", () => {
-  it("trims and lowercases the stored form", () => {
-    expect(normalizeMemberEmail("  CFO@Example.COM ")).toBe("cfo@example.com");
-  });
-
-  it("rejects values that cannot be an address", () => {
-    for (const value of ["", "   ", "nobody", "a b@example.com", "two@@example.com", null, 42, `${"x".repeat(250)}@example.com`]) {
-      expect(() => normalizeMemberEmail(value)).toThrow(InvalidMemberInputError);
-    }
   });
 });
 

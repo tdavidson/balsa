@@ -14,7 +14,10 @@ export type ApplicationUser = {
 
 /**
  * An owner holds every right in the company; a member does all financial work
- * but cannot change settings, manage members, or reset the company.
+ * but cannot change company settings or reset the company. On a self-hosted
+ * installation everyone admitted by the sign-up code is an owner of every
+ * company, so `member` is the role a deployment that administers membership
+ * per company grants; the check below is what makes the distinction real.
  */
 export const companyRoles = ["owner", "member"] as const;
 
@@ -74,8 +77,9 @@ export interface CompanySelectionStore {
 export interface AuthRepository {
   /**
    * Resolve or create the application user for an identity and return the
-   * user's first company. A company is created only when the user has no
-   * membership at all; a multi-company user never receives an extra company.
+   * company it should open: the oldest on the installation, since every user
+   * belongs to every company. A company is created only when the installation
+   * has none at all, so a second person never receives an extra empty one.
    */
   provisionIdentity(identity: AuthIdentity): Promise<ProvisionedIdentity>;
   findUser(identity: AuthIdentity): Promise<ApplicationUser | null>;
@@ -85,33 +89,12 @@ export interface AuthRepository {
   ): Promise<AuthorizedCompany | null>;
   /** Every company the user belongs to, in the same order provisioning uses for the default. */
   listCompaniesForUser(userId: string): Promise<AuthorizedCompany[]>;
-  /** Insert a clean company and an owner membership for the user in one transaction. */
+  /** Insert a clean company and an owner membership for every user on the installation, in one transaction. */
   createCompanyForUser(
     userId: string,
     input: NewCompanyInput,
   ): Promise<AuthorizedCompany>;
 }
-
-/** An accepted member of a company: a user row plus the membership's role. */
-export type CompanyMember = {
-  userId: string;
-  email: string;
-  name: string | null;
-  role: CompanyRole;
-  createdAt: string;
-};
-
-/** An address invited to a company before an account with it existed. */
-export type PendingMember = {
-  id: string;
-  email: string;
-  role: CompanyRole;
-  createdAt: string;
-};
-
-export type AddMemberResult =
-  | { status: "active"; member: CompanyMember }
-  | { status: "pending"; pending: PendingMember };
 
 /** `worker` has no actor; `agent` is attributed to the user who asked. */
 export type AuditVia = "ui" | "agent" | "worker";
@@ -132,42 +115,6 @@ export type AuditEntry = {
   after?: unknown;
   requestId?: string | undefined;
 };
-
-/**
- * Runs inside the repository's own transaction, after the membership change and
- * before the commit, so whatever the caller writes - an audit row above all -
- * lands with the change or not at all. The executor type is the implementation's
- * own (`Queryable` for the database repository); this package keeps it generic
- * rather than depend on the database package for it.
- */
-export type WithinMemberChange<TExecutor> = (transaction: TExecutor) => Promise<void>;
-/** The same hook, handed the outcome the caller cannot know before the change runs. */
-export type WithinMemberResult<TExecutor, TResult> = (transaction: TExecutor, result: TResult) => Promise<void>;
-
-export interface MemberRepository<TExecutor = unknown> {
-  listMembers(companyId: string): Promise<{ members: CompanyMember[]; pending: PendingMember[] }>;
-  /**
-   * Add an address to the company. An existing user becomes a member at once;
-   * any other address waits in `pending` until it first signs in. Adding an
-   * address that is already a member is a no-op that reports the membership.
-   */
-  addMember(
-    companyId: string,
-    input: { email: string; role: CompanyRole },
-    actorUserId: string | null,
-    within?: WithinMemberResult<TExecutor, AddMemberResult>,
-  ): Promise<AddMemberResult>;
-  /** Throws `LastOwnerError` rather than leave the company without an owner. */
-  updateMemberRole(
-    companyId: string,
-    userId: string,
-    role: CompanyRole,
-    within?: WithinMemberResult<TExecutor, CompanyMember>,
-  ): Promise<CompanyMember>;
-  /** Throws `LastOwnerError` rather than leave the company without an owner. */
-  removeMember(companyId: string, userId: string, within?: WithinMemberChange<TExecutor>): Promise<void>;
-  removePendingMember(companyId: string, pendingId: string, within?: WithinMemberChange<TExecutor>): Promise<void>;
-}
 
 export class AuthenticationRequiredError extends Error {
   constructor() {
@@ -190,13 +137,6 @@ export class InvalidCompanyInputError extends Error {
   }
 }
 
-export class InvalidMemberInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidMemberInputError";
-  }
-}
-
 /** The acting user's role is below what the action needs; adapters map it to 403. */
 export class CompanyRoleRequiredError extends Error {
   readonly role: CompanyRole;
@@ -208,17 +148,7 @@ export class CompanyRoleRequiredError extends Error {
   }
 }
 
-/** A company always keeps one owner, so the last one cannot be demoted or removed. */
-export class LastOwnerError extends Error {
-  constructor() {
-    super("A company must keep at least one owner");
-    this.name = "LastOwnerError";
-  }
-}
-
 export const maxCompanyNameLength = 160;
-/** The longest address RFC 5321 allows; the column is text, the bound is ours. */
-export const maxMemberEmailLength = 254;
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -239,22 +169,6 @@ export function requireCompanyRole(context: ApplicationContext, role: CompanyRol
   if (context.company.role === "owner") return;
   if (context.company.role === role) return;
   throw new CompanyRoleRequiredError(role);
-}
-
-/**
- * Addresses are compared lowercased and trimmed, so the stored form is the
- * comparison form. The shape check stays deliberately weak - no address can be
- * verified without sending mail, and this installation sends none - it only
- * rejects values that cannot be an address at all.
- */
-export function normalizeMemberEmail(value: unknown): string {
-  const email = typeof value === "string" ? value.trim().toLocaleLowerCase() : "";
-  if (!email || email.length > maxMemberEmailLength || !/^[^\s@]+@[^\s@]+$/.test(email)) {
-    throw new InvalidMemberInputError(
-      `A member email address is required and must be ${maxMemberEmailLength} characters or fewer`,
-    );
-  }
-  return email;
 }
 
 /** Normalize and validate the fields a user supplies when creating a company. */
