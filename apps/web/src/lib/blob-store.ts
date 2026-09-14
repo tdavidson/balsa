@@ -30,7 +30,9 @@ export async function readSourceBlob(storageReference: string) {
   const root = storageRoot();
   const absolutePath = resolve(root, relativePath);
   if (!absolutePath.startsWith(`${root}/`)) throw new Error("Invalid source storage path");
-  return readFile(/* turbopackIgnore: true */ absolutePath);
+  // Filesystem errors embed the absolute path; callers return messages to
+  // authenticated users and persist them, so never let the layout leak.
+  return readFile(/* turbopackIgnore: true */ absolutePath).catch(() => { throw new Error("Original source file is not available"); });
 }
 
 /** Remove one known local source object; callers must obtain its reference from an authorized source row. */
