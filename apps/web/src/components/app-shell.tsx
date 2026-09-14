@@ -300,6 +300,8 @@ function Figure({ label, value, note, pencil, negative }: { label: string; value
 type AppShellProps = {
   company: { id: string; name: string; currency: string };
   companies: { id: string; name: string; baseCurrency: string; role: CompanyRole }[];
+  /** The signed-in user's role in the active company, passed straight through to the account menu. */
+  role: CompanyRole;
   staleSelection: boolean;
   user: { email: string; name: string | null; hasAvatar?: boolean };
   modelOptions: { value: string; label: string }[];
@@ -416,7 +418,7 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
   }));
 }
 
-export function AppShell({ company, companies, staleSelection, user, modelOptions, loginEnabled }: AppShellProps) {
+export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled }: AppShellProps) {
   const [message, setMessage] = useState("");
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
   const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
@@ -1264,7 +1266,7 @@ export function AppShell({ company, companies, staleSelection, user, modelOption
   return (
     <div className="flex min-h-screen flex-col" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={{ id: company.id, name: company.name, baseCurrency: company.currency }} companies={companies} staleSelection={staleSelection} user={user} loginEnabled={loginEnabled} />
+        <AccountMenu company={{ id: company.id, name: company.name, baseCurrency: company.currency }} companies={companies} role={role} staleSelection={staleSelection} user={user} loginEnabled={loginEnabled} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">

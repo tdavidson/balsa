@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Check, LogOut, Plus, User } from "lucide-react";
+import { Building2, Check, History, LogOut, Plus, User, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -12,7 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeControl } from "@/components/theme-control";
+import { ActivityDialog } from "@/components/activity-dialog";
 import { CompanySettingsDialog } from "@/components/company-settings-dialog";
+import { MembersDialog } from "@/components/members-dialog";
 import { NewCompanyDialog } from "@/components/new-company-dialog";
 import { UserSettingsDialog } from "@/components/user-settings-dialog";
 import { authClient } from "@/lib/auth-client";
@@ -23,6 +25,8 @@ type AccountMenuProps = {
   company: { id: string; name: string; baseCurrency: string };
   companies: CompanyOption[];
   user: { email: string; name: string | null; hasAvatar?: boolean };
+  /** The signed-in user's role in the active company; owner-only entries are hidden from members. */
+  role: CompanyRole;
   loginEnabled?: boolean;
   staleSelection?: boolean;
 };
@@ -31,11 +35,13 @@ function putActiveCompany(companyId: string) {
   return fetch("/api/companies/active", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ companyId }) });
 }
 
-export function AccountMenu({ company, companies, user, loginEnabled = true, staleSelection = false }: AccountMenuProps) {
+export function AccountMenu({ company, companies, user, role, loginEnabled = true, staleSelection = false }: AccountMenuProps) {
   const router = useRouter();
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
   const [newCompanyOpen, setNewCompanyOpen] = useState(false);
   const [userSettingsOpen, setUserSettingsOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [avatarUnavailable, setAvatarUnavailable] = useState(false);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -119,6 +125,13 @@ export function AccountMenu({ company, companies, user, loginEnabled = true, sta
         <DropdownMenuItem className="cursor-pointer gap-2 px-2.5 text-[13px]" onSelect={() => setCompanySettingsOpen(true)}>
           <Building2 aria-hidden="true" /> Company settings
         </DropdownMenuItem>
+        {/* Only an owner may change membership, so only an owner is offered the screen that does it. */}
+        {role === "owner" && <DropdownMenuItem className="cursor-pointer gap-2 px-2.5 text-[13px]" onSelect={() => setMembersOpen(true)}>
+          <Users aria-hidden="true" /> Members
+        </DropdownMenuItem>}
+        <DropdownMenuItem className="cursor-pointer gap-2 px-2.5 text-[13px]" onSelect={() => setActivityOpen(true)}>
+          <History aria-hidden="true" /> Activity
+        </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-rule" />
         <div className="flex items-center justify-between px-2.5 py-1.5 text-[13px] text-ink-2">
           Theme
@@ -134,6 +147,8 @@ export function AccountMenu({ company, companies, user, loginEnabled = true, sta
       </DropdownMenu>
       <CompanySettingsDialog open={companySettingsOpen} onOpenChange={setCompanySettingsOpen} company={company.name} baseCurrency={company.baseCurrency} />
       <NewCompanyDialog open={newCompanyOpen} onOpenChange={setNewCompanyOpen} />
+      <MembersDialog open={membersOpen} onOpenChange={setMembersOpen} company={company.name} role={role} />
+      <ActivityDialog open={activityOpen} onOpenChange={setActivityOpen} company={company.name} />
       <UserSettingsDialog open={userSettingsOpen} onOpenChange={setUserSettingsOpen} user={user} localOnly={!loginEnabled} />
     </>
   );
