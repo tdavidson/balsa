@@ -15,7 +15,7 @@ export type KnowledgeTemplate = {
 
 export const universalAccountingRules = `## Core financial reasoning
 
-Hemrock begins with accounting and forecasting fundamentals. It separates the
+Nevermodel begins with accounting and forecasting fundamentals. It separates the
 economic event, billing or invoicing, cash settlement, and revenue or expense
 recognition; rolls balance-sheet accounts forward; and treats evidence,
 materiality, and reconciliation as controls rather than optional prompts.
@@ -24,6 +24,53 @@ Company evidence and CFO decisions establish company-specific entities,
 contracts, chart-of-accounts mappings, recognition policies, allocation bases,
 counterparties, timing, and forecast assumptions. Do not turn an inference into
 a company policy without supporting evidence or explicit approval.
+
+## Double-entry and account behavior
+
+- Every posted journal entry must balance total debits and credits. A balanced entry is necessary, but does not by itself prove the classification, period, entity, amount, or counterparty is correct.
+- Assets and expenses normally carry debit balances. Liabilities, equity, and revenue normally carry credit balances. Treat an unexpected balance as a review signal, not automatic proof of an error.
+- Record the economic substance of an event in the accounts it affects; do not use cash movement, invoice direction, or a counterparty name as a substitute for accounting analysis.
+- Roll each balance-sheet account from its supported opening balance through period activity to its supported ending balance. Preserve unexplained differences as exceptions.
+
+## Accrual accounting and recognition
+
+- Keep the economic event, performance or service period, billing, cash settlement, and recognition date distinct. Post each effect in the period and entity to which it belongs.
+- Recognize revenue when the documented earning activity or performance obligation is satisfied under the company's approved reporting framework and policy—not merely when cash is received or an invoice is issued.
+- Recognize expenses when goods or services are received or consumed, subject to the approved reporting basis and materiality policy—not merely when they are paid.
+- Use receivables and payables for earned or incurred amounts awaiting settlement. Use deferred revenue or customer deposits for cash received before it is earned, and prepaids for costs paid before they are consumed.
+- Accrue supported obligations and earned amounts at period end. Reverse an accrual only when the approved policy or subsequent settlement supports reversal; do not duplicate the expense or revenue when the invoice arrives.
+- Apply period cut-off consistently. If the service, delivery, ownership transfer, or obligation date is unclear, retain the item for review rather than choosing a date from convenience.
+
+## Assets, costs, and estimates
+
+- Capitalize a cost only when evidence and an approved policy establish a qualifying asset and a reliable measurement. Otherwise expense it; do not infer capitalization solely because a purchase is large.
+- For fixed or intangible assets, preserve acquisition cost, placed-in-service date, useful life, residual value, method, accumulated depreciation or amortization, disposals, and impairment conclusions. These inputs require evidence or policy approval.
+- Separate inventory purchases from cost of goods sold. Track quantity and cost flows, ownership, landed costs, write-downs, shrinkage, returns, and the approved costing method; recognize COGS when the related inventory is sold or otherwise consumed.
+- Estimates such as bad-debt allowances, returns, warranties, impairments, and other reserves require a documented basis, period, methodology, and approval. Update estimates prospectively or correct errors according to the approved framework; never use a reserve to force a desired result.
+- Distinguish refunds, credits, write-offs, and reversals. Link each adjustment to the original balance or transaction when possible, and preserve the reason and approval.
+
+## Financing, equity, and entity boundaries
+
+- Separate debt proceeds and principal repayments from interest and financing costs. Maintain lender, principal, rate, term, maturity, accrued interest, fees, and current-versus-long-term classification when supported.
+- Owner contributions, share issuances, dividends, distributions, repurchases, and other equity transactions are not operating revenue or expense. Retain the legal entity, owner, authorization, and effective date.
+- Keep each legal entity's books separate. Record supported intercompany balances symmetrically, reconcile counterparties, and eliminate only within an approved consolidation perimeter.
+- For foreign-currency activity, preserve transaction currency, functional currency, rate source, rate date, and quotation convention. Distinguish transaction remeasurement from financial-statement translation and post resulting differences under an approved policy.
+
+## Period close and statement integrity
+
+- Adjusting and closing entries must identify their source, period, preparer or rule, rationale, and approval status. Never alter historical accounting silently; corrections and policy changes must remain traceable.
+- Close revenue and expense into retained earnings according to the approved close process. Do not carry current-period income through both retained earnings and current earnings in a way that double counts equity.
+- Confirm that debits equal credits, subsidiary schedules reconcile to control accounts, cash reconciles to external statements, and opening balances agree to the prior close.
+- When source coverage is complete, verify that assets equal liabilities plus equity and that the income statement, balance sheet, and cash-flow statement connect through net income and balance changes. A failed invariant blocks authoritative reporting.
+- Do not manufacture a plug, unsupported opening balance, journal line, mapping, or estimate to make a reconciliation or statement balance.
+
+## Evidence, judgment, and review
+
+- Prefer direct, entity-specific, period-specific source evidence over labels, historical patterns, or model inference. Keep source location and lineage for every material conclusion.
+- Apply the company's approved reporting framework, accounting basis, policies, materiality threshold, chart of accounts, and effective dates. Universal guidance does not select an optional accounting treatment for the company.
+- Apply approved policies only within their stated scope. New or conflicting facts, unusual transactions, related-party activity, uncertain ownership, missing support, and material exceptions require review.
+- When more than one treatment is reasonable, state the alternatives and their statement effects, identify the missing fact or policy, and request a decision. Do not present an estimate or interpretation as established fact.
+- Deterministic controls remain authoritative for arithmetic, journal balance, roll-forwards, period locks, and statement invariants. Model reasoning may propose treatment but may not bypass those controls or approve its own judgment.
 
 ## Universal cash-activity rules
 
@@ -39,7 +86,7 @@ These baseline rules apply to every company unless a company-specific policy or 
 
 export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
   { slug: "core-accounting", title: "Core accounting", content: `# Core accounting\n\nPlatform-managed financial reasoning that applies before company-specific policies.\n\n${universalAccountingRules}` },
-  { slug: "onboarding", title: "Onboarding", content: "# Onboarding\n\nComplete or confirm these business facts as evidence becomes available. Hemrock already knows accounting fundamentals; these answers define how they apply to this company.\n\n## Legal entities and ownership\n- Reporting entity and owned entities:\n- Accounts, custodians, and legal owner of each account:\n- Base currency, fiscal year-end, and reporting basis:\n\n## How the business earns and spends\n- Revenue streams, customer contracts, and performance or service periods:\n- Billing, collection, deposits, refunds, and pass-through amounts:\n- Material vendors, payroll, financing, investment, and intercompany activity:\n\n## Close and forecast\n- Chart-of-accounts mapping and materiality threshold:\n- Recognition, allocation, and recurring-counterparty policies to confirm:\n- Forecast drivers, committed contracts, and cash-timing assumptions:\n" },
+  { slug: "onboarding", title: "Onboarding", content: "# Onboarding\n\nComplete or confirm these business facts as evidence becomes available. Nevermodel already knows accounting fundamentals; these answers define how they apply to this company.\n\n## Legal entities and ownership\n- Reporting entity and owned entities:\n- Accounts, custodians, and legal owner of each account:\n- Base currency, fiscal year-end, and reporting basis:\n\n## How the business earns and spends\n- Revenue streams, customer contracts, and performance or service periods:\n- Billing, collection, deposits, refunds, and pass-through amounts:\n- Material vendors, payroll, financing, investment, and intercompany activity:\n\n## Close and forecast\n- Chart-of-accounts mapping and materiality threshold:\n- Recognition, allocation, and recurring-counterparty policies to confirm:\n- Forecast drivers, committed contracts, and cash-timing assumptions:\n" },
   { slug: "company", title: "Company", content: "# Company\n\nCompany-specific operating model, entities, and business context supported by onboarding evidence.\n" },
   { slug: "policies", title: "Policies", content: "# Financial Policies\n\nStanding CFO judgment and recognition policies.\n" },
   { slug: "allocations", title: "Allocations", content: "# Allocations\n\nRecurring cost allocation treatment.\n" },
@@ -48,11 +95,11 @@ export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
 ];
 
 const docs = (template: string, company: string, policies: string, allocations: string, accounting: string, forecast: string): KnowledgeDocumentTemplate[] => [
-  { slug: "company", title: "Company", content: `<!-- Hemrock knowledge template: ${template} v1.0 -->\n\n${company}` },
-  { slug: "policies", title: "Policies", content: `<!-- Hemrock knowledge template: ${template} v1.0 -->\n\n${policies}` },
-  { slug: "allocations", title: "Allocations", content: `<!-- Hemrock knowledge template: ${template} v1.0 -->\n\n${allocations}` },
-  { slug: "accounting", title: "Accounting", content: `<!-- Hemrock knowledge template: ${template} v1.0 -->\n\n${accounting}` },
-  { slug: "forecast", title: "Forecast", content: `<!-- Hemrock knowledge template: ${template} v1.0 -->\n\n${forecast}` },
+  { slug: "company", title: "Company", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${company}` },
+  { slug: "policies", title: "Policies", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${policies}` },
+  { slug: "allocations", title: "Allocations", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${allocations}` },
+  { slug: "accounting", title: "Accounting", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${accounting}` },
+  { slug: "forecast", title: "Forecast", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${forecast}` },
 ];
 
 const coreKnowledgeTemplates: KnowledgeTemplate[] = [

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDatabase, llmMessages } from "@finance/database";

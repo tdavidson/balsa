@@ -1,10 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { economicItems, entities, evidence, getDatabase, knowledgeDocuments } from "@finance/database";
 import { categories } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
+import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 /** Economic items (agreements and obligations): the interpreted, CFO-confirmed schedule the engine runs on. */
 export async function GET() {
@@ -62,5 +63,6 @@ export async function PATCH(request: Request) {
       else await db.insert(knowledgeDocuments).values({ companyId: context.company.id, slug: "forecast", title: "Forecast", content });
     }
   }
-  return NextResponse.json({ items: rows });
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  return NextResponse.json({ items: rows, calculationRun });
 }

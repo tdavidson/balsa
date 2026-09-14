@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, authMode } from "@/lib/auth";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { AccountMenu } from "@/components/account-menu";
@@ -41,15 +41,15 @@ export default async function AboutPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name }} />
+        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-4">
           <Link href="/" className="inline-flex w-fit items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Hemrock
+            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Nevermodel
           </Link>
-          <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>How Hemrock works</h1>
+          <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>How Nevermodel works</h1>
           <p className="max-w-[60ch] text-[18px] leading-[1.5] text-ink-2">
             A financial system you talk to, that never does the math by talking. Evidence comes in, gets read into facts, and the facts feed a calculator that does not guess.
           </p>
@@ -71,7 +71,7 @@ export default async function AboutPage() {
 
         <Section title="The idea">
           <p>
-            A CFO already holds everything a financial model needs: the evidence, the context, the policies, the assumptions, and the judgment. The only thing missing is the labour of keying it all into a spreadsheet and keeping that spreadsheet alive. Hemrock takes the same inputs a CFO uses and maintains the model itself.
+            A CFO already holds everything a financial model needs: the evidence, the context, the policies, the assumptions, and the judgment. The only thing missing is the labour of keying it all into a spreadsheet and keeping that spreadsheet alive. Nevermodel takes the same inputs a CFO uses and maintains the model itself.
           </p>
           <p>
             Two rules make that possible. Language models handle meaning: interpretation, classification, matching, ambiguity, and explanation. Deterministic code handles math: schedules, balances, recognition, cash roll-forwards, allocations, and statements. The model is never the calculator and never the database.
@@ -113,7 +113,7 @@ export default async function AboutPage() {
             Markdown expresses context and intent. Structured state executes it. The model reconciles between the two, and neither pretends to be the other.
           </p>
           <p>
-            Hemrock also provides knowledge templates for common business models such as SaaS, professional services, e-commerce, and venture funds with management companies. A template is a proxy for industry experience: it supplies useful questions, terminology, and starting policies, but it never becomes a confirmed company fact. Apply one from the Knowledge page, review the Markdown, and edit it in the company&apos;s own language before relying on it.
+            Nevermodel also provides knowledge templates for common business models such as SaaS, professional services, e-commerce, and venture funds with management companies. A template is a proxy for industry experience: it supplies useful questions, terminology, and starting policies, but it never becomes a confirmed company fact. Apply one from the Knowledge page, review the Markdown, and edit it in the company&apos;s own language before relying on it.
           </p>
         </Section>
 
@@ -180,13 +180,13 @@ export default async function AboutPage() {
 
         <Section title="About Taylor">
           <p>
-            Hemrock is built by Taylor Davidson. Taylor helps founders and investors create and use financial models through Hemrock, formerly Foresight, whose template models have been used by more than fifty thousand people worldwide since 1998. He serves as fractional Chief Financial Officer for Synthetic Example Company Capital Group, an early-stage venture firm, running fund administration, capital planning, investor reporting, and management-company finance.
+            Nevermodel is built by Taylor Davidson. Taylor helps founders and investors create and use financial models through Nevermodel, formerly Foresight, whose template models have been used by more than fifty thousand people worldwide since 1998. He serves as fractional Chief Financial Officer for Synthetic Example Company Capital Group, an early-stage venture firm, running fund administration, capital planning, investor reporting, and management-company finance.
           </p>
           <p>
-            That work is where Hemrock comes from: years of watching the same evidence get re-keyed into models by hand, and the conviction that a company’s financial operations should be learned from what it already produces rather than configured up front. He teaches financial modeling, venture fund forecasting, and cap tables and exit waterfalls, and lives in Pittsburgh.
+            That work is where Nevermodel comes from: years of watching the same evidence get re-keyed into models by hand, and the conviction that a company’s financial operations should be learned from what it already produces rather than configured up front. He teaches financial modeling, venture fund forecasting, and cap tables and exit waterfalls, and lives in Pittsburgh.
           </p>
           <p className="text-ink-2">
-            More at <a className="text-ink underline underline-offset-[3px]" href="https://www.hemrock.com" target="_blank" rel="noreferrer">hemrock.com</a> and <a className="text-ink underline underline-offset-[3px]" href="https://taylordavidson.com" target="_blank" rel="noreferrer">taylordavidson.com</a>.
+            More at <a className="text-ink underline underline-offset-[3px]" href="https://taylordavidson.com" target="_blank" rel="noreferrer">taylordavidson.com</a>.
           </p>
         </Section>
       </main>

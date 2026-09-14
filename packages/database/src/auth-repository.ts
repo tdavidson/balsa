@@ -10,13 +10,30 @@ import { getDatabase, type Database } from "./index";
 import { companies, companyMembers, users } from "./schema";
 
 function toUser(row: typeof users.$inferSelect): ApplicationUser {
-  return { id: row.id, email: row.email, name: row.name };
+  return { id: row.id, email: row.email, name: row.name, hasAvatar: Boolean(row.avatarStorageReference) };
 }
 
-function defaultCompanyName(identity: AuthIdentity) {
+function defaultCompanyName(_identity: AuthIdentity) {
   if (process.env.DEFAULT_COMPANY_NAME) return process.env.DEFAULT_COMPANY_NAME;
-  if (identity.name) return `${identity.name}'s Company`;
-  return "My Management Company";
+  return "User's Company";
+}
+
+function normalizedEmail(email: string | null | undefined) {
+  return email?.trim().toLocaleLowerCase() ?? "";
+}
+
+/**
+ * A deliberately narrow, one-time bridge from disabled local mode to Better
+ * Auth. The configured address is explicit operator authorization to attach
+ * that Better Auth identity to the pre-existing local application user.
+ */
+function canClaimDisabledIdentity(identity: AuthIdentity) {
+  const configuredEmail = normalizedEmail(process.env.AUTH_CLAIM_EXISTING_EMAIL);
+  return (
+    identity.provider === "better-auth" &&
+    configuredEmail.length > 0 &&
+    normalizedEmail(identity.email) === configuredEmail
+  );
 }
 
 export function createDatabaseAuthRepository(
@@ -53,6 +70,7 @@ export function createDatabaseAuthRepository(
         id: companies.id,
         name: companies.name,
         baseCurrency: companies.baseCurrency,
+        financialStateRevision: companies.financialStateRevision,
         role: companyMembers.role,
       })
       .from(companyMembers)
@@ -74,23 +92,59 @@ export function createDatabaseAuthRepository(
         sql`select pg_advisory_xact_lock(hashtext(${`${identity.provider}:${identity.providerUserId}`}))`,
       );
 
-      const [userRow] = await transaction
-        .insert(users)
-        .values({
-          authProvider: identity.provider,
-          authProviderUserId: identity.providerUserId,
-          email: identity.email,
-          name: identity.name,
-        })
-        .onConflictDoUpdate({
-          target: [users.authProvider, users.authProviderUserId],
-          set: {
-            email: identity.email,
-            name: identity.name,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
+      // The local disabled provider is bootstrap identity only. Once the user
+      // changes their profile in the app, do not overwrite it on every request.
+      // The same behavior is also safer for any future provider that sends a
+      // stale display name.
+      let [userRow] = await transaction.select().from(users).where(and(eq(users.authProvider, identity.provider), eq(users.authProviderUserId, identity.providerUserId))).limit(1);
+      if (!userRow) {
+        if (canClaimDisabledIdentity(identity)) {
+          const claimEmail = normalizedEmail(identity.email);
+          // Serialize the one-time claim independently from the Better Auth
+          // subject lock. This prevents two simultaneous first sign-ins from
+          // attaching different identities to the same local user.
+          await transaction.execute(
+            sql`select pg_advisory_xact_lock(hashtext(${`better-auth-claim:${claimEmail}`}))`,
+          );
+
+          const disabledCandidates = await transaction
+            .select()
+            .from(users)
+            .where(
+              and(
+                eq(users.authProvider, "disabled"),
+                sql`lower(${users.email}) = ${claimEmail}`,
+              ),
+            )
+            .limit(2);
+
+          if (disabledCandidates.length > 1) {
+            throw new Error(
+              "Unable to claim the existing local user: more than one disabled user has the configured email.",
+            );
+          }
+
+          const [disabledUser] = disabledCandidates;
+          if (disabledUser) {
+            [userRow] = await transaction
+              .update(users)
+              .set({
+                authProvider: identity.provider,
+                authProviderUserId: identity.providerUserId,
+                email: identity.email,
+              })
+              .where(eq(users.id, disabledUser.id))
+              .returning();
+          }
+        }
+
+        if (!userRow) {
+          [userRow] = await transaction
+            .insert(users)
+            .values({ authProvider: identity.provider, authProviderUserId: identity.providerUserId, email: identity.email, name: identity.name })
+            .returning();
+        }
+      }
 
       if (!userRow) throw new Error("Unable to provision application user");
 
@@ -99,6 +153,7 @@ export function createDatabaseAuthRepository(
           id: companies.id,
           name: companies.name,
           baseCurrency: companies.baseCurrency,
+          financialStateRevision: companies.financialStateRevision,
           role: companyMembers.role,
         })
         .from(companyMembers)
@@ -129,6 +184,7 @@ export function createDatabaseAuthRepository(
           id: company.id,
           name: company.name,
           baseCurrency: company.baseCurrency,
+          financialStateRevision: company.financialStateRevision,
           role: "owner",
         },
       };

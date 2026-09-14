@@ -21,4 +21,9 @@ describe("evidence publication", () => {
     const plan = buildEvidencePublication({ sourceKind: "balance_sheet", reportingMonth: "2026-01", facts: [{ label: "Cash balance", value: "$50,000.00", accountingRole: "ending_balance" }] });
     expect(plan.openingBalances).toEqual([]);
   });
+
+  it("never publishes values from a reference model", () => {
+    const plan = buildEvidencePublication({ sourceKind: "financial_model", sourceRole: "reference_model", reportingMonth: "2026-01", facts: [{ label: "Opening cash", value: "$50,000.00", accountingRole: "opening_balance" }, { label: "Forecast receipt", value: "2026-01-12 $3,100.00", accountingRole: "revenue" }] });
+    expect(plan).toEqual({ openingBalances: [], cashEvents: [], economicItems: [], blocked: [] });
+  });
 });

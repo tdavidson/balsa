@@ -19,21 +19,22 @@ The goal is secure company access, not a full identity platform.
 
 ## Authentication Provider
 
-Use Clerk for the hosted V0 deployment.
+Use the application-owned Better Auth adapter for the hosted and self-hosted
+single-user deployment.
 
 Reference hosted architecture:
 
 ```text id="gmfk23"
 Browser
    ↓
-Clerk authentication
+Better Auth authentication
    ↓
 Next.js / Vercel
    ↓
 Neon Postgres
 ```
 
-Clerk is responsible for:
+Better Auth is responsible for:
 
 - user authentication;
 - sessions;
@@ -47,7 +48,7 @@ The application database remains responsible for:
 - company membership;
 - authorization to company financial data.
 
-Do not make Clerk IDs the canonical identifiers for financial objects.
+Do not make identity-provider IDs the canonical identifiers for financial objects.
 
 ---
 
@@ -74,8 +75,8 @@ User {
 Initial values:
 
 ```text id="1mu93e"
-auth_provider = "clerk"
-auth_provider_user_id = Clerk user ID
+auth_provider = "better-auth" | "disabled"
+auth_provider_user_id = provider user ID
 ```
 
 The application user ID should be used internally where user references are required.
@@ -168,7 +169,7 @@ This prevents the model from accidentally or maliciously accessing another compa
 
 ## Auth Abstraction
 
-Do not scatter Clerk-specific code throughout the finance application.
+Do not scatter identity-provider-specific code throughout the finance application.
 
 Create a thin application authentication boundary.
 
@@ -184,10 +185,10 @@ requireCompanyAccess()
 Initial implementation:
 
 ```text id="bsz8d8"
-ClerkAuthProvider
+BetterAuthIdentityProvider | DisabledIdentityProvider
 ```
 
-The rest of the application should use the internal authentication helpers rather than importing Clerk directly.
+The rest of the application should use the internal authentication helpers rather than importing a provider directly.
 
 This supports a future self-hosted authentication implementation without changing the finance engine or Company State.
 
@@ -203,7 +204,7 @@ However, preserve the ability to support:
 Hosted deployment
 Vercel
 Neon
-Clerk
+Better Auth
 
 Self-hosted deployment
 Docker
@@ -211,7 +212,7 @@ Postgres
 self-hosted authentication provider
 ```
 
-A future open-source deployment could use Better Auth or another self-hostable authentication system behind the same application authentication interface.
+A future deployment can use another self-hostable authentication system behind the same application authentication interface.
 
 Do not build a generalized authentication plugin framework.
 
@@ -261,6 +262,11 @@ If multiple companies exist later, a minimal company selector can be added.
 
 Do not let multi-company UX delay V0.
 
+Implementation after V0 is split between
+[local multi-company](../plans/local-multi-company.md) for one operator and
+[hosted multi-company](../plans/multi-tenant-hosted.md) for multiple users and
+public deployment.
+
 ---
 
 # Security Requirements
@@ -287,8 +293,9 @@ Hosted V0 should support approximately:
 ```env id="j944nq"
 DATABASE_URL=
 
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
+AUTH_MODE=better-auth
+BETTER_AUTH_SECRET=
+BETTER_AUTH_URL=
 
 MODEL_PROVIDER=
 MODEL_NAME=
@@ -327,7 +334,7 @@ Implement:
 - Neon PostgreSQL;
 - Drizzle;
 - database migrations;
-- Clerk authentication;
+- Better Auth authentication;
 - internal User model;
 - Company model;
 - CompanyMember model;
@@ -379,7 +386,7 @@ Suggested structure:
 
 `/packages/auth` should contain application-facing authentication helpers and types.
 
-Clerk-specific implementation can live there or in the web application adapter.
+Provider-specific implementation lives in the web application adapter.
 
 The finance engine must have no dependency on authentication.
 
@@ -392,5 +399,5 @@ Add:
 16. Real company financial data requires authentication.
 17. Every financial operation is authorized against company membership.
 18. Agent tools cannot access data outside the authenticated company.
-19. Hosted V0 supports Clerk authentication.
+19. Hosted V0 supports Better Auth authentication and explicit local no-login mode.
 20. Authentication can later be replaced for self-hosted deployments without rewriting Company State or the finance engine.

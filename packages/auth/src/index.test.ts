@@ -7,7 +7,7 @@ import {
 } from "./index";
 
 const identity: AuthIdentity = {
-  provider: "clerk",
+  provider: "test-provider",
   providerUserId: "user_123",
   email: "cfo@example.com",
   name: "CFO",
@@ -52,5 +52,17 @@ describe("company authorization", () => {
     await expect(service.requireCompanyAccess("company-2")).rejects.toBeInstanceOf(
       CompanyAccessDeniedError,
     );
+  });
+
+  it("provisions a newly authenticated identity before a company is read", async () => {
+    const repo = repository();
+    vi.mocked(repo.findUser).mockResolvedValue(null);
+    const service = createAuthService(
+      { getIdentity: vi.fn().mockResolvedValue(identity) },
+      repo,
+    );
+
+    await expect(service.requireUser()).resolves.toEqual(context.user);
+    expect(repo.provisionIdentity).toHaveBeenCalledWith(identity);
   });
 });

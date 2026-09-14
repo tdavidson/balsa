@@ -9,4 +9,5 @@ coverage
 .DS_Store
 .data/files/
 *.tsbuildinfo
-packages/database/drizzle/meta
+packages/database/drizzle/meta/*
+!packages/database/drizzle/meta/_journal.json

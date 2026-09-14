@@ -1,10 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { cashEvents, decisions, entities, evidence, factRecords, getDatabase, ingestionRuns, reportingPeriods, policies, reviewItems, sources, observations } from "@finance/database";
+import { cashEvents, decisions, entities, evidence, factRecords, getDatabase, ingestionRuns, reportingPeriods, policies, reviewItems, sources, observations, sourceRows } from "@finance/database";
 import { and, eq, inArray, desc, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { requireCompanyAccess } from "@/lib/auth";
-import { classifySource, detectSourceCurrencies, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
+import { adaptTransactionRows, classifySource, detectSourceCurrencies, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
 import { classifyCashActivity } from "@/lib/financial-events";
 import { storeSourceBlob } from "@/lib/blob-store";
 import { classifyWithCompanyPolicy } from "@/lib/company-policy-engine";
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
   const sourceClassification = classifySource({ filename: file.name, mimeType: file.type || "text/csv", text: rawText });
   const detectedCurrencies = detectSourceCurrencies(rawText);
   const sourceCurrency = detectedCurrencies.length === 1 ? detectedCurrencies[0] : undefined;
+  const typedTransactions = adaptTransactionRows(sourceClassification.kind, parsedTransactions, sourceCurrency);
   const activePolicies = await getDatabase().select({ id: policies.id, name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")));
   if (!parsedTransactions.length) return failImport("File has no transactions");
   const headers = rows[0]?.map((header) => header.toLowerCase()) ?? [];
@@ -116,8 +117,20 @@ export async function POST(request: Request) {
     }
     if (canonicalSource?.id) {
       const keys = events.map((event) => event.externalKey).filter((key): key is string => Boolean(key));
+      // Preserve each normalized imported row separately from its derived cash
+      // event. This makes reprocessing a diff against immutable source rows.
+      await getDatabase().insert(sourceRows).values(events.map((event, index) => {
+        const typed = typedTransactions[index];
+        return { companyId: context.company.id, sourceId: canonicalSource.id, evidenceId: placeholder!.id, sourceKey: event.externalKey!, sourceType: sourceClassification.kind, rowType: typed?.rowType ?? "unclassified", period: event.month, transactionDate: event.postedDate, description: event.description, amount: event.amount, ...(sourceCurrency ? { currency: sourceCurrency } : {}), direction: event.direction, sourceLocation: event.sourceLocation, rawJson: JSON.stringify({ ...(typed?.raw ?? {}), normalized: event }), status: "staged" };
+      })).onConflictDoNothing({ target: [sourceRows.sourceId, sourceRows.sourceKey] });
+      const persistedRows = await getDatabase().select({ id: sourceRows.id, sourceKey: sourceRows.sourceKey }).from(sourceRows).where(and(eq(sourceRows.companyId, context.company.id), eq(sourceRows.sourceId, canonicalSource.id), inArray(sourceRows.sourceKey, keys)));
+      const sourceRowByKey = new Map(persistedRows.map((row) => [row.sourceKey, row.id]));
       const canonicalEvents = await getDatabase().select({ id: cashEvents.id, externalKey: cashEvents.externalKey }).from(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), inArray(cashEvents.externalKey, keys)));
       const eventByKey = new Map(canonicalEvents.map((event) => [event.externalKey, event.id]));
+      await Promise.all(events.flatMap((event) => {
+        const sourceRowId = event.externalKey ? sourceRowByKey.get(event.externalKey) : undefined;
+        return sourceRowId && event.externalKey ? [getDatabase().update(cashEvents).set({ sourceRowId, updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.sourceId, canonicalSource.id), eq(cashEvents.externalKey, event.externalKey)))] : [];
+      }));
       await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, ...(sourceCurrency ? { currency: sourceCurrency } : {}), counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate, sourceLocation: event.sourceLocation }), confidence: "high" })));
     }
     const importedFact = { label: "Imported transaction set", value: `${events.length} transactions parsed from ${file.name}; approve the source and treatment to post them as actual cash activity.`, accountingRole: "transaction", confidence: 1 };

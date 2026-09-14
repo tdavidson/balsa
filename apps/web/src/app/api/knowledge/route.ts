@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/auth";
 import { and, eq, like } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDatabase, knowledgeDocuments } from "@finance/database";
@@ -6,10 +6,14 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
 import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
 
+function hasTemplateMarker(content: string, template: { id: string; version: string }) {
+  return ["Nevermodel", "Hemrock"].some((brand) => content.includes(`${brand} knowledge template: ${template.id} v${template.version}`));
+}
+
 const appliedIdsFor = (documents: { slug: string; content: string }[]) => [...new Set(documents.flatMap((document) => {
   const match = document.slug.match(/^template:([^:]+):/);
   if (match?.[1]) return [match[1]];
-  const legacy = knowledgeTemplates.find((template) => document.content.includes(`Hemrock knowledge template: ${template.id} v${template.version}`));
+  const legacy = knowledgeTemplates.find((template) => hasTemplateMarker(document.content, template));
   return legacy ? [legacy.id] : [];
 }))];
 
@@ -29,12 +33,11 @@ export async function POST(request: Request) {
   const db = getDatabase();
   const documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
   const templatePrefix = `template:${template.id}:`;
-  const legacyMarker = `Hemrock knowledge template: ${template.id} v${template.version}`;
   const applied: string[] = [];
   const skipped: string[] = [];
   for (const templateDocument of template.documents) {
     const existing = documents.find((document) => document.slug === `${templatePrefix}${templateDocument.slug}`);
-    const legacy = documents.find((document) => document.slug === templateDocument.slug && document.content.includes(legacyMarker));
+    const legacy = documents.find((document) => document.slug === templateDocument.slug && hasTemplateMarker(document.content, template));
     if (existing || legacy) {
       if (existing && existing.content.trim() !== templateDocument.content.trim()) skipped.push(templateDocument.slug);
       if (legacy && legacy.content.trim() !== templateDocument.content.trim()) skipped.push(templateDocument.slug);
@@ -52,7 +55,7 @@ export async function DELETE(request: Request) {
   const body = (await request.json()) as { templateId?: string; slug?: string };
   if (body.slug && !body.templateId) {
     const [document] = await getDatabase().select().from(knowledgeDocuments).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, body.slug)));
-    const template = knowledgeTemplates.find((candidate) => document?.slug.startsWith(`template:${candidate.id}:`) || document?.content.includes(`Hemrock knowledge template: ${candidate.id} v${candidate.version}`));
+    const template = knowledgeTemplates.find((candidate) => document?.slug.startsWith(`template:${candidate.id}:`) || (document ? hasTemplateMarker(document.content, candidate) : false));
     if (!document || !template) return NextResponse.json({ error: "Only an industry knowledge file can be deleted here" }, { status: 400 });
     await getDatabase().delete(knowledgeDocuments).where(and(eq(knowledgeDocuments.companyId, context.company.id), eq(knowledgeDocuments.slug, body.slug)));
     return NextResponse.json({ removed: true, slug: body.slug, templateId: template.id });
@@ -61,11 +64,10 @@ export async function DELETE(request: Request) {
   if (!template) return NextResponse.json({ error: "Unknown knowledge template" }, { status: 400 });
   const prefix = `template:${template.id}:`;
   const deleted = await getDatabase().delete(knowledgeDocuments).where(and(eq(knowledgeDocuments.companyId, context.company.id), like(knowledgeDocuments.slug, `${prefix}%`))).returning({ id: knowledgeDocuments.id });
-  const legacyMarker = `Hemrock knowledge template: ${template.id} v${template.version}`;
   const documents = await getDatabase().select().from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id));
   let restoredLegacy = 0;
   for (const templateDocument of template.documents) {
-    const existing = documents.find((document) => document.slug === templateDocument.slug && document.content.includes(legacyMarker));
+    const existing = documents.find((document) => document.slug === templateDocument.slug && hasTemplateMarker(document.content, template));
     if (existing && existing.content.trim() === templateDocument.content.trim()) {
       const fallback = defaultKnowledgeDocuments.find((document) => document.slug === templateDocument.slug);
       if (fallback) {

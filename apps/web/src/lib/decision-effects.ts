@@ -2,9 +2,8 @@ import "server-only";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { cashEvents, decisions, economicItems, entities, getDatabase, knowledgeDocuments, scenarios, type Database } from "@finance/database";
-import { addMonths, categories, isValidMonth, type ScheduleItem } from "@nevermodel/finance-engine";
+import { addMonths, categories, isValidMonth } from "@nevermodel/finance-engine";
 import { resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
-import type { FinancialOptions } from "@/lib/financials";
 
 /**
  * Structured effects that a CFO decision can carry. Applying a decision runs
@@ -85,18 +84,6 @@ export function describeEffect(effect: DecisionEffect | undefined): string | nul
   if (effect.kind === "end_item") return `Ends an item after ${effect.effectiveTo}`;
   if (effect.kind === "change_amount") return `Changes an item to ${dollars(effect.amount)} from ${effect.effectiveFrom}`;
   return `Categorizes a counterparty as ${effect.category.replace(/_/g, " ")}`;
-}
-
-/** Translate effects into engine overrides for an in-memory simulation; nothing is persisted. */
-export function simulationOptions(effects: DecisionEffect[], scenarioId = "simulation"): Pick<FinancialOptions, "extraItems" | "itemOverrides"> {
-  const extraItems: ScheduleItem[] = [];
-  const itemOverrides: NonNullable<FinancialOptions["itemOverrides"]> = [];
-  effects.forEach((effect, index) => {
-    if (effect.kind === "add_item") extraItems.push({ id: `${scenarioId}:${index}`, label: effect.item.label, ...(effect.item.counterparty ? { counterparty: effect.item.counterparty } : {}), direction: effect.item.direction, amount: effect.item.amount, category: effect.item.category, cadence: effect.item.cadence, effectiveFrom: effect.item.effectiveFrom, ...(effect.item.effectiveTo ? { effectiveTo: effect.item.effectiveTo } : {}), accountingTreatment: effect.item.accountingTreatment, ...(effect.item.recognitionStart ? { recognitionStart: effect.item.recognitionStart } : {}), ...(effect.item.recognitionEnd ? { recognitionEnd: effect.item.recognitionEnd } : {}), basis: "assumed", provenance: {} });
-    else if (effect.kind === "end_item") itemOverrides.push({ itemId: effect.itemId, effectiveTo: effect.effectiveTo });
-    else if (effect.kind === "change_amount") itemOverrides.push({ itemId: effect.itemId, amount: effect.amount, amountFrom: effect.effectiveFrom });
-  });
-  return { extraItems, itemOverrides };
 }
 
 async function appendAssumption(db: Database, companyId: string, line: string) {

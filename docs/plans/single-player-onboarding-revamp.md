@@ -22,7 +22,7 @@ unvalidated interpretation should affect the ledger, statements, or forecast.
 
 ### Product principle: a financial brain, then company learning
 
-Hemrock should already understand the durable mechanics of finance: the
+Nevermodel should already understand the durable mechanics of finance: the
 difference between cash and accrual accounting, revenue recognition versus
 billing and collection, balance-sheet roll-forwards, internal transfers,
 investment and financing activity, materiality, and evidence-based
@@ -185,6 +185,11 @@ cross-source matches.
 All single-player core build steps in this pass are complete. Remaining work is
 product hardening, real-company acceptance testing, and optional scale-up—not a
 missing stage in the onboarding pipeline.
+
+The next improvement layer is documented in
+[Accounting evaluation and improvement loop](accounting-evaluation-loop.md).
+It defines how real outcomes and CFO corrections become versioned regression
+coverage without turning company learning into unsupervised policy creation.
 
 ## Acceptance criteria
 

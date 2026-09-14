@@ -1,9 +1,11 @@
-# Multi-tenant hosted plan
+# Hosted multi-company plan
 
-This plan turns nevermodel from a single-operator deployment into a hosted
-product that several companies, and several people per company, can use at the
-same time. It covers eight workstreams that map to the decisions made on
-September 8, 2026:
+This plan turns Nevermodel's completed
+[local multi-company capability](local-multi-company.md) into a hosted product
+that several companies, and several people per company, can use at the same
+time. Local company creation, selection, and one-user isolation are a
+prerequisite and are not duplicated here. This plan covers eight hosted
+workstreams:
 
 1. Remove company-specific behavior from shared code.
 2. Enforce row-level security (RLS) with a per-transaction company setting.
@@ -19,6 +21,11 @@ change, and the order in which to ship them. File paths are relative to the
 repository root.
 
 ## Starting point
+
+The starting point for this plan includes completion of the local
+multi-company acceptance gate: one user can create and switch between several
+isolated companies in either authentication mode. Hosted operation always uses
+Better Auth; disabled authentication remains local single-user mode only.
 
 The data model and the authorization boundary are already tenant-scoped:
 
@@ -379,7 +386,7 @@ Flow:
 1. An owner opens **Members** from the account menu, enters an email, and
    gets an invitation link at `/invite/<token>`. Sending the email is a
    follow-up; copying the link is enough for the first version.
-2. The invitee signs in with Clerk. The invite page requires that the
+2. The invitee signs in through the configured identity provider. The invite page requires that the
    signed-in email matches the invitation email, then inserts the membership
    and marks the invitation accepted.
 3. `provisionIdentity` checks for a pending invitation before creating a
@@ -388,11 +395,11 @@ Flow:
 
 ### Active company
 
-Store the active company id in a cookie. `requireCompanyAccess` already
-accepts a requested company id and verifies membership, so the wrapper reads
-the cookie and passes it through. Add a company switcher and a **New
-company** action to the account menu. Remove `DEFAULT_COMPANY_NAME` from the
-hosted configuration; keep it as a development convenience only.
+The local multi-company release already stores the active company in a cookie,
+verifies membership, and provides the company switcher and **New company**
+action. Extend that behavior for invited memberships and role-aware controls.
+Remove `DEFAULT_COMPANY_NAME` from hosted configuration; keep it as a
+development convenience only.
 
 ### Audit log
 
@@ -432,14 +439,14 @@ Show the log as an **Activity** tab in the history dialog.
 
 ## Workstream 7: keep membership in the application
 
-Clerk stays responsible for identity and sessions only. Roles, invitations,
+The identity provider stays responsible for identity and sessions only. Roles, invitations,
 active company, and the audit log live in Postgres, as the authentication
 specification in `docs/specs/v0-authentication-additions.md` intended. This
-keeps a self-hosted deployment able to swap Clerk for Better Auth behind the
+keeps a self-hosted deployment able to change identity providers behind the
 same `IdentityProvider` interface without touching membership.
 
-Don't adopt Clerk Organizations. It would duplicate `company_members` and
-tie authorization to a vendor.
+Don't adopt provider-owned organization records. They would duplicate
+`company_members` and tie authorization to a vendor.
 
 ## Workstream 8: where background jobs run
 

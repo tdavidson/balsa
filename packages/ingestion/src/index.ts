@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 export * from "./source-classification";
 export * from "./statement-validation";
 export * from "./structured-statements";
+export * from "./source-row-adapters";
 
 const knownCurrencies = ["USD", "CAD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD"] as const;
 export type KnownCurrency = (typeof knownCurrencies)[number];
@@ -114,7 +115,17 @@ export function parseCsvRows(text: string): string[][] {
   return rows;
 }
 
-function amount(value: string) { return Number(value.replace(/[$,]/g, "").replace(/^\((.*)\)$/, "-$1")); }
+/** Parse the common formats emitted by bank, brokerage, and GL exports without
+ * silently turning an unrecognized amount into a posting. */
+function amount(value: string) {
+  const normalized = value.trim()
+    .replace(/[$,\s]/g, "")
+    .replace(/^\((.*)\)$/, "-$1")
+    .replace(/(CR|CREDIT)$/i, "")
+    .replace(/(DR|DEBIT)$/i, "-");
+  if (!normalized || /^[-–—]$/.test(normalized)) return 0;
+  return Number(normalized);
+}
 
 function fullDate(year: number, month: number, day: number) {
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -136,12 +147,15 @@ export function expandFinancialFactDates<T extends { label: string; value: strin
 
 export function normalizeTransactions(rows: string[][], fallbackMonth: string): TransactionRow[] {
   if (rows.length < 2) return [];
-  const headers = rows[0]!.map((h) => h.toLowerCase());
-  const date = headers.findIndex((h) => /date/.test(h));
-  const value = headers.findIndex((h) => /amount|total|value/.test(h));
-  const debit = headers.findIndex((h) => /debit|withdrawal|outflow/.test(h));
-  const credit = headers.findIndex((h) => /credit|deposit|inflow/.test(h));
-  const descriptionColumns = headers.flatMap((header, index) => /description|memo|note|payee|name/.test(header) ? [index] : []);
+  const headers = rows[0]!.map((header) => header.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  const find = (pattern: RegExp) => headers.findIndex((header) => pattern.test(header));
+  // Keep this deliberately header-based. A source is not allowed to become an
+  // accounting transaction merely because a number appears in an arbitrary column.
+  const date = find(/^(transaction |posted |posting |effective |process )?date$|^date$/);
+  const value = find(/^(amount|transaction amount|net amount|total amount|value|transaction value)$/);
+  const debit = find(/^(debit|debits|withdrawal|withdrawals|outflow|outflows|money out|paid out)$/);
+  const credit = find(/^(credit|credits|deposit|deposits|inflow|inflows|money in|paid in)$/);
+  const descriptionColumns = headers.flatMap((header, index) => /^(description|memo|note|notes|payee|merchant|name|details|transaction description)$/.test(header) ? [index] : []);
   return rows.slice(1).flatMap((cells, index) => {
     const direct = value >= 0 ? amount(cells[value] ?? "") : 0;
     const d = debit >= 0 ? Math.abs(amount(cells[debit] ?? "")) : 0;

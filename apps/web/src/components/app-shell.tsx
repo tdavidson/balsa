@@ -14,6 +14,8 @@ import type { ConversationTurn } from "@/app/api/conversations/route";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { UsageModal } from "@/components/usage-modal";
+import { AccountingModal } from "@/components/accounting-modal";
+import { FinancialInspector } from "@/components/financial-inspector";
 
 const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 const shortMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
@@ -51,6 +53,10 @@ function money(amount: number, currency = "$") {
   return amount < 0 ? `−${currency}${formatted}` : `${currency}${formatted}`;
 }
 
+function journalMoney(amountMinor: string) {
+  return money(Number(BigInt(amountMinor)) / 100);
+}
+
 function shortFileName(name: string, maxLength = 48) {
   if (name.length <= maxLength) return name;
   const extension = name.match(/\.[^.]+$/)?.[0] ?? "";
@@ -59,6 +65,8 @@ function shortFileName(name: string, maxLength = 48) {
 }
 
 type Effort = "auto" | "low" | "medium" | "high";
+type WorkbookSheetRole = "historical_statement" | "chart_of_accounts" | "forecast_drivers" | "schedule" | "presentation" | "reference_only" | "exclude";
+type WorkbookProposal = { createdAt: string; chartAccountMappings: { worksheet: string; sourceLabel: string; accountType: string; statementSection: string; suggestedAccountName: string; reason: string }[]; historicalCoverage: { worksheet: string; period: string; statement: string; reason: string }[]; forecastDrivers: { worksheet: string; driver: string; unit: string; rationale: string }[]; questions: string[] };
 const efforts: { value: Effort; label: string }[] = [
   { value: "auto", label: "Auto effort" },
   { value: "low", label: "Low" },
@@ -66,6 +74,25 @@ const efforts: { value: Effort; label: string }[] = [
   { value: "high", label: "High" },
 ];
 const accountingRoleOptions = ["transaction", "opening_balance", "ending_balance", "transfer", "investment_movement", "revenue", "expense", "financing", "summary", "agreement", "unknown"] as const;
+const workbookSheetRoleLabels: Record<WorkbookSheetRole, string> = {
+  historical_statement: "Historical statements",
+  chart_of_accounts: "Chart of accounts",
+  forecast_drivers: "Forecast drivers",
+  schedule: "Supporting schedule",
+  presentation: "Presentation / dashboard",
+  reference_only: "Reference only",
+  exclude: "Exclude",
+};
+
+function suggestedWorkbookSheetRole(name: string, sampleLabels: string[]): WorkbookSheetRole {
+  const content = `${name} ${sampleLabels.join(" ")}`.toLowerCase();
+  if (/chart\s*(of)?\s*accounts|\bcoa\b|account\s*(list|map)/.test(content)) return "chart_of_accounts";
+  if (/assumption|driver|input|forecast|budget|scenario|plan/.test(content)) return "forecast_drivers";
+  if (/schedule|headcount|payroll|debt|capex|fixed\s*asset|revenue\s*detail|working\s*capital/.test(content)) return "schedule";
+  if (/income\s*statement|profit\s*(and|&)\s*loss|\bp\s*&\s*l\b|balance\s*sheet|cash\s*flow|historical|actual/.test(content)) return "historical_statement";
+  if (/dashboard|cover|summary|output|presentation|board/.test(content)) return "presentation";
+  return "reference_only";
+}
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
@@ -139,6 +166,10 @@ function processingRunDetail(run: NonNullable<EvidenceItem["ingestionRuns"]>[num
 
 function ingestionStatusLabel(item: EvidenceItem) {
   const status = item.ingestionStatus ?? item.status;
+  const latestExtraction = [...(item.ingestionRuns ?? [])]
+    .filter((run) => run.stage === "extraction")
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+  if (status === "extracting" && latestExtraction?.status === "waiting") return "Queued for extraction";
   if (status === "extracting") return "Extracting facts and evidence";
   if (status === "stored") return "Stored; waiting for extraction";
   if (status === "reconciling") return "Checking against other sources";
@@ -149,6 +180,28 @@ function ingestionStatusLabel(item: EvidenceItem) {
 }
 
 type ProcessingStage = { key: string; label: string; status: "waiting" | "running" | "succeeded" | "failed"; detail?: string };
+
+function aggregateProcessingTimeline(items: EvidenceItem[]) {
+  const labels = [
+    ["identify", "Classify sources"],
+    ["extract", "Extract facts and provenance"],
+    ["validate", "Validate balances"],
+    ["match", "Match transactions"],
+    ["review", "Prepare grouped review"],
+  ] as const;
+  const timelines = items.map(processingTimeline);
+  return labels.map(([key, label]) => {
+    const statuses = timelines.map((timeline) => timeline.find((stage) => stage.key === key)?.status ?? "waiting");
+    const status: ProcessingStage["status"] = statuses.includes("failed")
+      ? "failed"
+      : statuses.includes("running")
+        ? "running"
+        : statuses.length > 0 && statuses.every((value) => value === "succeeded")
+          ? "succeeded"
+          : "waiting";
+    return { key, label, status };
+  });
+}
 
 /** Converts durable run records into the fixed workflow a CFO expects to see. */
 function processingTimeline(item: EvidenceItem): ProcessingStage[] {
@@ -245,8 +298,9 @@ function Figure({ label, value, note, pencil, negative }: { label: string; value
 
 type AppShellProps = {
   company: { name: string; currency: string };
-  user: { email: string; name: string | null };
+  user: { email: string; name: string | null; hasAvatar?: boolean };
   modelOptions: { value: string; label: string }[];
+  loginEnabled: boolean;
 };
 
 type EvidenceItem = {
@@ -261,7 +315,20 @@ type EvidenceItem = {
   accountIdentifier?: string | null;
   statementPeriodStart?: string | null;
   statementPeriodEnd?: string | null;
-  sourceMetadata?: { classification?: { kind: string; confidence: "high" | "medium" | "low"; containsTransactions?: boolean; containsBalances?: boolean; containsSummaries?: boolean }; pdfQuality?: { status: "good" | "weak" | "empty"; pageCount: number; nonEmptyPages: number; characters: number; warnings: string[] } };
+  sourceMetadata?: {
+    sourceRole?: "reference_model";
+    classification?: { kind: string; confidence: "high" | "medium" | "low"; containsTransactions?: boolean; containsBalances?: boolean; containsSummaries?: boolean };
+    pdfQuality?: { status: "good" | "weak" | "empty"; pageCount: number; nonEmptyPages: number; characters: number; warnings: string[] };
+    workbook?: {
+      worksheetCount: number;
+      definedNames: string[];
+      worksheets: { name: string; rows: number; columns: number; formulas: number; sampleLabels: string[] }[];
+    };
+    workbookReview?: Record<string, WorkbookSheetRole>;
+    workbookProposal?: WorkbookProposal;
+    workbookProposalReview?: Record<string, "approved" | "rejected">;
+    workbookProposalApplication?: Record<string, string>;
+  };
   storageReference?: string | null;
   ingestionStatus?: string | null;
   ingestionError?: string | null;
@@ -287,10 +354,15 @@ type ProposedItem = { id: string; type: "agreement" | "obligation"; label: strin
 type BalanceSheetView = { month: string; hasOpening: boolean; balances: Record<string, number>; cashByAccount: { accountId: string | null; name: string; balance: number }[]; assets: number; liabilities: number; equity: number; check: number; balanced: boolean };
 type CashFlowView = { month: string; netIncome: number; eliminations: number; changes: Record<string, number>; operatingIndirect: number; operating: number; investing: number; financing: number; transfers: number; adjustments: number; netChange: number; openingCash?: number; endingCash?: number; ties: boolean };
 type EntityStructureView = { legalEntities: { id: string; name: string; consolidated: boolean }[]; accounts: { id: string; name: string; ownerEntityId: string | null }[] };
-type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; balanceSheet?: BalanceSheetView; cashFlow?: CashFlowView; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
+type JournalStatementView = { balanceSheet: { assets: LineItem[]; liabilities: LineItem[]; equity: LineItem[]; retainedEarningsMinor: string; totalAssetsMinor: string; totalLiabilitiesAndEquityMinor: string; differenceMinor: string; balanced: boolean } };
+type LineItem = { key: string; label: string; amountMinor: string };
+type ForecastMonth = { month: string; receipts: number; spending: number; endingCash: number; hasCashBalance?: boolean; openingCash?: number; actualReceipts: number; actualSpending: number; actualNet?: number; variance?: number; contractualReceipts?: number; contractualSpending?: number; assumedReceipts?: number; assumedSpending?: number; outstanding?: { receivables: { label: string; month: string; amount: number }[]; payables: { label: string; month: string; amount: number }[] }; intercompany?: { entityId: string; name?: string; balance: number }[]; status?: "open" | "closed" | "history"; balanceSheet?: BalanceSheetView; cashFlow?: CashFlowView; journalStatement?: JournalStatementView | null; calculation?: { id: string; kind: "source_line" | "opening_position" | "ending_cash" | "operating_income" | "balance_sheet_check" | "cash_rollforward_check" | "transfer_revenue_check" | "statement_cash_check" | "month_continuity_check" | "duplicate_source_check" | "transfer_pairing_check" | "allocation_total_check" | "intercompany_elimination_check"; label: string; formula: string; value: number | boolean; inputNodeIds: string[]; lineIds: string[]; verification: { status: "verified" | "provisional" | "unverified" | "exception"; reasons: string[] } }[]; trace?: { description: string; evidenceId: string | null; sourceName?: string | null; amount?: number; kind?: "receipt" | "spend"; actual?: boolean; basis?: string | null }[] };
 type ReconciliationMonth = { month: string; status: "reconciled" | "exception"; opening?: number; ending?: number; receipts: number; spending: number; net: number; expectedEnding?: number; difference?: number; transactionCount: number; duplicateCount: number; duplicateGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; transferGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; bookMatchGroups?: { key: string; transactionIds: string[]; sources: string[]; amount: number; direction: string; date: string | null; descriptions: string[] }[]; reviewQuestions?: { kind: string; question: string; evidence: string[] }[]; sourceNames: string[]; pendingSources: string[]; stagedTransactionCount?: number; stagedSourceNames?: string[]; stagedTransactions?: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string; sourceLocation?: string | null }[]; revenueComparison?: { reported: number; cashReceived: number; sources: string[] }; bookBalanceComparison?: { statementBalance: number; bookBalance: number; difference: number; statementSources: string[]; bookSources: string[] }; exceptions: string[]; transactions: { id: string; date: string | null; description: string; amount: number; direction: "receipt" | "spend"; category: string; sourceName: string; sourceLocation?: string | null }[] };
 type ReconciliationLedgerSummary = { total: number; byKind: Record<string, number> };
+type CalculationTraceNode = { id: string; nodeKey: string; kind: string; month: string; label: string; formula: string; value: number | boolean | null; inputNodeIds: string[]; lineIds: string[]; provenance: { evidenceId?: string; sourceId?: string; sourceName?: string; sourceLocation?: string; factId?: string; accountId?: string; period?: string }[]; verificationStatus: "verified" | "provisional" | "unverified" | "exception"; verificationReasons: string[] };
+type CalculationRunView = { id: string; engineVersion: string; asOfMonth: string; horizonStart: string; horizonEnd: string; verificationStatus: string; createdAt: string; financialStateRevision: string; isCurrentFormula?: boolean; isCurrentState?: boolean };
 type PnlMonth = { month: string; revenue: number; expenses: number; operatingIncome: number; byCategory: Record<string, number>; revenueByCategory: Record<string, number>; allocatedOut?: number; uncategorized?: number; trace?: { description?: string; amount: number; direction: "receipt" | "spend"; category: string; kind?: string; basis?: string | null }[] };
+type JournalDashboardMonth = { month: string; status: "history" | "open"; verification: string; basis: "actual" | "forecast" | "scenario"; forecast: { openingCash: number; endingCash: number; receipts: number; spending: number; net: number; actualReceipts: number; actualSpending: number; actualNet: number; hasCashBalance: boolean; cashFlow: { operating: number; investing: number; financing: number; netChange: number; openingCash: number; endingCash: number; ties: boolean } }; pnl: PnlMonth; balanceSheet: { assets: number; liabilities: number; equity: number; retainedEarnings: number; check: number; balanced: boolean; balances: Record<string, number> }; statements: JournalStatementView | null };
 type PeriodPreset = "month" | "quarter" | "ytd" | "last12" | "year" | "custom";
 type StatementCadence = "monthly" | "quarterly" | "annual";
 
@@ -341,7 +413,7 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
   }));
 }
 
-export function AppShell({ company, user, modelOptions }: AppShellProps) {
+export function AppShell({ company, user, modelOptions, loginEnabled }: AppShellProps) {
   const [message, setMessage] = useState("");
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
   const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
@@ -350,13 +422,25 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [activeThreadId, setActiveThreadId] = useState("main");
   const [threads, setThreads] = useState<Record<string, ConversationTurn[]>>({ main: [] });
   const [usageOpen, setUsageOpen] = useState(false);
+  const [accountingOpen, setAccountingOpen] = useState(false);
+  const [calculationTraceOpen, setCalculationTraceOpen] = useState(false);
+  const [calculationRun, setCalculationRun] = useState<CalculationRunView | null>(null);
+  const [calculationRunHistory, setCalculationRunHistory] = useState<CalculationRunView[]>([]);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+  const [calculationNodes, setCalculationNodes] = useState<CalculationTraceNode[]>([]);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [reprocessingEvidenceId, setReprocessingEvidenceId] = useState<string | null>(null);
+  const locallyRunningExtractionIds = useRef(new Set<string>());
+  const [savingWorkbookReviewId, setSavingWorkbookReviewId] = useState<string | null>(null);
+  const [draftingWorkbookProposalId, setDraftingWorkbookProposalId] = useState<string | null>(null);
+  const [reviewingWorkbookProposalKey, setReviewingWorkbookProposalKey] = useState<string | null>(null);
+  const [applyingWorkbookProposalKey, setApplyingWorkbookProposalKey] = useState<string | null>(null);
   const [batchApprovalEvidenceId, setBatchApprovalEvidenceId] = useState<string | null>(null);
   const [treatmentDrafts, setTreatmentDrafts] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadSourceRole, setUploadSourceRole] = useState<"standard" | "reference_model">("standard");
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingThreadId, setSubmittingThreadId] = useState<string | null>(null);
@@ -373,6 +457,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [selectedEntity, setSelectedEntity] = useState<string>("consolidated");
   const entityQuery = selectedEntity === "consolidated" ? "" : `?entity=${selectedEntity}`;
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
+  const [calculationBasis, setCalculationBasis] = useState<"persisted" | "live_preview">("live_preview");
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [reconciliationLedger, setReconciliationLedger] = useState<ReconciliationLedgerSummary | null>(null);
   const [isReconciling, setIsReconciling] = useState(false);
@@ -384,6 +469,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
+  const applyJournalDashboard = (rows: JournalDashboardMonth[]) => {
+    setForecast(rows.map((row) => ({ month: row.month, status: row.status, openingCash: row.forecast.openingCash, endingCash: row.forecast.endingCash, hasCashBalance: row.forecast.hasCashBalance, receipts: row.forecast.receipts, spending: row.forecast.spending, actualReceipts: row.forecast.actualReceipts, actualSpending: row.forecast.actualSpending, actualNet: row.forecast.actualNet, contractualReceipts: row.basis === "forecast" ? row.forecast.receipts : 0, contractualSpending: row.basis === "forecast" ? row.forecast.spending : 0, assumedReceipts: row.basis === "scenario" ? row.forecast.receipts : 0, assumedSpending: row.basis === "scenario" ? row.forecast.spending : 0, variance: 0, journalStatement: row.statements, balanceSheet: { month: row.month, hasOpening: true, balances: row.balanceSheet.balances, cashByAccount: [], assets: row.balanceSheet.assets, liabilities: row.balanceSheet.liabilities, equity: row.balanceSheet.equity + row.balanceSheet.retainedEarnings, check: row.balanceSheet.check, balanced: row.balanceSheet.balanced }, cashFlow: { month: row.month, netIncome: row.pnl.operatingIncome, eliminations: 0, changes: {}, operatingIndirect: row.forecast.cashFlow.operating, operating: row.forecast.cashFlow.operating, investing: row.forecast.cashFlow.investing, financing: row.forecast.cashFlow.financing, transfers: 0, adjustments: 0, netChange: row.forecast.cashFlow.netChange, openingCash: row.forecast.cashFlow.openingCash, endingCash: row.forecast.cashFlow.endingCash, ties: row.forecast.cashFlow.ties } })));
+    setPnl(rows.map((row) => ({ ...row.pnl, month: row.month })));
+    setCalculationBasis("live_preview");
+  };
   const selectPeriodPreset = (value: string) => {
     const next = value as PeriodPreset;
     setPeriodPreset(next);
@@ -427,7 +517,10 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const lastForecast = periodForecastRows.at(-1);
   const sumRows = (pick: (row: ForecastMonth) => number | undefined) => periodForecastRows.reduce((sum, row) => sum + (pick(row) ?? 0), 0);
   const currentForecast = lastForecast ? { ...lastForecast, openingCash: periodForecastRows[0]?.openingCash, receipts: sumRows((row) => row.receipts), spending: sumRows((row) => row.spending), actualReceipts: sumRows((row) => row.actualReceipts), actualSpending: sumRows((row) => row.actualSpending), variance: sumRows((row) => row.variance), contractualReceipts: sumRows((row) => row.contractualReceipts), contractualSpending: sumRows((row) => row.contractualSpending), assumedReceipts: sumRows((row) => row.assumedReceipts), assumedSpending: sumRows((row) => row.assumedSpending), trace: periodForecastRows.flatMap((row) => row.trace ?? []) } : undefined;
-  const periodBalanceSheet = lastForecast?.balanceSheet;
+  const endingCashCalculation = currentForecast?.calculation?.find((node) => node.kind === "ending_cash");
+  const calculationChecks = currentForecast?.calculation?.filter((node) => node.kind.endsWith("_check")) ?? [];
+  const periodJournalStatement = lastForecast?.journalStatement;
+  const periodJournalAssets = periodJournalStatement ? Number(BigInt(periodJournalStatement.balanceSheet.totalAssetsMinor)) / 100 : undefined;
   const periodCashFlow = periodForecastRows.length ? periodForecastRows.reduce<CashFlowView | undefined>((total, row) => {
     if (!row.cashFlow) return total;
     if (!total) return { ...row.cashFlow, changes: { ...row.cashFlow.changes } };
@@ -449,6 +542,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   const periodLabel = periodPreset === "quarter" ? `Quarter ending ${dateLabel(periodEnd)}` : periodPreset === "ytd" ? `YTD through ${dateLabel(periodEnd)}` : periodPreset === "last12" ? `Last 12 months through ${dateLabel(periodEnd)}` : periodPreset === "year" ? `${anchorYear}` : periodPreset === "custom" ? `${dateLabel(periodStart)} – ${dateLabel(periodEnd)}` : `Month ending ${dateLabel(periodEnd)}`;
   const pendingEvidence = evidence.filter((item) => item.identityStatus !== "rejected" && (item.status !== "approved" || item.extraction?.facts.some((fact) => fact.factStatus !== "treatment_approved")));
   const processingEvidence = evidence.filter((item) => ["stored", "extracting", "reconciling", "processing"].includes(item.ingestionStatus ?? ""));
+  const processingStages = aggregateProcessingTimeline(processingEvidence);
+  const hasFinancialOutput = Boolean(currentForecast && (
+    currentForecast.hasCashBalance !== false
+    || (currentForecast.trace?.length ?? 0) > 0
+    || currentForecast.receipts !== 0
+    || currentForecast.spending !== 0
+    || currentForecast.actualReceipts !== 0
+    || currentForecast.actualSpending !== 0
+  ));
   const discoveredAccounts = [...evidence.reduce<Map<string, { holder: string | null | undefined; identifier: string | null | undefined; currency: string | null | undefined }>>((accounts, item) => {
     if (item.accountIdentifier || item.accountHolder) accounts.set(`${item.accountHolder ?? ""}|${item.accountIdentifier ?? ""}`, { holder: item.accountHolder, identifier: item.accountIdentifier, currency: item.currency });
     return accounts;
@@ -474,6 +576,74 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     }
     loadEvidence().catch(() => undefined);
   }, []);
+
+  const loadCalculationTrace = (runId?: string) => {
+    const query = new URLSearchParams();
+    if (runId) query.set("runId", runId); else if (selectedMonth) query.set("period", selectedMonth);
+    fetch(`/api/calculations${query.size ? `?${query.toString()}` : ""}`).then((response) => response.ok ? response.json() : null).then((payload) => {
+      setCalculationRun(payload?.run ?? null);
+      setCalculationRunHistory(payload?.runs ?? []);
+      setCalculationNodes(payload?.nodes ?? []);
+    }).catch(() => undefined);
+  };
+  const recalculateBaseCase = async () => {
+    setIsRecalculating(true);
+    try {
+      const response = await fetch(`/api/calculations${selectedMonth ? `?period=${encodeURIComponent(selectedMonth)}` : ""}`, { method: "POST" });
+      if (!response.ok) throw new Error("Calculation failed");
+      await loadCalculationTrace();
+    } catch {
+      setNotice("Unable to recalculate the base case. Please try again.");
+    } finally {
+      setIsRecalculating(false);
+    }
+  };
+  useEffect(() => {
+    if (!calculationTraceOpen) return;
+    loadCalculationTrace();
+    // Fetch only when the dialog opens; selecting history is explicit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calculationTraceOpen]);
+
+  // A hosted deployment also drains these durable jobs through its scheduler.
+  // On localhost there may be no scheduler, so the open browser safely runs a
+  // small queue through the same authenticated reprocessing endpoint. The
+  // durable waiting record remains the source of truth across reloads.
+  useEffect(() => {
+    const queued = evidence.filter((item) => {
+      const latestExtraction = [...(item.ingestionRuns ?? [])]
+        .filter((run) => run.stage === "extraction")
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+      return latestExtraction?.status === "waiting" && !locallyRunningExtractionIds.current.has(item.id);
+    });
+    const availableSlots = Math.max(0, 2 - locallyRunningExtractionIds.current.size);
+    for (const item of queued.slice(0, availableSlots)) {
+      locallyRunningExtractionIds.current.add(item.id);
+      void fetch(`/api/evidence/${item.id}/reprocess`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(modelChoice()),
+      }).then(async (response) => {
+        if (response.ok) return;
+        const payload = await readJson(response);
+        setNotice(payload.error ?? `Unable to extract ${shortFileName(item.sourceName)}.`);
+      }).catch(() => {
+        setNotice(`Unable to extract ${shortFileName(item.sourceName)}.`);
+      }).finally(async () => {
+        locallyRunningExtractionIds.current.delete(item.id);
+        const response = await fetch("/api/evidence");
+        if (!response.ok) return;
+        const payload = await readJson(response);
+        if (payload.evidence) {
+          setEvidence(payload.evidence);
+          setReviewQuestions(uniqueById(payload.reviewItems ?? []));
+        }
+      });
+    }
+  // `modelChoice` is intentionally read from the current render when a queued
+  // job is claimed; subsequent UI choices apply only to subsequent jobs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evidence, model, effort]);
 
   // Ingestion may continue after the upload/chat request returns. Keep the shell
   // current while the documents modal is open or any source reports active work.
@@ -560,18 +730,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
   useEffect(() => {
     async function loadForecast() {
-      const monthsResponse = await fetch("/api/months");
-      const monthsPayload = monthsResponse.ok ? await readJson(monthsResponse) : null;
-      if (monthsPayload?.months?.length === 0) {
-        const month = new Date().toISOString().slice(0, 7);
-        await fetch("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month }) });
-      }
-      const response = await fetch("/api/forecast");
+      const response = await fetch("/api/journal-financials");
       const payload = response.ok ? await readJson(response) : null;
-      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; setForecast(payload.months); setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
-      const pnlResponse = await fetch("/api/pnl");
-      const pnlPayload = pnlResponse.ok ? await readJson(pnlResponse) : null;
-      if (pnlPayload?.months) setPnl(pnlPayload.months);
+      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; applyJournalDashboard(payload.months); setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
       const reconciliationResponse = await fetch("/api/reconciliation");
       const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
       if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
@@ -587,6 +748,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     setSelectedFiles(selected);
     setFiles(selected.map((file) => file.name));
     setNotice(null);
+  }
+
+  function chooseFiles(sourceRole: "standard" | "reference_model" = "standard") {
+    setUploadSourceRole(sourceRole);
+    fileInput.current?.click();
   }
 
   function modelChoice() {
@@ -615,20 +781,12 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   }
 
   async function refreshFinancialState() {
-    const [forecastResponse, pnlResponse, evidenceResponse] = await Promise.all([
-      fetch(`/api/forecast${entityQuery}`),
-      fetch(`/api/pnl${entityQuery}`),
+    const [financialResponse, evidenceResponse] = await Promise.all([
+      fetch(`/api/journal-financials${entityQuery}`),
       fetch("/api/evidence"),
     ]);
     refreshProposedItems().catch(() => undefined);
-    if (forecastResponse.ok) {
-      const payload = await readJson(forecastResponse);
-      if (payload.months) setForecast(payload.months);
-    }
-    if (pnlResponse.ok) {
-      const payload = await readJson(pnlResponse);
-      if (payload.months) setPnl(payload.months);
-    }
+    if (financialResponse.ok) { const payload = await readJson(financialResponse); if (payload.months) applyJournalDashboard(payload.months); }
     if (evidenceResponse.ok) {
       const payload = await readJson(evidenceResponse);
       if (payload.evidence) {
@@ -756,6 +914,102 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
     requestAnimationFrame(() => composerInput.current?.focus());
   }
 
+  function reviewReferenceModel(item: EvidenceItem) {
+    setDocumentsOpen(false);
+    setActiveReviewQuestionId(null);
+    setActiveReviewQuestion(null);
+    setActiveDecision(null);
+    setMessage(`Review the reference model “${shortFileName(item.sourceName)}”. Use its workbook structure to propose the statement layout, chart-of-accounts mappings, historical periods, and forecast drivers we should learn from it. Do not treat workbook formulas or outputs as posted actuals; identify the smallest set of CFO decisions needed before using it as onboarding context.`);
+    requestAnimationFrame(() => composerInput.current?.focus());
+  }
+
+  async function saveWorkbookReview(item: EvidenceItem, worksheetRoles: Record<string, WorkbookSheetRole>) {
+    setSavingWorkbookReviewId(item.id);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/workbook-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ worksheetRoles }) });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        setNotice(payload.error ?? "Unable to save workbook review.");
+        return;
+      }
+      setEvidence((current) => current.map((entry) => entry.id === item.id ? { ...entry, sourceMetadata: { ...entry.sourceMetadata, workbookReview: payload.workbookReview } } : entry));
+      setNotice("Workbook roles saved to company knowledge. They guide future review but do not import model figures.");
+    } catch {
+      setNotice("Unable to save workbook review.");
+    } finally {
+      setSavingWorkbookReviewId(null);
+    }
+  }
+
+  async function draftWorkbookProposal(item: EvidenceItem) {
+    setDraftingWorkbookProposalId(item.id);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/workbook-review/proposals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(modelChoice()) });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        setNotice(payload.error ?? "Unable to draft onboarding proposals.");
+        return;
+      }
+      setEvidence((current) => current.map((entry) => entry.id === item.id ? { ...entry, sourceMetadata: { ...entry.sourceMetadata, workbookProposal: payload.workbookProposal } } : entry));
+      setNotice("Onboarding proposals are ready for review. Nothing has been created or posted.");
+    } catch {
+      setNotice("Unable to draft onboarding proposals.");
+    } finally {
+      setDraftingWorkbookProposalId(null);
+    }
+  }
+
+  async function reviewWorkbookProposal(item: EvidenceItem, proposalId: string, status: "approved" | "rejected") {
+    const key = `${item.id}:${proposalId}`;
+    setReviewingWorkbookProposalKey(key);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/workbook-review/proposal-review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposalId, status }) });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        setNotice(payload.error ?? "Unable to review workbook proposal.");
+        return;
+      }
+      setEvidence((current) => current.map((entry) => entry.id === item.id ? { ...entry, sourceMetadata: { ...entry.sourceMetadata, workbookProposalReview: payload.workbookProposalReview } } : entry));
+      setNotice(status === "approved" ? "Proposal approved as onboarding guidance. It has not created an account, driver, or entry." : "Proposal rejected.");
+    } catch {
+      setNotice("Unable to review workbook proposal.");
+    } finally {
+      setReviewingWorkbookProposalKey(null);
+    }
+  }
+
+  function discussWorkbookProposal(item: EvidenceItem, proposal: string) {
+    setDocumentsOpen(false);
+    setActiveReviewQuestionId(null);
+    setActiveReviewQuestion(null);
+    setActiveDecision(null);
+    setMessage(`Regarding the reference model “${shortFileName(item.sourceName)}”: ${proposal}\n\nWhat evidence, policy, or CFO decision should determine whether we use this suggestion? Do not create accounts, drivers, or entries until I approve the specific application.`);
+    requestAnimationFrame(() => composerInput.current?.focus());
+  }
+
+  function workbookProposalActions(item: EvidenceItem, proposalId: string, summary: string) {
+    const status = item.sourceMetadata?.workbookProposalReview?.[proposalId];
+    const saving = reviewingWorkbookProposalKey === `${item.id}:${proposalId}`;
+    if (status) return <span className={cn("text-[11px]", status === "approved" ? "text-ink-2" : "text-pencil")}>{status === "approved" ? "Approved guidance" : "Rejected"}</span>;
+    return <span className="flex shrink-0 items-center gap-1"><button type="button" className="cursor-pointer rounded-md border border-rule p-1 text-ink-2 hover:text-ink disabled:opacity-50" title="Accept as onboarding guidance" aria-label="Accept as onboarding guidance" disabled={saving} onClick={() => reviewWorkbookProposal(item, proposalId, "approved")}><Check className="size-3.5" /></button><button type="button" className="cursor-pointer rounded-md border border-rule p-1 text-ink-2 hover:text-ink disabled:opacity-50" title="Reject proposal" aria-label="Reject proposal" disabled={saving} onClick={() => reviewWorkbookProposal(item, proposalId, "rejected")}><Trash2 className="size-3.5" /></button><button type="button" className="cursor-pointer rounded-md border border-rule p-1 text-ink-2 hover:text-ink" title="Discuss proposal" aria-label="Discuss proposal" onClick={() => discussWorkbookProposal(item, summary)}><MessageSquareText className="size-3.5" /></button></span>;
+  }
+
+  async function applyWorkbookAccountProposal(item: EvidenceItem, proposalId: string) {
+    const key = `${item.id}:${proposalId}`;
+    setApplyingWorkbookProposalKey(key);
+    try {
+      const response = await fetch(`/api/evidence/${item.id}/workbook-review/proposal-application`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposalId }) });
+      const payload = await readJson(response);
+      if (!response.ok) { setNotice(payload.error ?? "Unable to create draft account."); return; }
+      setEvidence((current) => current.map((entry) => entry.id === item.id ? { ...entry, sourceMetadata: { ...entry.sourceMetadata, workbookProposalApplication: { ...entry.sourceMetadata?.workbookProposalApplication, [proposalId]: payload.accountId } } } : entry));
+      setNotice(payload.alreadyApplied ? "This draft account already exists." : `Created inactive draft account ${payload.account?.code ?? ""}. Edit and activate it in Accounting before use.`);
+    } catch {
+      setNotice("Unable to create draft account.");
+    } finally {
+      setApplyingWorkbookProposalKey(null);
+    }
+  }
+
   function stopSubmission() {
     requestAbortController.current?.abort();
     setSubmissionStatus("Stopping…");
@@ -785,8 +1039,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         const summary = payload.summary as { actualNet?: number; variance?: number } | undefined;
         if (summary?.actualNet !== undefined && summary.variance !== undefined) setCloseSummary({ month: closeCommand[1]!, actualNet: summary.actualNet, variance: summary.variance });
         setNotice(`${closeCommand[1]} close completed${summary ? ` · actual net ${company.currency} ${summary.actualNet?.toLocaleString()} · variance ${summary.variance?.toLocaleString()}` : ""}.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancialState();
         return;
       }
       const reopenCommand = submittedMessage.match(/^(?:open|reopen)\s+(?:month\s+)?(\d{4}-\d{2})$/i);
@@ -795,8 +1048,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         const payload = await readJson(response);
         if (!response.ok) throw new Error(payload.error ?? "Unable to reopen month");
         setNotice(`${reopenCommand[1]} reopened.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
+        await refreshFinancialState();
         return;
       }
       const decisionCommand = submittedMessage.match(/^decision\s*:\s*(.+?)\s*=>\s*(.+)$/i);
@@ -834,37 +1086,6 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         await Promise.all([refreshEntities(), refreshFinancialState()]);
         return;
       }
-      const positionCommand = submittedMessage.match(/^opening\s+position\s+(?:for\s+)?(.+?)\s+(\d{4}-\d{2})\s*:?\s*(.+)$/i);
-      if (positionCommand) {
-        const balances: Record<string, number> = {};
-        const aliases: Record<string, string> = { cash: "cash", receivables: "accounts_receivable", ar: "accounts_receivable", prepaid: "prepaid_expenses", prepaids: "prepaid_expenses", investments: "investments", duefrom: "due_from_affiliates", payables: "accounts_payable", ap: "accounts_payable", accrued: "accrued_liabilities", deferred: "deferred_revenue", dueto: "due_to_affiliates", debt: "financing", financing: "financing" };
-        for (const part of positionCommand[3]!.split(/[,;]/)) {
-          const pair = part.match(/^\s*([a-z_ ]+?)\s*=\s*-?\$?\s*(-?[\d,]+(?:\.\d+)?)\s*$/i);
-          if (!pair) continue;
-          const ledger = aliases[pair[1]!.toLowerCase().replace(/[\s_]+/g, "")] ?? pair[1]!.toLowerCase().replace(/\s+/g, "_");
-          balances[ledger] = Number(pair[2]!.replace(/,/g, "")) * (part.includes("-") ? -1 : 1);
-        }
-        if (!Object.keys(balances).length) throw new Error("Give balances as ledger=amount pairs, for example cash=482314, prepaid=6000, payables=12500");
-        const target = positionCommand[1]!.trim();
-        const isAll = /^(all|company|consolidated)$/i.test(target);
-        const account = entityStructure.accounts.find((entry) => entry.name.toLowerCase() === target.toLowerCase());
-        const response = await request("/api/positions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: positionCommand[2], balances, ...(account ? { accountEntityId: account.id } : isAll ? {} : { entityName: target }) }) });
-        const payload = await readJson(response);
-        if (!response.ok) throw new Error(payload.error ?? "Unable to save the opening position");
-        setNotice(`Opening position for ${target} set at ${positionCommand[2]}.`);
-        await refreshFinancialState();
-        return;
-      }
-      const openingCommand = submittedMessage.match(/^(?:set\s+)?opening\s+(?:cash|balance)\s+(?:for\s+)?(\d{4}-\d{2})\s*(?:to|=)?\s*\$?([\d,]+(?:\.\d+)?)$/i);
-      if (openingCommand) {
-        const response = await request("/api/months", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: openingCommand[1], openingCash: openingCommand[2]!.replace(/,/g, "") }) });
-        const payload = await readJson(response);
-        if (!response.ok) throw new Error(payload.error ?? "Unable to set opening balance");
-        setNotice(`Opening cash set for ${openingCommand[1]}.`);
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
-        return;
-      }
       if (!selectedFiles.length) {
         await askAgent(contextualQuestion, [], abortController.signal);
         return;
@@ -878,7 +1099,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           setSubmissionStatus(`Reading ${file.name} (${index + 1} of ${selectedFiles.length})…`);
           try {
           const filePreview = /\.(csv|xlsx|xls)$/i.test(file.name) ? await file.slice(0, 4000).text() : "";
-          const looksLikeTransactions = /\.(qbo|ofx)$/i.test(file.name) || (/\.(csv|xlsx|xls)$/i.test(file.name) && /bank|transaction|actual|statement/i.test(file.name) && /date/i.test(filePreview) && /amount|debit|credit|value|total/i.test(filePreview));
+          const looksLikeTransactions = uploadSourceRole !== "reference_model" && (/\.(qbo|ofx)$/i.test(file.name) || (/\.(csv|xlsx|xls)$/i.test(file.name) && /bank|transaction|actual|statement/i.test(file.name) && /date/i.test(filePreview) && /amount|debit|credit|value|total/i.test(filePreview)));
           if (looksLikeTransactions) {
             const actualsForm = new FormData(); actualsForm.append("file", file); if (submittedMessage) actualsForm.append("instructions", submittedMessage); actualsForm.append("model", model); if (effort !== "auto") actualsForm.append("effort", effort);
             const actualsResponse = await request("/api/actuals", { method: "POST", body: actualsForm });
@@ -891,7 +1112,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             }
             if (actualsResponse.status !== 400 || !/no transactions|needs an amount/i.test(String(actualsPayload.error ?? ""))) throw new Error(actualsPayload.error ?? `Unable to import ${file.name}`);
           }
-          const form = new FormData(); form.append("file", file); form.append("model", model); form.append("defer", "true"); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
+          const form = new FormData(); form.append("file", file); form.append("model", model); form.append("defer", "true"); if (uploadSourceRole === "reference_model") form.append("sourceRole", "reference_model"); if (submittedMessage) form.append("instructions", submittedMessage); if (effort !== "auto") form.append("effort", effort);
           const response = await request("/api/evidence", { method: "POST", body: form });
           const payload = await readJson(response);
           if (!response.ok) throw new Error(payload.error ?? `Unable to process ${file.name}`);
@@ -932,6 +1153,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
       setNotice(`${payloads.length} file${payloads.length === 1 ? "" : "s"} processed${importedActuals ? `; ${importedActuals} transactions staged for accounting approval` : duplicateActuals ? `; ${duplicateActuals} transaction file${duplicateActuals === 1 ? "" : "s"} already imported` : ""}${failedFiles.length ? `; ${failedFiles.length} failed: ${failedFiles.join(" · ")}` : "."}`);
       setFiles([]);
       setSelectedFiles([]);
+      setUploadSourceRole("standard");
       const refreshedEvidence = await request("/api/evidence");
       if (refreshedEvidence.ok) {
         const evidencePayload = await readJson(refreshedEvidence);
@@ -939,12 +1161,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
         setReviewQuestions(uniqueById(evidencePayload.reviewItems ?? []));
       }
       await refreshReconciliation();
-      if (importedActuals) {
-        const refreshed = await request("/api/forecast");
-        if (refreshed.ok) { const data = await readJson(refreshed); setForecast(data.months); }
-        const refreshedPnl = await request("/api/pnl");
-        if (refreshedPnl.ok) { const data = await readJson(refreshedPnl); setPnl(data.months); }
-      }
+      if (importedActuals) await refreshFinancialState();
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setNotice("Request stopped. No assistant response was saved.");
@@ -1044,7 +1261,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={company.name} baseCurrency={company.currency} user={user} />
+        <AccountMenu company={company.name} baseCurrency={company.currency} user={user} loginEnabled={loginEnabled} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">
@@ -1127,12 +1344,13 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               rows={2}
             />
             {files.length > 0 && (
-              <div className="flex flex-wrap gap-1.5" aria-label="Selected files">
+              <div className="flex flex-wrap items-center gap-1.5" aria-label="Selected files">
                 {files.map((file, index) => (
                   <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-rule px-2 py-1 text-[12px] text-ink-2" key={`selected-file-${index}`} title={file}>
                     <FileText className="size-3.5 shrink-0" aria-hidden="true" /> <span className="truncate">{shortFileName(file)}</span>
                   </span>
                 ))}
+                {uploadSourceRole === "reference_model" && <span className="rounded-md border border-rule bg-rule/35 px-2 py-1 text-[12px] text-ink-2">Reference model · formulas are used as context, not reported results</span>}
               </div>
             )}
             <div className="flex items-center justify-between gap-4">
@@ -1148,7 +1366,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 <button
                   className={cn(quietButton, "mr-1 size-7 justify-center")}
                   type="button"
-                  onClick={() => fileInput.current?.click()}
+                  onClick={() => chooseFiles()}
                   aria-label="Attach a statement, invoice, or agreement"
                   title="Attach a statement, invoice, or agreement"
                 >
@@ -1198,6 +1416,9 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               <button className={quietButton} type="button" onClick={() => { setDocumentsOpen(true); setSelectedEvidenceId(evidence[0]?.id ?? null); }}>
                 <FileText className="size-3.5" aria-hidden="true" /> Documents
               </button>
+              <button className={quietButton} type="button" onClick={() => setAccountingOpen(true)}>
+                <BookOpenText className="size-3.5" aria-hidden="true" /> Accounting
+              </button>
               <button className={quietButton} type="button" onClick={() => setUsageOpen(true)}>
                 <ChartColumn className="size-3.5" aria-hidden="true" /> Usage
               </button>
@@ -1223,13 +1444,11 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           </div>
           <div className="grid gap-4 border-y border-rule py-4 sm:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)]">
             <div className="grid gap-2 text-[13px]">
-              {[
-                ["Classify sources", evidence.length > 0],
-                ["Extract facts and provenance", evidence.length > 0 && processingEvidence.every((item) => !["stored", "extracting"].includes(item.ingestionStatus ?? ""))],
-                ["Validate balances", reconciliation.length > 0],
-                ["Match transactions", reconciliation.length > 0],
-                ["Prepare grouped review", reconciliation.length > 0],
-              ].map(([label, complete]) => <div className="flex items-center gap-2" key={String(label)}>{complete ? <Check className="size-3.5 text-ink" aria-hidden="true" /> : <LoaderCircle className="size-3.5 animate-spin text-ink-2" aria-hidden="true" />}<span className={complete ? "text-ink" : "text-ink-2"}>{label}</span><span className="ml-auto text-[12px] text-pencil">{complete ? "Complete" : "Running"}</span></div>)}
+              {processingStages.map((stage) => <div className="flex items-center gap-2" key={stage.key}>
+                {stage.status === "succeeded" ? <Check className="size-3.5 text-ink" aria-hidden="true" /> : stage.status === "running" ? <LoaderCircle className="size-3.5 animate-spin text-ink-2" aria-hidden="true" /> : <span className={cn("grid size-3.5 place-items-center rounded-full border text-[9px]", stage.status === "failed" ? "border-red-ink text-red-ink" : "border-pencil text-pencil")} aria-hidden="true">{stage.status === "failed" ? "!" : ""}</span>}
+                <span className={stage.status === "succeeded" ? "text-ink" : stage.status === "failed" ? "text-red-ink" : "text-ink-2"}>{stage.label}</span>
+                <span className={cn("ml-auto text-[12px]", stage.status === "failed" ? "text-red-ink" : "text-pencil")}>{stage.status === "succeeded" ? "Complete" : stage.status === "running" ? "Running" : stage.status === "failed" ? "Failed" : "Waiting"}</span>
+              </div>)}
             </div>
             <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-rule pt-3 text-[12px] sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
               <span><strong className="block text-[17px] font-normal text-ink">{evidence.length}</strong>documents loaded</span>
@@ -1379,6 +1598,23 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           </section>;
         })()}
 
+        {!hasFinancialOutput ? (
+          evidence.length === 0 ? (
+            <section className="grid gap-5 border-y border-rule py-6" aria-labelledby="getting-started-title">
+              <div className="grid gap-2">
+                <span className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Start here</span>
+                <h2 id="getting-started-title" className="display text-[28px] leading-[1.15]" style={{ fontVariationSettings: '"opsz" 28' }}>Build your first financial picture</h2>
+                <p className="max-w-[58ch] text-[15px] leading-[1.5] text-ink-2">Start with the sources that establish cash and activity. Extraction, verification, and reconciliation are automated.</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-1 border-t border-rule pt-3 text-[13px]"><span className="text-[11px] uppercase tracking-[0.12em] text-pencil">1 · Cash</span><span className="text-ink">Upload a recent bank or brokerage statement.</span><span className="text-ink-2">Establishes balances and cash movements.</span><Button type="button" variant="outline" className="cursor-pointer mt-2" onClick={() => chooseFiles()}><FileText className="size-4" aria-hidden="true" /> Upload your records</Button></div>
+                <div className="grid gap-1 border-t border-rule pt-3 text-[13px]"><span className="text-[11px] uppercase tracking-[0.12em] text-pencil">2 · Books</span><span className="text-ink">Add your general ledger or transaction detail.</span><span className="text-ink-2">Maps activity to accounting treatment.</span><Button type="button" variant="outline" className="cursor-pointer mt-2" onClick={() => chooseFiles("reference_model")}>Upload a financial model</Button></div>
+                <div className="grid gap-1 border-t border-rule pt-3 text-[13px]"><span className="text-[11px] uppercase tracking-[0.12em] text-pencil">3 · Drivers</span><span className="text-ink">Add contracts, invoices, payroll, or obligations.</span><span className="text-ink-2">Actions outside accounting help create a grounded forecast.</span><Button type="button" variant="outline" className="cursor-pointer mt-2" onClick={() => composerInput.current?.focus()}>Start with a chat</Button></div>
+              </div>
+              <p className="text-[12px] text-pencil">PDF, CSV, Excel, QBO, OFX, and text files are supported. Reference models use `.xlsx`.</p>
+            </section>
+          ) : null
+        ) : (
         <section className="grid gap-3.5">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <h2 className="display min-w-0 text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>
@@ -1442,6 +1678,17 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
           {closeSummary?.month === selectedMonth && (
             <p className="text-[13px] text-ink-2">Closed with actual net {money(closeSummary.actualNet)} and variance {money(closeSummary.variance)}.</p>
           )}
+          <p className={cn("text-[12px]", calculationBasis === "persisted" ? "text-ink-2" : "text-pencil")}>{calculationBasis === "persisted" ? "Reported from the current deterministic calculation run." : "Live preview — a current calculation run has not been persisted yet."}</p>
+          {endingCashCalculation && <details className={cn("text-[12px]", endingCashCalculation.verification.status === "verified" ? "text-ink-2" : endingCashCalculation.verification.status === "exception" ? "text-red-ink" : "text-pencil")}>
+            <summary className="cursor-pointer">Deterministic calculation · ending cash is {endingCashCalculation.verification.status}{endingCashCalculation.verification.reasons[0] ? `: ${endingCashCalculation.verification.reasons[0]}` : "."}</summary>
+            <div className="mt-1 grid gap-0.5 pl-4 text-ink-2">
+              <span>Formula: {endingCashCalculation.formula}</span>
+              <span>{endingCashCalculation.inputNodeIds.length} calculation inputs · {endingCashCalculation.lineIds.length} source rows</span>
+              {endingCashCalculation.verification.reasons.slice(1).map((reason) => <span key={reason}>{reason}</span>)}
+              {calculationChecks.map((check) => <span key={check.id}>{check.label}: {check.verification.status}{check.verification.reasons[0] ? ` — ${check.verification.reasons[0]}` : ""}</span>)}
+              <button type="button" className="w-fit underline underline-offset-2" onClick={() => setCalculationTraceOpen(true)}>Open calculation trace</button>
+            </div>
+          </details>}
 
           <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 sm:grid-cols-4">
             <Figure
@@ -1452,15 +1699,15 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               negative={Boolean(currentForecast && currentForecast.endingCash < 0)}
             />
             <Figure
-              label={showActuals ? "Received" : "Expected in"}
+              label="Cash in"
               value={currentForecast ? money(showActuals ? currentForecast.actualReceipts : currentForecast.receipts) : "—"}
-              note={currentForecast ? (showActuals ? "Actual receipts" : `Contractual ${money(currentForecast.contractualReceipts ?? 0)}${currentForecast.assumedReceipts ? ` · assumed ${money(currentForecast.assumedReceipts)}` : ""}`) : "No agreements yet"}
+              note={currentForecast ? (showActuals ? "Posted actual cash" : "Projected journal entries") : "No posted entries yet"}
               pencil={Boolean(currentForecast) && !showActuals}
             />
             <Figure
-              label={showActuals ? "Spent" : "Expected out"}
+              label="Cash out"
               value={currentForecast ? money(showActuals ? currentForecast.actualSpending : currentForecast.spending) : "—"}
-              note={currentForecast ? (showActuals ? "Actual spending" : `Contractual ${money(currentForecast.contractualSpending ?? 0)}${currentForecast.assumedSpending ? ` · assumed ${money(currentForecast.assumedSpending)}` : ""}`) : "No obligations yet"}
+              note={currentForecast ? (showActuals ? "Posted actual cash" : "Projected journal entries") : "No posted entries yet"}
               pencil={Boolean(currentForecast) && !showActuals}
             />
             <Figure
@@ -1468,7 +1715,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
               value={currentForecast ? money(showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) : "—"}
               note={
                 currentForecast
-                  ? showActuals ? `Variance ${money(currentForecast.variance ?? 0)} vs expected` : `${company.currency}, deterministic${assumedNote}`
+                  ? showActuals ? "Posted cash movement" : `${company.currency}, deterministic entry graph${assumedNote}`
                   : `${company.currency}, deterministic`
               }
               pencil={Boolean(currentForecast) && !showActuals}
@@ -1507,7 +1754,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
 
           {currentForecast && (
             <section className="grid gap-3 border-t border-rule pt-5" aria-label="Financial statements">
-              <h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Financial statements</h3>
+              <div className="flex items-center justify-between gap-3"><h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Financial statements</h3>{selectedMonth && <div className="flex items-center gap-1">{statementTab === "cash" && <FinancialInspector period={selectedMonth} section="cash_to_bank" label="Bank tie" view="actual" />}<FinancialInspector period={selectedMonth} section={statementTab === "income" ? "income_statement" : statementTab === "cash" ? "cash_flow" : "balance_sheet"} label="Inspect" view={selectedMonth <= new Date().toISOString().slice(0, 7) ? "actual" : "projected"} /></div>}</div>
               <div className="flex min-h-9 w-full flex-wrap border-b border-rule" role="tablist" aria-label="Financial statements">
                 {([['income', 'Income statement'], ['cash', 'Cash flow statement'], ['balance', 'Balance sheet']] as const).map(([value, label]) => <button key={value} id={`financial-statement-tab-${value}`} type="button" role="tab" aria-selected={statementTab === value} aria-controls={`financial-statement-panel-${value}`} className={cn("shrink-0 border-b-2 px-3 py-2 text-[13px] text-ink-2", statementTab === value ? "border-ink text-ink" : "border-transparent hover:text-ink")} onClick={() => setStatementTab(value)}>{label}</button>)}
               </div>
@@ -1538,27 +1785,25 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                   {displayedForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Beginning</th><th className="pb-2 text-right font-normal">Net change</th><th className="pb-2 text-right font-normal">Ending</th></tr></thead><tbody>{displayedForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{cadenceLabel(row.month, statementCadence)}</td><td className="py-2 text-right">{money(row.openingCash ?? 0)}</td><td className="py-2 text-right">{money(row.actualReceipts - row.actualSpending)}</td><td className="py-2 text-right">{money(row.endingCash)}</td></tr>)}</tbody></table></div>}
                 </div>}
                 {statementTab === "balance" && <div id="financial-statement-panel-balance" role="tabpanel" aria-labelledby="financial-statement-tab-balance">
-                  <div className="flex items-baseline justify-between gap-3 text-[13px] text-ink-2"><span>Balance sheet{periodBalanceSheet && !periodBalanceSheet.hasOpening ? <span className="text-pencil"> · flows only, no opening position yet</span> : null}{periodBalanceSheet && !periodBalanceSheet.balanced ? <span className="text-red-ink"> · out of balance by {money(periodBalanceSheet.check)}</span> : null}</span><span>As of {periodPreset === "custom" ? dateLabel(periodEnd) : monthLabel(currentForecast.month)}</span></div>
-                  {periodBalanceSheet ? (
+                  <div className="flex items-baseline justify-between gap-3 text-[13px] text-ink-2"><span>Balance sheet{periodJournalStatement && !periodJournalStatement.balanceSheet.balanced ? <span className="text-red-ink"> · out of balance by {journalMoney(periodJournalStatement.balanceSheet.differenceMinor)}</span> : null}</span><span>As of {periodPreset === "custom" ? dateLabel(periodEnd) : monthLabel(currentForecast.month)}</span></div>
+                  {periodJournalStatement ? (
                     <div className="mt-3 grid gap-1 text-[13px]">
                       <span className="text-[11px] font-medium uppercase tracking-wide text-pencil">Assets</span>
-                      {["cash", "accounts_receivable", "prepaid_expenses", "due_from_affiliates", "investments"].filter((ledger) => ledger === "cash" || periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
-                      {periodBalanceSheet.cashByAccount.length > 1 && periodBalanceSheet.cashByAccount.map((account) => <span key={account.accountId ?? "unassigned"} className="pl-4 text-[12px] text-ink-2">{account.name} <span className="float-right">{money(account.balance)}</span></span>)}
-                      <span className="border-t border-rule pt-1 font-medium">Total assets <span className="float-right">{money(periodBalanceSheet.assets)}</span></span>
+                      {periodJournalStatement.balanceSheet.assets.map((line) => <span key={`asset-${line.key}`}>{line.label} <span className="float-right">{journalMoney(line.amountMinor)}</span></span>)}
+                      <span className="border-t border-rule pt-1 font-medium">Total assets <span className="float-right">{journalMoney(periodJournalStatement.balanceSheet.totalAssetsMinor)}</span></span>
                       <span className="mt-2 text-[11px] font-medium uppercase tracking-wide text-pencil">Liabilities</span>
-                      {["accounts_payable", "accrued_liabilities", "deferred_revenue", "due_to_affiliates"].filter((ledger) => periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
-                      <span className="border-t border-rule pt-1 font-medium">Total liabilities <span className="float-right">{money(periodBalanceSheet.liabilities)}</span></span>
+                      {periodJournalStatement.balanceSheet.liabilities.map((line) => <span key={`liability-${line.key}`}>{line.label} <span className="float-right">{journalMoney(line.amountMinor)}</span></span>)}
                       <span className="mt-2 text-[11px] font-medium uppercase tracking-wide text-pencil">Equity</span>
-                      {["opening_equity", "financing", "retained_earnings", "eliminations"].filter((ledger) => periodBalanceSheet.balances[ledger]).map((ledger) => <span key={ledger}>{ledger === "financing" ? "Contributions and debt" : ledgerLabel(ledger)} <span className="float-right">{money(periodBalanceSheet.balances[ledger] ?? 0)}</span></span>)}
-                      <span className="border-t border-rule pt-1 font-medium">Total equity <span className="float-right">{money(periodBalanceSheet.equity)}</span></span>
-                      <span className="border-t border-rule pt-1 text-ink-2">Liabilities and equity <span className="float-right">{money(periodBalanceSheet.liabilities + periodBalanceSheet.equity)}</span></span>
+                      {periodJournalStatement.balanceSheet.equity.map((line) => <span key={`equity-${line.key}`}>{line.label} <span className="float-right">{journalMoney(line.amountMinor)}</span></span>)}
+                      <span>Retained earnings <span className="float-right">{journalMoney(periodJournalStatement.balanceSheet.retainedEarningsMinor)}</span></span>
+                      <span className="border-t border-rule pt-1 font-medium">Total liabilities and equity <span className="float-right">{journalMoney(periodJournalStatement.balanceSheet.totalLiabilitiesAndEquityMinor)}</span></span>
                     </div>
                   ) : (
-                    <div className="mt-2 grid gap-1 text-[13px]"><span>Cash and cash equivalents <span className="float-right">{money(currentForecast.endingCash)}</span></span></div>
+                    <p className="mt-2 text-[13px] text-ink-2">No posted journal balance sheet is available for this period.</p>
                   )}
                   {approvedBalanceSheet && (
-                    <div className={cn("mt-3 border-t border-rule pt-2 text-[12px]", totalAssets !== undefined && periodBalanceSheet && Math.abs(totalAssets - periodBalanceSheet.assets) > 0.01 ? "text-red-ink" : "text-ink-2")}>
-                      Reported by {shortFileName(approvedBalanceSheet.sourceName)}: total assets {totalAssets === undefined ? "not approved" : money(totalAssets)}, liabilities {totalLiabilities === undefined ? "not approved" : money(totalLiabilities)}, equity {shareholdersEquity === undefined ? "not approved" : money(shareholdersEquity)}{totalAssets !== undefined && periodBalanceSheet ? ` · differs from the derived sheet by ${money(totalAssets - periodBalanceSheet.assets)}` : ""}.
+                    <div className={cn("mt-3 border-t border-rule pt-2 text-[12px]", totalAssets !== undefined && periodJournalAssets !== undefined && Math.abs(totalAssets - periodJournalAssets) > 0.01 ? "text-red-ink" : "text-ink-2")}>
+                      Reported by {shortFileName(approvedBalanceSheet.sourceName)}: total assets {totalAssets === undefined ? "not approved" : money(totalAssets)}, liabilities {totalLiabilities === undefined ? "not approved" : money(totalLiabilities)}, equity {shareholdersEquity === undefined ? "not approved" : money(shareholdersEquity)}{totalAssets !== undefined && periodJournalAssets !== undefined ? ` · differs from the posted journal sheet by ${money(totalAssets - periodJournalAssets)}` : ""}.
                     </div>
                   )}
                   {periodForecastRows.length > 1 && <div className="mt-4 overflow-x-auto border-t border-rule pt-3"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="pb-2 font-normal">Period</th><th className="pb-2 text-right font-normal">Cash</th><th className="pb-2 text-right font-normal">Total assets</th><th className="pb-2 text-right font-normal">Liabilities</th><th className="pb-2 text-right font-normal">Equity</th></tr></thead><tbody>{periodForecastRows.map((row) => <tr key={row.month} className="border-t border-rule"><td className="py-2">{monthLabel(row.month)}</td><td className="py-2 text-right">{money(row.endingCash)}</td><td className="py-2 text-right">{money(row.balanceSheet?.assets ?? row.endingCash)}</td><td className="py-2 text-right">{money(row.balanceSheet?.liabilities ?? 0)}</td><td className="py-2 text-right">{money(row.balanceSheet?.equity ?? row.endingCash)}</td></tr>)}</tbody></table></div>}
@@ -1578,15 +1823,37 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
             </details>
           ) : null}
         </section>
+        )}
       </main>
 
       <UsageModal open={usageOpen} onOpenChange={setUsageOpen} companyName={company.name} />
+      <AccountingModal open={accountingOpen} onOpenChange={setAccountingOpen} initialPeriod={selectedMonth} />
+
+      <Dialog open={calculationTraceOpen} onOpenChange={setCalculationTraceOpen}>
+        <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[900px]">
+          <DialogHeader className="border-b border-rule px-6 py-6 pr-14 text-left">
+            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Calculation trace</DialogTitle>
+            <DialogDescription>{calculationRun ? `${monthLabel(calculationRun.horizonStart, shortMonthFormatter)} through ${monthLabel(calculationRun.horizonEnd, shortMonthFormatter)} · engine ${calculationRun.engineVersion} · ${calculationRun.verificationStatus}` : "Loading the latest persisted deterministic run…"}</DialogDescription>
+            {calculationRun && (!calculationRun.isCurrentFormula || !calculationRun.isCurrentState) && <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-pencil"><span>{!calculationRun.isCurrentFormula ? "This run uses an earlier formula version." : "Financial state changed after this run."}</span><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={isRecalculating} onClick={recalculateBaseCase}>{isRecalculating ? "Recalculating…" : "Recalculate current base case"}</button></div>}
+          </DialogHeader>
+          {calculationRunHistory.length > 1 && <div className="flex gap-2 overflow-x-auto border-b border-rule px-6 py-3 text-[12px]">{calculationRunHistory.map((run) => <button type="button" key={run.id} onClick={() => loadCalculationTrace(run.id)} className={cn("shrink-0 rounded-md border px-2.5 py-1.5 text-left", calculationRun?.id === run.id ? "border-ink bg-ink text-paper" : "border-rule bg-background text-ink-2")}>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(run.createdAt))}</button>)}</div>}
+          <ScrollArea className="max-h-[66vh] px-6 py-4">
+            {!calculationRun ? <p className="text-[14px] text-ink-2">No persisted calculation run yet. The next approved financial change will create one.</p> : <div className="grid gap-3">{calculationNodes.filter((node) => node.kind !== "source_line").map((node) => <details className="rounded-lg border border-rule bg-background px-4 py-3" key={node.id}>
+              <summary className="cursor-pointer text-[14px] text-ink"><span>{node.label}</span><span className={cn("ml-2 text-[12px]", node.verificationStatus === "exception" ? "text-red-ink" : node.verificationStatus === "verified" ? "text-ink-2" : "text-pencil")}>{node.verificationStatus}</span></summary>
+              <div className="mt-2 grid gap-1 text-[12px] text-ink-2"><span>Formula: {node.formula}</span><span>Result: {typeof node.value === "number" ? money(node.value) : String(node.value)}</span><span>{node.inputNodeIds.length} inputs · {node.lineIds.length} source rows</span>{node.provenance.length ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span>Sources:</span>{[...new Map(node.provenance.map((source) => [source.evidenceId ?? source.sourceName ?? "recorded source", source])).values()].map((source) => <span className="inline-flex gap-1" key={source.evidenceId ?? source.sourceName ?? "recorded-source"}>{source.evidenceId ? <button type="button" className="underline underline-offset-2" onClick={() => { setCalculationTraceOpen(false); setSelectedEvidenceId(source.evidenceId!); setDocumentsOpen(true); }}>{source.sourceName ?? "Open source"}</button> : <span>{source.sourceName ?? "recorded source"}</span>}{source.sourceLocation ? <span>· {source.sourceLocation}</span> : null}</span>)}</div> : null}{node.verificationReasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
+            </details>)}</div>}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={documentsOpen} onOpenChange={setDocumentsOpen}>
         <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[1080px]">
           <DialogHeader className="border-b border-rule px-6 py-6 pr-14 text-left">
-            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Documents</DialogTitle>
-            <DialogDescription>Every loaded source, what it established, and the facts extracted from it.</DialogDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="grid gap-1"><DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Documents</DialogTitle>
+              <DialogDescription>Every loaded source, what it established, and the facts extracted from it.</DialogDescription></div>
+              <Button type="button" variant="outline" className="cursor-pointer rounded-full" onClick={() => { setDocumentsOpen(false); chooseFiles("reference_model"); }}>Upload reference model</Button>
+            </div>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-x-5 gap-y-2 border-b border-rule px-6 py-3 text-[12px] text-ink-2 sm:grid-cols-4 lg:grid-cols-8" aria-label="Review readiness">
             <span><strong className="block text-[16px] font-normal text-ink">{evidence.length}</strong>documents</span>
@@ -1630,6 +1897,7 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 ) : evidence.map((item) => (
                   <button key={item.id} type="button" onClick={() => setSelectedEvidenceId(item.id)} className={cn("grid gap-1 rounded-lg px-3 py-3 text-left transition-colors hover:bg-background", selectedEvidenceId === item.id && "bg-background shadow-sm")}>
                     <span className="line-clamp-2 text-[14px] text-ink">{item.sourceName}</span>
+                    {(item.sourceMetadata?.sourceRole === "reference_model" || item.sourceMetadata?.classification?.kind === "financial_model") && <span className="w-fit rounded-sm bg-rule px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-2">Reference model</span>}
                     <span className="text-[12px] text-ink-2">{item.ingestionStatus ?? item.status} · {item.extraction?.facts.length ?? 0} facts · {item.extraction?.questions.length ?? 0} source questions</span>
                   </button>
                 ))}
@@ -1641,8 +1909,29 @@ export function AppShell({ company, user, modelOptions }: AppShellProps) {
                 if (!item) return <Empty className="border-0 py-16"><EmptyHeader><EmptyTitle>Select a document</EmptyTitle></EmptyHeader></Empty>;
                 const changes = processingChanges(item.ingestionRuns);
                 const timeline = processingTimeline(item);
+                const isReferenceModel = item.sourceMetadata?.sourceRole === "reference_model" || item.sourceMetadata?.classification?.kind === "financial_model";
+                const workbook = item.sourceMetadata?.workbook;
+                const formulaCount = workbook?.worksheets.reduce((total, sheet) => total + sheet.formulas, 0) ?? 0;
+                const workbookReview = item.sourceMetadata?.workbookReview ?? {};
+                const workbookProposal = item.sourceMetadata?.workbookProposal;
+                const reviewedWorksheetCount = Object.keys(workbookReview).length;
                 return <div className="grid gap-5 p-6">
                   <div className="grid gap-1"><div className="text-[17px] text-ink">{item.extraction?.summary ?? item.sourceName}</div><div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span>{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="text-red-ink">{item.ingestionError}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div>{item.sourceMetadata?.pdfQuality?.status !== "good" && item.sourceMetadata?.pdfQuality?.warnings?.length ? <div className="mt-2 rounded-lg border border-red-ink/30 bg-red-ink/5 p-3 text-[13px] text-red-ink"><span className="font-medium">PDF extraction needs review.</span> {item.sourceMetadata.pdfQuality.warnings.join(" ")}</div> : null}</div>
+                  {isReferenceModel && <section className="grid gap-4 rounded-lg border border-rule bg-rule/30 p-4" aria-label="Reference-model review">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="grid gap-1"><span className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Reference financial model</span><h3 className="text-[16px] font-medium text-ink">Workbook review</h3><p className="max-w-[62ch] text-[13px] leading-5 text-ink-2">This file is onboarding context: it can teach Nevermodel the company&apos;s structure, periods, and drivers. Its formulas and outputs are never posted as actuals or treated as verified financial results.</p></div>
+                      <Button type="button" variant="outline" className="cursor-pointer rounded-full" onClick={() => reviewReferenceModel(item)}>Review in chat</Button>
+                    </div>
+                    {workbook ? <>
+                      <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-ink-2"><div className="flex flex-wrap gap-x-4 gap-y-1"><span><strong className="font-medium text-ink">{workbook.worksheetCount}</strong> worksheets</span><span><strong className="font-medium text-ink">{formulaCount.toLocaleString()}</strong> formulas</span><span><strong className="font-medium text-ink">{workbook.definedNames.length}</strong> named ranges</span></div><Button type="button" variant="ghost" className="cursor-pointer px-0 text-[12px] underline underline-offset-2" disabled={savingWorkbookReviewId === item.id} onClick={() => saveWorkbookReview(item, Object.fromEntries(workbook.worksheets.map((sheet) => [sheet.name, suggestedWorkbookSheetRole(sheet.name, sheet.sampleLabels)])))}>{savingWorkbookReviewId === item.id ? "Saving…" : "Use suggested roles"}</Button></div>
+                      <div className="overflow-x-auto border-y border-rule"><table className="w-full min-w-[670px] text-left text-[12px]"><thead className="text-ink-2"><tr><th className="py-2 pr-3 font-normal">Worksheet</th><th className="py-2 pr-3 text-right font-normal">Size</th><th className="py-2 pr-3 text-right font-normal">Formulas</th><th className="py-2 pr-3 font-normal">Example labels</th><th className="py-2 font-normal">Use as</th></tr></thead><tbody>{workbook.worksheets.map((sheet) => { const savedRole = item.sourceMetadata?.workbookReview?.[sheet.name]; const suggestedRole = suggestedWorkbookSheetRole(sheet.name, sheet.sampleLabels); return <tr className="border-t border-rule" key={sheet.name}><td className="py-2 pr-3 font-medium text-ink">{sheet.name}</td><td className="py-2 pr-3 text-right text-ink-2">{sheet.rows.toLocaleString()} × {sheet.columns.toLocaleString()}</td><td className="py-2 pr-3 text-right text-ink-2">{sheet.formulas.toLocaleString()}</td><td className="max-w-[210px] py-2 pr-3 text-ink-2">{sheet.sampleLabels.length ? sheet.sampleLabels.join(" · ") : "No labels sampled"}</td><td className="py-2"><div className="grid gap-0.5"><Select value={savedRole ?? suggestedRole} onValueChange={(value) => saveWorkbookReview(item, { [sheet.name]: value as WorkbookSheetRole })} disabled={savingWorkbookReviewId === item.id}><SelectTrigger size="sm" className="h-7 min-w-[156px] border-rule bg-background text-[12px]"><SelectValue /></SelectTrigger><SelectContent className="border-rule">{(Object.keys(workbookSheetRoleLabels) as WorkbookSheetRole[]).map((role) => <SelectItem key={role} value={role}>{workbookSheetRoleLabels[role]}</SelectItem>)}</SelectContent></Select>{!savedRole && <span className="text-[10px] text-pencil">Suggested</span>}</div></td></tr>; })}</tbody></table></div>
+                      {workbook.definedNames.length > 0 && <div className="text-[12px] text-ink-2"><span className="font-medium text-ink">Named ranges:</span> {workbook.definedNames.slice(0, 12).join(" · ")}{workbook.definedNames.length > 12 ? ` · +${workbook.definedNames.length - 12} more` : ""}</div>}
+                      <section className="grid gap-3 border-t border-rule pt-3" aria-label="Workbook onboarding proposals"><div className="flex flex-wrap items-baseline justify-between gap-3"><div><h4 className="text-[12px] font-medium text-ink">Onboarding proposals</h4><p className="mt-0.5 text-[12px] text-ink-2">Draft a review brief from the selected worksheet roles. Suggestions never create accounts, history, drivers, or entries.</p></div><Button type="button" variant="outline" className="cursor-pointer rounded-full" disabled={reviewedWorksheetCount === 0 || draftingWorkbookProposalId === item.id} onClick={() => draftWorkbookProposal(item)}>{draftingWorkbookProposalId === item.id ? "Drafting…" : workbookProposal ? "Refresh proposals" : "Draft proposals"}</Button></div>
+                        {reviewedWorksheetCount === 0 ? <p className="text-[12px] text-pencil">Save at least one worksheet role to draft proposals.</p> : workbookProposal ? <div className="grid gap-3 text-[12px] text-ink-2"><div className="flex flex-wrap gap-x-4 gap-y-1"><span><strong className="font-medium text-ink">{workbookProposal.chartAccountMappings.length}</strong> account suggestions</span><span><strong className="font-medium text-ink">{workbookProposal.historicalCoverage.length}</strong> historical coverage items</span><span><strong className="font-medium text-ink">{workbookProposal.forecastDrivers.length}</strong> forecast drivers</span><span><strong className="font-medium text-ink">{workbookProposal.questions.length}</strong> questions</span></div>{workbookProposal.chartAccountMappings.length > 0 && <details><summary className="cursor-pointer text-ink">Suggested account semantics</summary><div className="mt-2 grid gap-1.5">{workbookProposal.chartAccountMappings.map((proposal, index) => { const proposalId = `account-${index + 1}`; const summary = `${proposal.suggestedAccountName} is suggested as ${proposal.accountType}/${proposal.statementSection} from ${proposal.worksheet}: ${proposal.reason}`; const approved = item.sourceMetadata?.workbookProposalReview?.[proposalId] === "approved"; const applied = item.sourceMetadata?.workbookProposalApplication?.[proposalId]; const applying = applyingWorkbookProposalKey === `${item.id}:${proposalId}`; return <div className="flex items-start justify-between gap-3 border-t border-rule pt-1.5" key={`${proposal.worksheet}-${proposal.sourceLabel}-${index}`}><p><span className="text-ink">{proposal.suggestedAccountName}</span> · {proposal.accountType} / {proposal.statementSection} · {proposal.worksheet} · {proposal.reason}</p><div className="flex shrink-0 items-center gap-2">{workbookProposalActions(item, proposalId, summary)}{applied ? <span className="text-[11px] text-ink-2">Draft created</span> : approved ? <button type="button" className="cursor-pointer text-[11px] underline underline-offset-2 disabled:opacity-50" disabled={applying} onClick={() => applyWorkbookAccountProposal(item, proposalId)}>{applying ? "Creating…" : "Create draft account"}</button> : null}</div></div>; })}</div></details>}{workbookProposal.historicalCoverage.length > 0 && <details><summary className="cursor-pointer text-ink">Historical coverage</summary><div className="mt-2 grid gap-1.5">{workbookProposal.historicalCoverage.map((coverage, index) => { const summary = `${coverage.period} ${coverage.statement} coverage from ${coverage.worksheet}: ${coverage.reason}`; return <div className="flex items-start justify-between gap-3 border-t border-rule pt-1.5" key={`${coverage.worksheet}-${coverage.period}-${index}`}><p><span className="text-ink">{coverage.period}</span> · {coverage.statement} · {coverage.worksheet} · {coverage.reason}</p>{workbookProposalActions(item, `history-${index + 1}`, summary)}</div>; })}</div></details>}{workbookProposal.forecastDrivers.length > 0 && <details><summary className="cursor-pointer text-ink">Forecast drivers</summary><div className="mt-2 grid gap-1.5">{workbookProposal.forecastDrivers.map((driver, index) => { const summary = `${driver.driver} (${driver.unit}) from ${driver.worksheet}: ${driver.rationale}`; return <div className="flex items-start justify-between gap-3 border-t border-rule pt-1.5" key={`${driver.worksheet}-${driver.driver}-${index}`}><p><span className="text-ink">{driver.driver}</span> · {driver.unit} · {driver.worksheet} · {driver.rationale}</p>{workbookProposalActions(item, `driver-${index + 1}`, summary)}</div>; })}</div></details>}{workbookProposal.questions.length > 0 && <details><summary className="cursor-pointer text-ink">Questions to resolve</summary><div className="mt-2 grid gap-1.5">{workbookProposal.questions.map((question, index) => <div className="flex items-start justify-between gap-3 border-t border-rule pt-1.5" key={`${question}-${index}`}><p>{question}</p>{workbookProposalActions(item, `question-${index + 1}`, question)}</div>)}</div></details>}</div> : null}
+                      </section>
+                    </> : <p className="text-[13px] text-ink-2">Workbook structure will appear once spreadsheet inspection is complete. The original file remains safely separated from posted financial records.</p>}
+                    <p className="border-t border-rule pt-3 text-[12px] text-pencil">Selected structural roles are saved as sourced accounting or forecast knowledge. Next: review the resulting chart, history, and driver mappings in chat.</p>
+                  </section>}
                   {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
                   <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact) => <div key={`${item.id}-${fact.label}-${fact.value}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence{fact.accountingRole ? ` · ${fact.accountingRole.replace(/_/g, " ")}` : ""})</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question) => <div key={`${item.id}-${question}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>

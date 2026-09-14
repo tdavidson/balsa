@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { evidence, getDatabase, ingestionRuns } from "@finance/database";
+import { hasScheduledJobAuthorization } from "@/lib/cron-auth";
 
 export const maxDuration = 60;
 
@@ -11,7 +12,7 @@ export const maxDuration = 60;
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasScheduledJobAuthorization(request.headers.get("authorization"), secret)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const db = getDatabase();
   // Drain extraction first. Successful extraction queues reconciliation, which
   // can then be claimed in this same invocation.

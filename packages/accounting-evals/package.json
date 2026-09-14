@@ -1,0 +1,22 @@
+{
+  "name": "@nevermodel/accounting-evals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/runner.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nevermodel/finance-engine": "workspace:*",
+    "@nevermodel/ingestion": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.0"
+  }
+}

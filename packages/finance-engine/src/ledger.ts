@@ -1,0 +1,23 @@
+/** Deterministic journal-ledger roll-ups. No database or model dependency. */
+
+export type WorkingCapitalCategory = "receivables" | "payables" | "deferred_revenue" | "prepaids" | "inventory" | "other";
+export type EntryBasis = "actual" | "forecast" | "scenario" | "adjustment" | "elimination" | "translation";
+export type PostedJournalLine = { id: string; entryId?: string; /** Immutable batch source; close entries are excluded from period P&L presentation. */ entrySource?: string; basis?: EntryBasis; scenarioId?: string; accountId: string; accountCode: string; accountName: string; accountType: string; normalBalance: "debit" | "credit"; statementSection?: string; statementLine?: string; balanceTiming?: "current" | "noncurrent"; cashFlowCategory?: "operating" | "investing" | "financing" | "none"; workingCapitalCategory?: WorkingCapitalCategory; entityId?: string; /** Functional-currency journal amount. */ currency: string; debitMinor: string; creditMinor: string; /** Original transaction amount and exact approved conversion, when measured from foreign currency. */ transactionCurrency?: string; transactionDebitMinor?: string; transactionCreditMinor?: string; fxRateId?: string; postingDate?: string; period: string; provenance?: { sourceId?: string; factId?: string; decisionId?: string; approvalEventId?: string; sourceLocation?: string } };
+export type TrialBalanceLine = { accountId: string; accountCode: string; accountName: string; accountType: string; normalBalance: "debit" | "credit"; statementSection?: string; statementLine?: string; balanceTiming?: PostedJournalLine["balanceTiming"]; cashFlowCategory?: PostedJournalLine["cashFlowCategory"]; workingCapitalCategory?: WorkingCapitalCategory; entityId?: string; currency: string; debitMinor: string; creditMinor: string; netMinor: string; lineIds: string[]; provenance: NonNullable<PostedJournalLine["provenance"]>[] };
+export type TrialBalance = { period: string; lines: TrialBalanceLine[]; totals: Record<string, { debitMinor: string; creditMinor: string; differenceMinor: string }>; balanced: boolean };
+
+const whole = (value: string) => BigInt(/^(?:0|[1-9]\d*)$/.test(value) ? value : "0");
+
+/** Roll posted journal lines through an inclusive reporting period. */
+export function buildTrialBalance(lines: PostedJournalLine[], period: string, entityId?: string): TrialBalance {
+  const accounts = new Map<string, { line: Omit<TrialBalanceLine, "debitMinor" | "creditMinor" | "netMinor">; debit: bigint; credit: bigint }>();
+  const totals = new Map<string, { debit: bigint; credit: bigint }>();
+  for (const line of lines.filter((line) => line.period <= period && (!entityId || line.entityId === entityId)).sort((left, right) => left.id.localeCompare(right.id))) {
+    const key = `${line.accountId}:${line.entityId ?? "consolidated"}:${line.currency}`;
+    const account = accounts.get(key) ?? { line: { accountId: line.accountId, accountCode: line.accountCode, accountName: line.accountName, accountType: line.accountType, normalBalance: line.normalBalance, ...(line.statementSection ? { statementSection: line.statementSection } : {}), ...(line.statementLine ? { statementLine: line.statementLine } : {}), ...(line.balanceTiming ? { balanceTiming: line.balanceTiming } : {}), ...(line.cashFlowCategory ? { cashFlowCategory: line.cashFlowCategory } : {}), ...(line.workingCapitalCategory ? { workingCapitalCategory: line.workingCapitalCategory } : {}), ...(line.entityId ? { entityId: line.entityId } : {}), currency: line.currency, lineIds: [], provenance: [] }, debit: 0n, credit: 0n };
+    account.debit += whole(line.debitMinor); account.credit += whole(line.creditMinor); account.line.lineIds.push(line.id); if (line.provenance) account.line.provenance.push(line.provenance); accounts.set(key, account);
+    const total = totals.get(line.currency) ?? { debit: 0n, credit: 0n }; total.debit += whole(line.debitMinor); total.credit += whole(line.creditMinor); totals.set(line.currency, total);
+  }
+  const outputTotals = Object.fromEntries([...totals.entries()].map(([currency, total]) => [currency, { debitMinor: total.debit.toString(), creditMinor: total.credit.toString(), differenceMinor: (total.debit - total.credit).toString() }]));
+  return { period, lines: [...accounts.values()].map(({ line, debit, credit }) => ({ ...line, debitMinor: debit.toString(), creditMinor: credit.toString(), netMinor: (debit - credit).toString() })).sort((left, right) => left.accountCode.localeCompare(right.accountCode)), totals: outputTotals, balanced: [...totals.values()].every((total) => total.debit === total.credit) };
+}

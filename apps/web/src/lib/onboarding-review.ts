@@ -25,7 +25,7 @@ export function buildOnboardingQuestions(input: { evidence: OnboardingEvidence[]
   const hasOperatingSignal = input.facts.some((fact) => ["revenue", "expense", "agreement", "transaction"].includes(fact.accountingRole ?? ""));
   if (hasOperatingSignal && input.activePolicyCount === 0) questions.push({ reviewKey: "onboarding:recognition-policy", question: "The uploaded evidence contains operating activity, but no company-specific accounting policy is confirmed. What are the revenue streams, when is each recognized, and which recurring receipts are transfers, pass-throughs, or deposits rather than revenue?" });
   const hasAgreement = input.facts.some((fact) => fact.accountingRole === "agreement");
-  if ((hasAgreement || input.evidence.length >= 2) && input.activePolicyCount === 0) questions.push({ reviewKey: "onboarding:forecast-drivers", question: "To ground the forecast in company specifics, which confirmed contracts, fee rates, billing or collection dates, payroll commitments, and other recurring cash drivers should Hemrock treat as the starting assumptions?" });
+  if ((hasAgreement || input.evidence.length >= 2) && input.activePolicyCount === 0) questions.push({ reviewKey: "onboarding:forecast-drivers", question: "To ground the forecast in company specifics, which confirmed contracts, fee rates, billing or collection dates, payroll commitments, and other recurring cash drivers should Nevermodel treat as the starting assumptions?" });
   return questions;
 }
 

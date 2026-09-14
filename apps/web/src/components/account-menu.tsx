@@ -1,8 +1,8 @@
 "use client";
 
-import { useClerk } from "@clerk/nextjs";
-import { Building2, LogOut, Settings, User } from "lucide-react";
+import { Building2, LogOut, User } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,16 +12,26 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeControl } from "@/components/theme-control";
 import { CompanySettingsDialog } from "@/components/company-settings-dialog";
+import { UserSettingsDialog } from "@/components/user-settings-dialog";
+import { authClient } from "@/lib/auth-client";
 
 type AccountMenuProps = {
   company: string;
   baseCurrency?: string;
-  user: { email: string; name: string | null };
+  user: { email: string; name: string | null; hasAvatar?: boolean };
+  loginEnabled?: boolean;
 };
 
-export function AccountMenu({ company, baseCurrency = "USD", user }: AccountMenuProps) {
-  const { openUserProfile, signOut } = useClerk();
+export function AccountMenu({ company, baseCurrency = "USD", user, loginEnabled = true }: AccountMenuProps) {
+  const router = useRouter();
   const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
+  const [userSettingsOpen, setUserSettingsOpen] = useState(false);
+  const [avatarUnavailable, setAvatarUnavailable] = useState(false);
+  async function signOut() {
+    await authClient.signOut();
+    router.push("/login");
+    router.refresh();
+  }
   return (
     <>
       <DropdownMenu>
@@ -30,8 +40,9 @@ export function AccountMenu({ company, baseCurrency = "USD", user }: AccountMenu
         aria-label="Account menu"
       >
         <span>{company}</span>
-        <span className="grid size-[26px] place-items-center rounded-full bg-ink text-paper">
+        <span className="grid size-[26px] place-items-center overflow-hidden rounded-full bg-ink text-paper">
           <User className="size-3.5" aria-hidden="true" />
+          {user.hasAvatar && !avatarUnavailable && <img src="/api/account" alt="" className="absolute size-full object-cover" onError={() => setAvatarUnavailable(true)} />}
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 rounded-lg border-rule p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
@@ -40,23 +51,27 @@ export function AccountMenu({ company, baseCurrency = "USD", user }: AccountMenu
           {user.name && <div className="text-ink-2">{user.email}</div>}
         </div>
         <DropdownMenuSeparator className="bg-rule" />
+        <DropdownMenuItem className="cursor-pointer gap-2 px-2.5 text-[13px]" onSelect={() => setUserSettingsOpen(true)}>
+          <User aria-hidden="true" /> Your settings
+        </DropdownMenuItem>
+        <DropdownMenuItem className="cursor-pointer gap-2 px-2.5 text-[13px]" onSelect={() => setCompanySettingsOpen(true)}>
+          <Building2 aria-hidden="true" /> Company settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator className="bg-rule" />
         <div className="flex items-center justify-between px-2.5 py-1.5 text-[13px] text-ink-2">
           Theme
           <ThemeControl />
         </div>
-        <DropdownMenuSeparator className="bg-rule" />
-        <DropdownMenuItem className="gap-2 px-2.5 text-[13px]" onSelect={() => openUserProfile()}>
-          <Settings aria-hidden="true" /> Account settings
-        </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2 px-2.5 text-[13px]" onSelect={() => setCompanySettingsOpen(true)}>
-          <Building2 aria-hidden="true" /> Company settings
-        </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2 px-2.5 text-[13px]" onSelect={() => signOut({ redirectUrl: "/login" })}>
-          <LogOut aria-hidden="true" /> Sign out
-        </DropdownMenuItem>
+        {loginEnabled && <>
+          <DropdownMenuSeparator className="bg-rule" />
+          <DropdownMenuItem className="gap-2 px-2.5 text-[13px]" onSelect={() => void signOut()}>
+            <LogOut aria-hidden="true" /> Sign out
+          </DropdownMenuItem>
+        </>}
       </DropdownMenuContent>
       </DropdownMenu>
       <CompanySettingsDialog open={companySettingsOpen} onOpenChange={setCompanySettingsOpen} company={company} baseCurrency={baseCurrency} />
+      <UserSettingsDialog open={userSettingsOpen} onOpenChange={setUserSettingsOpen} user={user} localOnly={!loginEnabled} />
     </>
   );
 }

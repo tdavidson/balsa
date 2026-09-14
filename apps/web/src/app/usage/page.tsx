@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, authMode } from "@/lib/auth";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
@@ -83,13 +83,13 @@ export default async function UsagePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name }} />
+        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
       </header>
 
       <main className="mx-auto grid w-full max-w-[960px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-3">
           <Link href="/" className="inline-flex w-fit items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Hemrock
+            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Nevermodel
           </Link>
           <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>Usage</h1>
           <p className="max-w-[62ch] text-[16px] leading-[1.55] text-ink-2">Conversation and model activity for {context.company.name}. Costs are the amounts reported by the model provider.</p>
