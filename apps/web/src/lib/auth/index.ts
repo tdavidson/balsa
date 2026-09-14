@@ -4,11 +4,15 @@ import { AuthenticationRequiredError, createAuthService } from "@finance/auth";
 import { createDatabaseAuthRepository } from "@finance/database/auth-repository";
 import { configuredAuthMode } from "@/lib/better-auth";
 import { BetterAuthIdentityProvider } from "./better-auth-provider";
+import { readActiveCompanyId } from "./company-selection";
 import { DisabledIdentityProvider } from "./disabled-provider";
 
 const authService = createAuthService(
   configuredAuthMode() === "disabled" ? new DisabledIdentityProvider() : new BetterAuthIdentityProvider(),
   createDatabaseAuthRepository(),
+  // The stored company preference is read here, but membership is always
+  // re-verified by the service before the company is used.
+  { selection: { read: readActiveCompanyId } },
 );
 
 export const {
@@ -16,6 +20,8 @@ export const {
   requireUser,
   getCurrentCompany,
   requireCompanyAccess,
+  listCompanies,
+  createCompany,
 } = authService;
 
 /** Compatibility guard for routes while identity providers share one boundary. */

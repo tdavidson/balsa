@@ -6,7 +6,7 @@ import { decisions, getDatabase, knowledgeDocuments, policies } from "@finance/d
 import { AccountMenu } from "@/components/account-menu";
 import { KnowledgeTemplatePicker } from "@/components/knowledge-template-picker";
 import { KnowledgeViewer } from "@/components/knowledge-viewer";
-import { requireCompanyAccess } from "@/lib/auth";
+import { listCompanies, requireCompanyAccess } from "@/lib/auth";
 import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
 import { findPolicyCandidates } from "@/lib/policy-candidates";
 import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
@@ -22,6 +22,7 @@ const templateForDocument = (document: { slug: string }) => {
 export default async function KnowledgePage() {
   await auth.protect({ unauthenticatedUrl: "/login" });
   const context = await requireCompanyAccess();
+  const companies = await listCompanies();
   const db = getDatabase();
   const policyRows = await db.select({ name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom, confidence: policies.confidence, decisionId: policies.decisionId, sourceId: policies.sourceId }).from(policies).where(eq(policies.companyId, context.company.id));
   const decisionRows = await db.select({ id: decisions.id, question: decisions.question, answer: decisions.answer, status: decisions.status }).from(decisions).where(eq(decisions.companyId, context.company.id));
@@ -49,7 +50,7 @@ export default async function KnowledgePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={context.company.name} baseCurrency={context.company.baseCurrency} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
+        <AccountMenu company={{ id: context.company.id, name: context.company.name, baseCurrency: context.company.baseCurrency }} companies={companies.map(({ id, name, baseCurrency, role }) => ({ id, name, baseCurrency, role }))} staleSelection={context.selection.staleSelection} user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }} loginEnabled={authMode === "better-auth"} />
       </header>
       <main className="mx-auto grid w-full max-w-[960px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-4">
