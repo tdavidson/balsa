@@ -175,11 +175,19 @@ function readableProcessingError(error: string | null | undefined) {
   return error.length > 240 ? `${error.slice(0, 237)}…` : error;
 }
 
+function processingStatusLabel(status: string) {
+  if (status === "waiting") return "Queued";
+  if (status === "running") return "In progress";
+  if (status === "interrupted") return "Interrupted";
+  return status;
+}
+
 function ingestionStatusLabel(item: EvidenceItem) {
   const status = item.ingestionStatus ?? item.status;
   const latestExtraction = [...(item.ingestionRuns ?? [])]
     .filter((run) => run.stage === "extraction")
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
+  if (latestExtraction?.status === "interrupted") return "Extraction interrupted";
   if (status === "extracting" && latestExtraction?.status === "waiting") return "Queued for extraction";
   if (status === "extracting") return "Extracting facts and evidence";
   if (status === "stored") return "Stored; waiting for extraction";
@@ -187,10 +195,11 @@ function ingestionStatusLabel(item: EvidenceItem) {
   if (status === "review") return "Ready for review";
   if (status === "reconciled") return "Reconciled";
   if (status === "failed") return "Processing failed";
+  if (status === "interrupted") return "Processing interrupted";
   return status;
 }
 
-type ProcessingStage = { key: string; label: string; status: "waiting" | "running" | "succeeded" | "failed"; detail?: string };
+type ProcessingStage = { key: string; label: string; status: "waiting" | "running" | "succeeded" | "failed" | "interrupted"; detail?: string };
 
 function aggregateProcessingTimeline(items: EvidenceItem[]) {
   const labels = [
@@ -205,6 +214,8 @@ function aggregateProcessingTimeline(items: EvidenceItem[]) {
     const statuses = timelines.map((timeline) => timeline.find((stage) => stage.key === key)?.status ?? "waiting");
     const status: ProcessingStage["status"] = statuses.includes("failed")
       ? "failed"
+      : statuses.includes("interrupted")
+        ? "interrupted"
       : statuses.includes("running")
         ? "running"
         : statuses.length > 0 && statuses.every((value) => value === "succeeded")
@@ -581,6 +592,22 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     return () => window.clearInterval(timer);
   }, [files.length, needsInputCount, turns.length]);
   useEffect(() => {
+    async function loadConversations() {
+      const response = await fetch("/api/conversations");
+      if (!response.ok) return;
+      const payload = await readJson(response) as { turns?: ConversationTurn[] };
+      if (!payload.turns?.length) return;
+      const restored = payload.turns.reduce<Record<string, ConversationTurn[]>>((grouped, turn) => {
+        const threadId = turn.threadId || "main";
+        grouped[threadId] = [...(grouped[threadId] ?? []), turn];
+        return grouped;
+      }, {});
+      setThreads(restored);
+      setActiveThreadId(Object.keys(restored).at(-1) ?? "main");
+    }
+    loadConversations().catch(() => undefined);
+  }, [company.id]);
+  useEffect(() => {
     async function loadEvidence() {
       const response = await fetch("/api/evidence");
       if (!response.ok) return;
@@ -841,13 +868,13 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       method: "POST",
       headers: { "Content-Type": "application/json" },
       ...(signal ? { signal } : {}),
-      body: JSON.stringify({ message: question, history: conversationHistory, evidence: newEvidence, attachments: attachmentNames, reviewQuestionId: activeReviewQuestionId ?? undefined, decisionId: activeDecision?.id ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
+      body: JSON.stringify({ message: question, threadId: requestThreadId, history: conversationHistory, evidence: newEvidence, attachments: attachmentNames, reviewQuestionId: activeReviewQuestionId ?? undefined, decisionId: activeDecision?.id ?? undefined, month: selectedMonth || undefined, ...modelChoice() }),
     });
     const payload = await readJson(response);
     if (!response.ok) throw new Error(payload.error ?? "Unable to ask the finance agent");
     const answer = [payload.answer, payload.forecastExplanation].filter(Boolean).join(" ").trim();
     const reviewContext = activeReviewQuestion ? { type: "question" as const, text: activeReviewQuestion.question } : activeDecision ? { type: "decision" as const, text: activeDecision.question } : undefined;
-    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), question, answer, ...(reviewContext ? { reviewContext } : {}), ...(attachmentNames.length ? { attachments: attachmentNames } : {}), model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
+    setThreads((current) => ({ ...current, [requestThreadId]: [...(current[requestThreadId] ?? []), { id: crypto.randomUUID(), threadId: requestThreadId, question, answer, ...(reviewContext ? { reviewContext } : {}), ...(attachmentNames.length ? { attachments: attachmentNames } : {}), model: model === "auto" ? null : model, createdAt: new Date().toISOString() }] }));
     setActiveReviewQuestionId(null);
     setActiveReviewQuestion(null);
     if (payload.resolvedDecisionIds?.length) setAgentDecisions((current) => current.map((decision) => payload.resolvedDecisionIds.includes(decision.id) ? { ...decision, status: payload.resolvedDecisions?.find((resolution: { id: string }) => resolution.id === decision.id)?.status ?? decision.status } : decision));
@@ -1480,7 +1507,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           <div className="grid min-w-0 gap-0 text-[13px]">
             <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_88px] gap-4 border-b border-rule pb-2 text-[11px] uppercase tracking-[0.1em] text-ink-2 sm:grid"><span>Document</span><span>Result</span><span className="text-right">Action</span></div>
             {evidence.map((item) => {
-              const failed = item.ingestionStatus === "failed";
+                const failed = item.ingestionStatus === "failed" || item.ingestionStatus === "interrupted";
               const active = ["stored", "extracting", "reconciling", "processing"].includes(item.ingestionStatus ?? "");
               return <div className="grid min-w-0 gap-1 border-b border-rule py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_88px] sm:items-center sm:gap-4" key={`processing-${item.id}`}>
                 <span className="min-w-0 truncate text-ink" title={item.sourceName}>{shortFileName(item.sourceName)}</span>
@@ -1915,7 +1942,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           {evidence.some((item) => item.ingestionRuns?.length) && <section className="grid gap-2 border-b border-rule px-6 py-3" aria-label="Recent processing activity">
             <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Recent processing activity</h3><span className="text-[12px] text-ink-2">Last 8 stages</span></div>
             <div className="grid gap-1.5 text-[12px]">
-              {evidence.flatMap((item) => (item.ingestionRuns ?? []).map((run) => ({ ...run, sourceName: item.sourceName }))).sort((left, right) => right.startedAt.localeCompare(left.startedAt)).slice(0, 8).map((run) => <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t border-rule pt-1.5" key={`activity-${run.id}`}><span className="min-w-0 truncate text-ink" title={run.sourceName}>{shortFileName(run.sourceName)}</span><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("whitespace-nowrap", run.status === "failed" ? "text-red-ink" : "text-ink-2")}>{run.status}</span></div>)}
+              {evidence.flatMap((item) => (item.ingestionRuns ?? []).map((run) => ({ ...run, sourceName: item.sourceName }))).sort((left, right) => right.startedAt.localeCompare(left.startedAt)).slice(0, 8).map((run) => <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t border-rule pt-1.5" key={`activity-${run.id}`}><span className="min-w-0 truncate text-ink" title={run.sourceName}>{shortFileName(run.sourceName)}</span><span className="capitalize text-ink-2">{run.stage.replace(/_/g, " ")}</span><span className={cn("whitespace-nowrap", (run.status === "failed" || run.status === "interrupted") ? "text-red-ink" : "text-ink-2")}>{processingStatusLabel(run.status)}</span></div>)}
             </div>
           </section>}
           <div className="grid min-h-0 md:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)]">
@@ -1964,7 +1991,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                   {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && <div className="rounded-lg bg-background p-3 text-[13px] leading-5 text-ink-2">“{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”</div>}
                   <section className="grid gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Known facts</h3>{item.extraction?.facts.length ? <div className="grid gap-2">{item.extraction.facts.map((fact, factIndex) => <div key={fact.factId ?? `${item.id}-known-fact-${factIndex}`} className="grid gap-0.5 border-t border-rule pt-2 text-[13px]"><span className="text-ink">{fact.label}</span><span className="text-ink-2">{fact.value} <span className="text-pencil">({Math.round(fact.confidence * 100)}% confidence{fact.accountingRole ? ` · ${fact.accountingRole.replace(/_/g, " ")}` : ""})</span></span></div>)}</div> : <p className="text-[13px] text-ink-2">No facts were extracted.</p>}</section>
                   <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Unknowns and questions</h3>{item.extraction?.questions.length ? <div className="grid gap-2">{item.extraction.questions.map((question, questionIndex) => <div key={`${item.id}-question-${questionIndex}`} className="mark text-[13px]">{question}</div>)}</div> : <p className="text-[13px] text-ink-2">No unresolved questions attached to this document.</p>}</section>
-                  <section className="grid gap-2 border-t border-rule pt-4" aria-label="Processing timeline"><div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing timeline</h3><span className="text-[12px] text-pencil">{ingestionStatusLabel(item)}</span></div><div className="grid gap-0.5">{timeline.map((stage, index) => <div className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-2 text-[13px]" key={stage.key}><span className={cn("mt-1.5 size-2 rounded-full", stage.status === "succeeded" ? "bg-ink" : stage.status === "failed" ? "bg-red-ink" : stage.status === "running" ? "bg-ink-2" : "bg-rule ring-1 ring-ink-2/30")} aria-hidden="true" /> <span className={cn(index < timeline.length - 1 && "border-b border-rule pb-2", stage.status === "failed" ? "text-red-ink" : "text-ink")}>{stage.label}{stage.detail ? <span className="block text-[12px] text-ink-2">{stage.detail}</span> : null}</span><span className={cn("capitalize text-[12px]", stage.status === "failed" ? "text-red-ink" : "text-ink-2")}>{stage.status}</span></div>)}</div></section>
+                  <section className="grid gap-2 border-t border-rule pt-4" aria-label="Processing timeline"><div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Processing timeline</h3><span className="text-[12px] text-pencil">{ingestionStatusLabel(item)}</span></div><div className="grid gap-0.5">{timeline.map((stage, index) => <div className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-start gap-2 text-[13px]" key={stage.key}><span className={cn("mt-1.5 size-2 rounded-full", stage.status === "succeeded" ? "bg-ink" : (stage.status === "failed" || stage.status === "interrupted") ? "bg-red-ink" : stage.status === "running" ? "bg-ink-2" : "bg-rule ring-1 ring-ink-2/30")} aria-hidden="true" /> <span className={cn(index < timeline.length - 1 && "border-b border-rule pb-2", (stage.status === "failed" || stage.status === "interrupted") ? "text-red-ink" : "text-ink")}>{stage.label}{stage.detail ? <span className="block text-[12px] text-ink-2">{stage.detail}</span> : null}</span><span className={cn("text-[12px]", (stage.status === "failed" || stage.status === "interrupted") ? "text-red-ink" : "text-ink-2")}>{processingStatusLabel(stage.status)}</span></div>)}</div></section>
                   <section className="grid gap-2 border-t border-rule pt-4" aria-label="Live processing results"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Live results</h3><div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-ink-2"><span>{item.extraction?.facts.length ?? 0} facts extracted</span><span>{item.extraction?.questions.length ?? 0} source questions</span>{item.statementPeriodStart || item.statementPeriodEnd ? <span>{item.statementPeriodStart ?? "Unknown start"} → {item.statementPeriodEnd ?? "Unknown end"}</span> : null}{item.accountIdentifier ? <span>Account · ••••{item.accountIdentifier.replace(/[^0-9A-Za-z]/g, "").slice(-4)}</span> : null}</div></section>
                   <section className="grid gap-2 border-t border-rule pt-4" aria-label="Approval history"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Approval history</h3>{item.approvals?.length ? <div className="grid gap-1.5">{item.approvals.map((approval) => <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12px]" key={approval.id}><span className="text-ink"><span className="capitalize">{approval.layer}</span> · {approval.action.replace(/_/g, " ")}</span><span className="text-ink-2">{approval.userName ?? approval.userEmail ?? "CFO"} · {new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(approval.createdAt))}</span></div>)}</div> : <p className="text-[13px] text-ink-2">No approvals recorded yet.</p>}</section>
                   {changes?.changes && (changes.changes.added.length || changes.changes.removed.length || changes.changes.changed.length) ? <section className="grid gap-2 border-t border-rule pt-4"><h3 className="text-[12px] uppercase tracking-[0.12em] text-ink-2">What changed</h3><div className="grid gap-1 text-[13px] text-ink-2"><span>{changes.changes.added.length} added · {changes.changes.removed.length} removed · {changes.changes.changed.length} changed</span>{changes.changes.changed.map((change) => <span key={`changed-${change.label}`}><span className="text-ink">{change.label}:</span> {change.before} → {change.after}</span>)}{changes.changes.added.map((fact) => <span key={`added-${fact.label}`}><span className="text-ink">Added {fact.label}:</span> {fact.value}</span>)}{changes.changes.removed.map((fact) => <span key={`removed-${fact.label}`}><span className="text-ink">Removed {fact.label}:</span> {fact.value}</span>)}</div><span className="text-[12px] text-pencil">Reconciliation and forecast impact: pending refresh.</span></section> : null}

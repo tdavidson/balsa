@@ -6,6 +6,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 
 export type ConversationTurn = {
   id: string;
+  threadId: string;
   question: string;
   answer: string;
   attachments?: string[];
@@ -35,19 +36,20 @@ export async function GET() {
     if (row.role !== "user") continue;
     const raw = row.runId ? answers.get(row.runId) : undefined;
     const metadata = readConversationMetadata(row.metadata);
-    turns.push({ id: row.id, question: row.content, answer: readableAnswer(raw), ...(metadata.attachments ? { attachments: metadata.attachments } : {}), ...(metadata.reviewContext ? { reviewContext: metadata.reviewContext } : {}), model: row.model, createdAt: row.createdAt.toISOString() });
+    turns.push({ id: row.id, threadId: metadata.threadId ?? "main", question: row.content, answer: readableAnswer(raw), ...(metadata.attachments ? { attachments: metadata.attachments } : {}), ...(metadata.reviewContext ? { reviewContext: metadata.reviewContext } : {}), model: row.model, createdAt: row.createdAt.toISOString() });
   }
-  return NextResponse.json({ turns });
+  return NextResponse.json({ turns: turns.reverse() });
 }
 
-function readConversationMetadata(metadata: string | null): Pick<ConversationTurn, "attachments" | "reviewContext"> {
+function readConversationMetadata(metadata: string | null): Partial<Pick<ConversationTurn, "threadId" | "attachments" | "reviewContext">> {
   if (!metadata) return {};
   try {
-    const parsed = JSON.parse(metadata) as { attachments?: unknown; reviewContext?: unknown };
+    const parsed = JSON.parse(metadata) as { threadId?: unknown; attachments?: unknown; reviewContext?: unknown };
+    const threadId = typeof parsed.threadId === "string" && parsed.threadId.trim() ? parsed.threadId : undefined;
     const attachments = Array.isArray(parsed.attachments) ? parsed.attachments.filter((name): name is string => typeof name === "string") : undefined;
     const candidate = parsed.reviewContext as { type?: unknown; text?: unknown } | undefined;
     const reviewContext: ConversationTurn["reviewContext"] = candidate && (candidate.type === "question" || candidate.type === "decision") && typeof candidate.text === "string" ? { type: candidate.type, text: candidate.text } : undefined;
-    return { ...(attachments ? { attachments } : {}), ...(reviewContext ? { reviewContext } : {}) };
+    return { ...(threadId ? { threadId } : {}), ...(attachments ? { attachments } : {}), ...(reviewContext ? { reviewContext } : {}) };
   } catch {
     return {};
   }
