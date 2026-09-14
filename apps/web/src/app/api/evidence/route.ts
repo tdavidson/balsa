@@ -389,7 +389,7 @@ export async function PATCH(request: Request) {
   });
   let summary: string | undefined;
   try { summary = (JSON.parse(document.extractedJson) as { summary?: string }).summary; } catch { /* the facts carry the content */ }
-  const interpretation = await applyApprovedEvidence({ context, evidenceId: body.data.id, evidenceStatus: "approved", extraction: { ...(summary ? { summary } : {}), facts: approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })) }, ...(sourceKind ? { sourceKind } : {}), ...(sourceRole ? { sourceRole } : {}), ...(document.currency ? { currency: document.currency } : {}), modelChoice: {}, replace: false });
+  const interpretation = await applyApprovedEvidence({ context, actorUserId: context.user.id, evidenceId: body.data.id, evidenceStatus: "approved", extraction: { ...(summary ? { summary } : {}), facts: approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })) }, ...(sourceKind ? { sourceKind } : {}), ...(sourceRole ? { sourceRole } : {}), ...(document.currency ? { currency: document.currency } : {}), modelChoice: {}, replace: false });
   if ("error" in interpretation && interpretation.status === 409) return NextResponse.json({ error: interpretation.error }, { status: 409 });
   await recordReviewedKnowledge(db, context.company.id, body.data.id, approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })));
   const calculationRun = await refreshCurrentCalculationRun(context.company.id);

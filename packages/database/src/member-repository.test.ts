@@ -126,6 +126,52 @@ describe.skipIf(!connectionString)("createDatabaseMemberRepository", () => {
     expect(remaining).toHaveLength(1);
   });
 
+  // The `within` callback is what the members route uses to write its audit row;
+  // these two tests are the guarantee it relies on, in both directions.
+  it("rolls the membership back when the transactional callback throws", async () => {
+    const owner = await createUser("within-owner");
+    const invited = await createUser("within-invited");
+    const company = await createCompany(owner.id, "Within Rollback");
+
+    await expect(
+      repository.addMember(company.id, { email: emailFor("within-invited"), role: "member" }, owner.id, async () => {
+        throw new Error("the audit row could not be written");
+      }),
+    ).rejects.toThrow("the audit row could not be written");
+
+    const listed = await repository.listMembers(company.id);
+    expect(listed.members.map((member) => member.userId)).toEqual([owner.id]);
+    expect(listed.members.some((member) => member.userId === invited.id)).toBe(false);
+  });
+
+  it("commits the audit row the callback writes together with the add", async () => {
+    const owner = await createUser("within-audit-owner");
+    const invited = await createUser("within-audit-invited");
+    const company = await createCompany(owner.id, "Within Audit");
+
+    const result = await repository.addMember(
+      company.id,
+      { email: emailFor("within-audit-invited"), role: "member" },
+      owner.id,
+      (transaction, added) =>
+        recordAudit(transaction, {
+          companyId: company.id,
+          actorUserId: owner.id,
+          via: "ui",
+          action: "member.added",
+          entityType: "member",
+          entityId: added.status === "active" ? added.member.userId : undefined,
+          summary: `Added ${emailFor("within-audit-invited")} as member`,
+        }),
+    );
+    expect(result.status).toBe("active");
+
+    const entries = await listAuditEntries(database, company.id, 10);
+    expect(entries.filter((entry) => entry.action === "member.added")).toMatchObject([
+      { companyId: company.id, actorUserId: owner.id, entityType: "member", entityId: invited.id },
+    ]);
+  });
+
   it("never removes a pending row belonging to another company", async () => {
     const owner = await createUser("scope-owner");
     const mine = await createCompany(owner.id, "Scope Mine");
