@@ -1,6 +1,6 @@
 # Nevermodel
 
-**A radical approach to an LLM-native financial operating system.**
+**A radical approach to LLM-native financial operations.**
 
 Nevermodel turns the evidence a company already produces into an auditable,
 continuously maintained financial model. Upload bank activity, invoices,
