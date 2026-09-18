@@ -62,7 +62,7 @@ export async function postRetainedEarningsClose(input: { companyId: string; user
     await tx.insert(journalPeriodCloseEntries).values({ companyId: input.companyId, period: input.period, promotionId: state.promotion!.id, journalEntryId: entry!.id, postedByUserId: input.userId });
     return { entryId: entry!.id, idempotent: false };
   });
-  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period] });
+  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period], cause: { kind: "period_closed", subjectType: "reporting_period", subjectId: input.period, actorUserId: input.userId, via: "ui" } });
   return { ok: true as const, ...committed, calculationRun };
 }
 
@@ -93,6 +93,6 @@ export async function closeJournalPeriod(input: { companyId: string; userId: str
     await recordAudit(tx, { companyId: input.companyId, actorUserId: input.userId, via: "ui", action: "period.closed", entityType: "reporting_period", ...(period ? { entityId: period.id } : {}), summary: `Closed reporting period ${input.period}`, after: { period: input.period, ...(input.note ? { note: input.note } : {}) } });
     return { closure: closed ?? null, reportingPeriod: period };
   });
-  const calculationRun = await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period] });
+  const calculationRun = await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period], cause: { kind: "period_closed", subjectType: "reporting_period", subjectId: input.period, actorUserId: input.userId, via: "ui" } });
   return { ok: true as const, closure, reportingPeriod, calculationRun };
 }

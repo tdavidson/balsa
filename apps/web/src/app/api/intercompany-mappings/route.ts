@@ -23,6 +23,6 @@ export async function POST(request: Request) {
   const [entityRows, accountRows] = await Promise.all([db.select({ id: entities.id, type: entities.type }).from(entities).where(eq(entities.companyId, context.company.id)), db.select({ id: chartAccounts.id }).from(chartAccounts).where(eq(chartAccounts.companyId, context.company.id))]);
   if (!ids.every((id) => entityRows.some((entity) => entity.id === id && entity.type === "legal_entity")) || !accountIds.every((id) => accountRows.some((account) => account.id === id))) return NextResponse.json({ error: "Entities and chart accounts must belong to this company." }, { status: 404 });
   const [created] = await db.insert(intercompanyAccountMappings).values({ companyId: context.company.id, ...parsed.data }).returning();
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "mapping_approved", subjectType: "intercompany_mapping", subjectId: created?.id ?? null, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ mapping: created, calculationRun }, { status: 201 });
 }

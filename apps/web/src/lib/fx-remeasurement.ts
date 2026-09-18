@@ -96,6 +96,6 @@ export async function postFxRemeasurement(input: { companyId: string; userId: st
     await tx.insert(fxRemeasurementEntries).values({ companyId: input.companyId, period: input.period, entityId: input.entityId, policyId: policy.id, journalEntryId: entry!.id, approvedByUserId: input.userId });
     return { entryId: entry!.id, idempotent: false };
   });
-  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period] });
+  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period], cause: { kind: "fx_changed", subjectType: "fx_remeasurement", subjectId: input.period, actorUserId: input.userId, via: "ui" } });
   return { ok: true as const, ...committed, calculationRun };
 }

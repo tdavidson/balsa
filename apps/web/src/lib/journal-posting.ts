@@ -30,6 +30,8 @@ export type JournalPostingRequest = {
   policyId?: string;
   approvalEventId?: string;
   lines: (JournalLineInput & { transactionCurrency?: string; transactionDebitMinor?: string; transactionCreditMinor?: string; fxRateId?: string; sourceId?: string; sourceRowId?: string; evidenceId?: string; factId?: string; decisionId?: string; policyId?: string; approvalEventId?: string; sourceLocation?: string; memo?: string })[];
+  /** Batch posters (plan pins) refresh once themselves after the batch; the single entry must not advance the revision. */
+  deferRefresh?: boolean;
 };
 
 export type JournalPostingResult = { batchId: string; entryId: string; proposalId: string; idempotent: boolean; calculationRun: Awaited<ReturnType<typeof refreshCurrentCalculationRun>> | null };
@@ -144,7 +146,8 @@ export async function postApprovedJournal(companyId: string, request: JournalPos
     await recordAudit(tx, { companyId, actorUserId: request.actorUserId ?? null, via: request.actorUserId ? "ui" : "worker", action: reversing ? "journal.reversed" : "journal.posted", entityType: "journal_entry", entityId: entry!.id, summary: `${reversing ? "Reversed" : "Posted"} journal ${request.label} in ${request.period}`, after: { batchId: batch!.id, label: request.label, source: request.source, period: request.period, basis } });
     return { batchId: batch!.id, entryId: entry!.id, proposalId: proposal.id, idempotent: false };
   });
+  const reversing = Boolean(request.reversalOfEntryId) || request.source === "journal_reversal";
   // An idempotent retry must not create a second calculation revision.
-  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(companyId, { journalPeriods: [request.period] });
+  const calculationRun = committed.idempotent || request.deferRefresh ? null : await refreshCurrentCalculationRun(companyId, { journalPeriods: [request.period], cause: { kind: reversing ? "journal_reversed" : "journal_posted", subjectType: "journal_entry", subjectId: committed.entryId, actorUserId: request.actorUserId ?? null, via: request.actorUserId ? "ui" : "worker" } });
   return { ...committed, calculationRun };
 }

@@ -313,7 +313,7 @@ export async function PATCH(request: Request) {
     await db.delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, body.data.id)));
     await db.update(evidence).set({ status: "pending", publishedAt: null, updatedAt: new Date() }).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
     // A revoked source must stop supporting the current calculation immediately.
-    await refreshCurrentCalculationRun(context.company.id);
+    await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "evidence_revoked", subjectType: "evidence", subjectId: body.data.id, actorUserId: context.user.id, via: "ui" } });
   };
 
   let factResult: { id: string; status: string; accountingRole: string | null } | undefined;
@@ -401,6 +401,6 @@ export async function PATCH(request: Request) {
   const interpretation = await applyApprovedEvidence({ context, actorUserId: context.user.id, evidenceId: body.data.id, evidenceStatus: "approved", extraction: { ...(summary ? { summary } : {}), facts: approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })) }, ...(sourceKind ? { sourceKind } : {}), ...(sourceRole ? { sourceRole } : {}), ...(document.currency ? { currency: document.currency } : {}), modelChoice: {}, replace: false });
   if ("error" in interpretation && interpretation.status === 409) return NextResponse.json({ error: interpretation.error }, { status: 409 });
   await recordReviewedKnowledge(db, context.company.id, body.data.id, approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })));
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "evidence_published", subjectType: "evidence", subjectId: document.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), id: document.id, identityStatus: document.identityStatus, status: "approved", interpretation: "error" in interpretation ? { error: interpretation.error } : { items: interpretation.items, transactions: interpretation.transactions, balances: interpretation.balances, questions: interpretation.questions }, calculationRun });
 }

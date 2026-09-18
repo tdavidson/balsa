@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     if (value.counterpartyEntityId && !(await db.select({ id: entities.id }).from(entities).where(and(eq(entities.id, value.counterpartyEntityId), eq(entities.companyId, context.company.id)))).length) return NextResponse.json({ error: "Counterparty entity not found" }, { status: 404 });
     if (value.scenarioId && !(await db.select({ id: scenarios.id }).from(scenarios).where(and(eq(scenarios.id, value.scenarioId), eq(scenarios.companyId, context.company.id)))).length) return NextResponse.json({ error: "Scenario not found" }, { status: 404 });
     const economicItem = (await db.insert(economicItems).values({ companyId: context.company.id, createdByUserId: context.user.id, evidenceId: value.evidenceId, type: value.kind, direction: value.direction, label: value.label, counterparty: value.counterparty, counterpartyEntityId: value.counterpartyEntityId, amount: value.amount, cadence: value.cadence, accountingTreatment: value.accountingTreatment, recognitionStart: value.recognitionStart, recognitionEnd: value.recognitionEnd, effectiveFrom: value.effectiveFrom, effectiveTo: value.effectiveTo, category: value.category, basis: value.basis, scenarioId: value.scenarioId, status: value.status }).returning())[0];
-    const calculationRun = value.status === "confirmed" && !value.scenarioId ? await refreshCurrentCalculationRun(context.company.id) : null;
+    const calculationRun = value.status === "confirmed" && !value.scenarioId ? await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "item_created", subjectType: "economic_item", subjectId: economicItem?.id ?? null, actorUserId: context.user.id, via: "ui" } }) : null;
     return NextResponse.json({ economicItem, calculationRun });
   }
   if (value.kind === "fact") {
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     if (value.sourceId && !(await db.select({ id: sources.id }).from(sources).where(and(eq(sources.id, value.sourceId), eq(sources.companyId, context.company.id)))).length) return NextResponse.json({ error: "Source not found" }, { status: 404 });
     if (value.itemId && !(await db.select({ id: economicItems.id }).from(economicItems).where(and(eq(economicItems.id, value.itemId), eq(economicItems.companyId, context.company.id)))).length) return NextResponse.json({ error: "Item not found" }, { status: 404 });
     const allocation = (await db.insert(allocations).values({ companyId: context.company.id, eventId: value.eventId, itemId: value.itemId, counterpartyEntityId: value.counterpartyEntityId, payerEntityId: value.payerEntityId, bearerEntityId: value.bearerEntityId, percentage: value.percentage, amount: value.amount, sourceId: value.sourceId, status: value.status }).returning())[0];
-    const calculationRun = value.status === "approved" ? await refreshCurrentCalculationRun(context.company.id) : null;
+    const calculationRun = value.status === "approved" ? await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "allocation_changed", subjectType: "allocation", subjectId: allocation?.id ?? null, actorUserId: context.user.id, via: "ui" } }) : null;
     return NextResponse.json({ allocation, calculationRun });
   }
   if (value.kind !== "observation") return NextResponse.json({ error: "Unsupported mutation" }, { status: 400 });

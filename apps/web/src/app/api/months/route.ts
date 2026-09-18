@@ -31,5 +31,5 @@ export async function PATCH(request: Request) {
   if (!period) [period] = await getDatabase().insert(reportingPeriods).values({ companyId: context.company.id, month: body.month, status: "open" }).onConflictDoNothing().returning();
   if (!period) return NextResponse.json({ error: "Reporting period not found" }, { status: 404 });
   await recordAudit(getDatabase(), { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: "period.reopened", entityType: "reporting_period", entityId: period.id, summary: `Reopened reporting period ${body.month}`, after: { period: body.month } });
-  return NextResponse.json({ period, calculationRun: await refreshCurrentCalculationRun(context.company.id) });
+  return NextResponse.json({ period, calculationRun: await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "period_reopened", subjectType: "reporting_period", subjectId: body.month, actorUserId: context.user.id, via: "ui" } }) });
 }
