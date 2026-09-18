@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   const resolvedReviews = await getDatabase().update(reviewItems).set({ answer: data.answer, status: "resolved", updatedAt: new Date() }).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.question, data.question), eq(reviewItems.status, "open"))).returning({ id: reviewItems.id });
   // A decision typed by the CFO is applied on creation; run its effect now.
   const applied = decision && data.effect ? await applyDecisionIfEffective(context.company.id, decision.id, context.user.id).catch((error: unknown) => ({ applied: `failed: ${error instanceof Error ? error.message : "unknown error"}` })) : null;
-  const calculationRun = data.effect ? await refreshCurrentCalculationRun(context.company.id) : null;
+  const calculationRun = data.effect ? await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "decision_applied", subjectType: "decision", subjectId: decision?.id ?? null, actorUserId: context.user.id, via: "ui" } }) : null;
   return NextResponse.json({ decision, resolvedReviewCount: resolvedReviews.length, applied, calculationRun });
 }
 
@@ -56,6 +56,6 @@ export async function PATCH(request: Request) {
       mutation = row ? { kind: "economic_item", id: row.id } : null;
     }
   }
-  const calculationRun = mutation ? await refreshCurrentCalculationRun(context.company.id) : null;
+  const calculationRun = mutation ? await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "decision_applied", subjectType: "decision", subjectId: decision.id, actorUserId: context.user.id, via: "ui" } }) : null;
   return NextResponse.json({ decision, mutation, calculationRun });
 }

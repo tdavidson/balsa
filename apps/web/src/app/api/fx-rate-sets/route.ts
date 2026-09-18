@@ -68,6 +68,6 @@ export async function PATCH(request: Request) {
     if (!rateRows.some((row) => (event.evidenceId && row.evidenceId === event.evidenceId) || (event.factId && row.factId === event.factId))) return NextResponse.json({ error: "The approval event must approve evidence or a fact used by this rate set." }, { status: 409 });
   }
   const [updated] = await db.update(fxRateSets).set({ status: parsed.data.status, ...(parsed.data.approvalEventId ? { approvalEventId: parsed.data.approvalEventId } : {}), updatedAt: new Date() }).where(and(eq(fxRateSets.id, set.id), eq(fxRateSets.companyId, context.company.id))).returning();
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "fx_changed", subjectType: "fx_rate_set", subjectId: set.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ rateSet: updated, calculationRun });
 }

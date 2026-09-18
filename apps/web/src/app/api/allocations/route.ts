@@ -31,6 +31,6 @@ export async function PATCH(request: Request) {
   if (!body.success) return NextResponse.json({ error: "Invalid allocation update" }, { status: 400 });
   const [allocation] = await getDatabase().update(allocations).set({ status: body.data.status, updatedAt: new Date() }).where(and(eq(allocations.id, body.data.id), eq(allocations.companyId, context.company.id))).returning();
   if (!allocation) return NextResponse.json({ error: "Allocation not found" }, { status: 404 });
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "allocation_changed", subjectType: "allocation", subjectId: allocation.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ allocation, calculationRun });
 }

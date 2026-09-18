@@ -162,6 +162,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     { companyId: context.company.id, sourceId: source.sourceId!, stage: "review", status: "waiting", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true, facts: extraction.facts.length, questions: questions.length, changes, pdfQuality, reconciliation: "pending", forecast: "pending" }) },
     { companyId: context.company.id, sourceId: source.sourceId!, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ trigger: "reprocess", evidenceId: id }) },
   ]);
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "evidence_reprocessed", subjectType: "evidence", subjectId: id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ id, status: "pending", extraction, calculationRun });
 }

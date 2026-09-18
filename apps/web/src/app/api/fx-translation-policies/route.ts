@@ -42,6 +42,6 @@ export async function PATCH(request: Request) {
     if (!approval || approval.action !== "approved" || (policy.evidenceId && approval.evidenceId !== policy.evidenceId) || (policy.factId && approval.factId !== policy.factId)) return NextResponse.json({ error: "Approval must be a recorded approval for this company and match the policy evidence." }, { status: 409 });
   }
   const [updated] = await db.update(fxTranslationPolicies).set({ status: body.data.status, approvalEventId: body.data.approvalEventId, updatedAt: new Date() }).where(eq(fxTranslationPolicies.id, policy.id)).returning();
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "fx_changed", subjectType: "fx_translation_policy", subjectId: updated?.id ?? null, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ policy: updated, calculationRun });
 }

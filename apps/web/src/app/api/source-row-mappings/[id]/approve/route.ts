@@ -21,6 +21,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (mapping.supersedesId) await db.update(sourceRowMappings).set({ status: "superseded", updatedAt: new Date() }).where(and(eq(sourceRowMappings.id, mapping.supersedesId), eq(sourceRowMappings.companyId, context.company.id)));
   const periods = mapping.sourceRowId ? await db.select({ period: sourceRows.period }).from(sourceRows).where(and(eq(sourceRows.id, mapping.sourceRowId), eq(sourceRows.companyId, context.company.id))) : mapping.factId ? await db.select({ period: sourceRows.period }).from(sourceRows).where(and(eq(sourceRows.companyId, context.company.id), eq(sourceRows.factId, mapping.factId))) : [];
   const journalPeriods = periods.map((row) => row.period).filter((period): period is string => Boolean(period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)));
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { journalPeriods });
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { journalPeriods, cause: { kind: "mapping_approved", subjectType: "source_row_mapping", subjectId: mapping.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ mapping: approved, calculationRun });
 }

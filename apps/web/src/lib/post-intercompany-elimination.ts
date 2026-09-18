@@ -28,6 +28,6 @@ export async function postIntercompanyElimination(input: { companyId: string; us
     await tx.insert(intercompanyEliminationEntries).values({ companyId: input.companyId, period: input.period, mappingId: input.mappingId, journalEntryId: journalEntry!.id, approvedByUserId: input.userId });
     return { entryId: journalEntry!.id, idempotent: false };
   });
-  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period] });
+  const calculationRun = committed.idempotent ? null : await refreshCurrentCalculationRun(input.companyId, { journalPeriods: [input.period], cause: { kind: "journal_posted", subjectType: "intercompany_elimination", subjectId: committed.entryId, actorUserId: input.userId, via: "ui" } });
   return { ok: true as const, ...committed, calculationRun };
 }

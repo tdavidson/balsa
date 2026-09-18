@@ -33,11 +33,11 @@ export async function POST(request: Request) {
     const existing = structure.resolveEntityName(body.data.name);
     if (existing) {
       const [row] = await db.update(entities).set({ consolidated: body.data.consolidated ? "Y" : "N", functionalCurrency: body.data.functionalCurrency ?? context.company.baseCurrency, consolidationMethod: body.data.consolidated ? body.data.consolidationMethod : "exclude", ownershipPercent: body.data.ownershipPercent ?? "100", effectiveFrom: body.data.effectiveFrom, effectiveTo: body.data.effectiveTo, updatedAt: new Date() }).where(and(eq(entities.id, existing), eq(entities.companyId, context.company.id))).returning({ id: entities.id, name: entities.name });
-      const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+      const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "entity_changed", subjectType: "entity", subjectId: row?.id ?? null, actorUserId: context.user.id, via: "ui" } });
       return NextResponse.json({ entity: row, created: false, calculationRun });
     }
     const [row] = await db.insert(entities).values({ companyId: context.company.id, type: "legal_entity", name: body.data.name, consolidated: body.data.consolidated ? "Y" : "N", functionalCurrency: body.data.functionalCurrency ?? context.company.baseCurrency, consolidationMethod: body.data.consolidated ? body.data.consolidationMethod : "exclude", ownershipPercent: body.data.ownershipPercent ?? "100", effectiveFrom: body.data.effectiveFrom, effectiveTo: body.data.effectiveTo, attributes: "{}" }).returning({ id: entities.id, name: entities.name });
-    const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+    const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "entity_changed", subjectType: "entity", subjectId: row?.id ?? null, actorUserId: context.user.id, via: "ui" } });
     return NextResponse.json({ entity: row, created: true, calculationRun });
   }
   // An owner named by id is a foreign key from the request: it may only be one
@@ -50,11 +50,11 @@ export async function POST(request: Request) {
   const existing = structure.accounts.find((account) => account.name.toLowerCase() === body.data.name.toLowerCase());
   if (existing) {
     const [row] = await db.update(entities).set({ ownerEntityId, attributes: JSON.stringify({ ...parseEntityAttributes(existing.attributes), ...attributes }), updatedAt: new Date() }).where(and(eq(entities.id, existing.id), eq(entities.companyId, context.company.id))).returning({ id: entities.id, name: entities.name, ownerEntityId: entities.ownerEntityId });
-    const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+    const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "entity_changed", subjectType: "entity", subjectId: row?.id ?? null, actorUserId: context.user.id, via: "ui" } });
     return NextResponse.json({ account: row, created: false, calculationRun });
   }
   const [row] = await db.insert(entities).values({ companyId: context.company.id, type: "account", name: body.data.name, ownerEntityId, attributes: JSON.stringify(attributes) }).returning({ id: entities.id, name: entities.name, ownerEntityId: entities.ownerEntityId });
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "entity_changed", subjectType: "entity", subjectId: row?.id ?? null, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ account: row, created: true, calculationRun });
 }
 
@@ -70,6 +70,6 @@ export async function PATCH(request: Request) {
   if (body.data.ownerEntityId && !(await getDatabase().select({ id: entities.id }).from(entities).where(and(eq(entities.id, body.data.ownerEntityId), eq(entities.companyId, context.company.id), eq(entities.type, "legal_entity"))).limit(1))[0]) return NextResponse.json({ error: "Owner entity not found" }, { status: 404 });
   const [row] = await getDatabase().update(entities).set({ ...(body.data.name ? { name: body.data.name } : {}), ...(body.data.consolidated !== undefined ? { consolidated: body.data.consolidated ? "Y" : "N" } : {}), ...(body.data.functionalCurrency !== undefined ? { functionalCurrency: body.data.functionalCurrency } : {}), ...(body.data.consolidationMethod ? { consolidationMethod: body.data.consolidationMethod } : {}), ...(body.data.ownershipPercent !== undefined ? { ownershipPercent: body.data.ownershipPercent } : {}), ...(body.data.effectiveFrom !== undefined ? { effectiveFrom: body.data.effectiveFrom } : {}), ...(body.data.effectiveTo !== undefined ? { effectiveTo: body.data.effectiveTo } : {}), ...(body.data.ownerEntityId !== undefined ? { ownerEntityId: body.data.ownerEntityId } : {}), updatedAt: new Date() }).where(and(eq(entities.id, body.data.id), eq(entities.companyId, context.company.id))).returning({ id: entities.id, name: entities.name, type: entities.type, consolidated: entities.consolidated, ownerEntityId: entities.ownerEntityId });
   if (!row) return NextResponse.json({ error: "Entity not found" }, { status: 404 });
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id);
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "entity_changed", subjectType: "entity", subjectId: row.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ entity: row, calculationRun });
 }
