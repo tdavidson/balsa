@@ -2,15 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { calculationNodes, calculationRuns, getDatabase } from "@finance/database";
-import { journalCalculationFormulaVersion, type JournalCalculationGraph } from "@nevermodel/finance-engine";
-
-function stableJson(value: unknown): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
-}
+import { journalCalculationFormulaVersion, stableJson, type JournalCalculationGraph } from "@nevermodel/finance-engine";
 
 /** Persist journal math separately from the legacy schedule/cash calculation engine. */
 export async function persistJournalCalculationGraph(input: {

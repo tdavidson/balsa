@@ -18,7 +18,7 @@ export type JournalPostingRequest = {
   period: string;
   memo: string;
   /** Actual is the default; forecasts and scenarios use the same balanced-entry model. */
-  basis?: "actual" | "forecast" | "scenario" | "adjustment" | "elimination" | "translation";
+  basis?: "actual" | "forecast" | "scenario" | "plan" | "adjustment" | "elimination" | "translation";
   scenarioId?: string;
   reversalOfEntryId?: string;
   entityId?: string;
