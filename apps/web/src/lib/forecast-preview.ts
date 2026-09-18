@@ -1,11 +1,11 @@
 import "server-only";
-import { and, desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { calculationRuns, companies, decisions, economicItems, getDatabase } from "@finance/database";
-import { buildForecastRun, diffForecastRuns, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { buildForecastRun, diffForecastRuns, forecastFormulaVersion, type ForecastRunInput } from "@nevermodel/finance-engine";
 import { parseStoredEffect } from "@/lib/decision-effects";
 import { projectDecisionEffectOnDrivers } from "@/lib/decision-driver-effects";
 import { amountToMinor, economicItemToDriver } from "@/lib/forecast-drivers";
-import { compareIds, forecastAsOfMonth, loadForecastDrivers, loadForecastInputs } from "@/lib/forecast-inputs";
+import { compareIds, forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastInputs } from "@/lib/forecast-inputs";
 
 export type ForecastPreviewChange =
   | { kind: "confirm_item"; itemId: string; edits?: { amount?: number; cadence?: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom?: string; effectiveTo?: string | null; category?: string } }
@@ -23,13 +23,21 @@ function parseStoredInput(inputJson: string): (Partial<ForecastRunInput> & Recor
   }
 }
 
-/** The base forecast input for a preview: the stored input when it is still current, otherwise a fresh ledger load. */
+/**
+ * The base forecast input for a preview. When the latest run at the current
+ * formula version is at the company's head revision and its as-of month, its
+ * stored actuals summary and settings are reused, so the ledger is not
+ * reloaded. Drivers, templates, and active chart accounts are always reloaded:
+ * they can change without a revision bump (a new account or template), and a
+ * stale account list would exclude a driver whose template uses a new account.
+ * Otherwise the whole input is loaded fresh.
+ */
 async function loadPreviewBaseInput(companyId: string, now: Date): Promise<ForecastRunInput> {
   const db = getDatabase();
   const [[latestRun], [company]] = await Promise.all([
     db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, inputJson: calculationRuns.inputJson })
       .from(calculationRuns)
-      .where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%")))
+      .where(and(eq(calculationRuns.companyId, companyId), eq(calculationRuns.engineVersion, forecastFormulaVersion)))
       .orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt))
       .limit(1),
     db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)).limit(1),
@@ -38,14 +46,18 @@ async function loadPreviewBaseInput(companyId: string, now: Date): Promise<Forec
     const parsed = parseStoredInput(latestRun.inputJson);
     const asOfMonth = await forecastAsOfMonth(companyId, now, db);
     if (parsed && "actuals" in parsed && parsed.asOfMonth === asOfMonth) {
-      const { drivers, templates } = await loadForecastDrivers(companyId, {}, db);
-      return { ...(parsed as ForecastRunInput), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)) };
+      const [{ drivers, templates }, accounts] = await Promise.all([loadForecastDrivers(companyId, {}, db), loadForecastAccounts(companyId, db)]);
+      return { ...(parsed as ForecastRunInput), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts };
     }
   }
   return loadForecastInputs(companyId, { now, db });
 }
 
-/** Compute both sides fresh, so a stale stored run cannot distort the preview. Nothing is written. */
+/**
+ * Compute the forecast with and without the change from the same base input
+ * (see loadPreviewBaseInput), so the difference is the change alone. The
+ * stored run's output is never used. Nothing is written.
+ */
 export async function previewForecastChange(companyId: string, change: ForecastPreviewChange, now = new Date()) {
   const inputs = await loadPreviewBaseInput(companyId, now);
   const db = getDatabase();
