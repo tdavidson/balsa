@@ -118,4 +118,39 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     expect(await runForecastJob(companyId, revision)).toMatchObject({ reused: false });
     expect((await latestConsequence())?.revision).toBe(revision);
   });
+
+  it("makes a job that waited on the company lock re-read the revision it was queued for", async () => {
+    // A fresh revision with a changed forecast, so a run for it could only come from this job.
+    await db.update(economicItems).set({ amount: "6000" }).where(eq(economicItems.id, itemId));
+    const [bumped] = await db.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text` }).where(eq(companies.id, companyId)).returning({ revision: companies.financialStateRevision });
+    const revision = bumped!.revision;
+    await db.insert(financialStateRevisions).values({ companyId, revision, kind: "item_edited", subjectType: "economic_item", subjectId: itemId, via: "worker" });
+
+    // A second, independent connection plays the job ahead: it holds the company's forecast lock while a mutation lands.
+    const { Client } = await import("pg");
+    const other = new Client({ connectionString: process.env.DATABASE_URL });
+    await other.connect();
+    const key = `forecast:${companyId}`; // the same key runForecastJob hashes
+    // pg_locks splits a bigint advisory key into classid (high word) and objid (low word).
+    const locksOnKey = async (granted: boolean) => (await other.query<{ n: number }>("select count(*)::int as n from pg_locks where locktype = 'advisory' and granted = $2 and ((classid::bigint << 32) | objid::bigint) = hashtext($1)::bigint", [key, granted])).rows[0]!.n;
+    try {
+      await other.query("begin");
+      await other.query("select pg_advisory_xact_lock(hashtext($1))", [key]);
+      expect(await locksOnKey(true)).toBe(1);
+
+      const job = runForecastJob(companyId, revision);
+      let sawWaiter = false;
+      for (const deadline = Date.now() + 3_000; !sawWaiter && Date.now() < deadline; await new Promise((resolve) => setTimeout(resolve, 20))) sawWaiter = (await locksOnKey(false)) > 0;
+
+      const moved = await other.query<{ revision: string }>("update companies set financial_state_revision = (financial_state_revision::bigint + 1)::text where id = $1 returning financial_state_revision as revision", [companyId]);
+      await other.query("insert into financial_state_revisions (company_id, revision, kind, subject_type, subject_id, via) values ($1, $2, 'item_edited', 'economic_item', $3, 'worker')", [companyId, moved.rows[0]!.revision, itemId]);
+      await other.query("commit"); // releases the lock
+
+      expect(await job).toEqual({ superseded: true });
+      expect(await db.select().from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), eq(calculationRuns.financialStateRevision, revision)))).toHaveLength(0);
+      expect(sawWaiter).toBe(true);
+    } finally {
+      await other.end();
+    }
+  });
 });

@@ -3,19 +3,19 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { calculationNodes, calculationRuns, financialStateRevisions, forecastConsequences, getDatabase } from "@finance/database";
 import { diffForecastRuns, stableJson, type ForecastRun, type ForecastRunInput } from "@nevermodel/finance-engine";
-import type { DbExecutor } from "@/lib/db-executor";
+import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 
 const forecastEngines = "forecast-run-%";
 
 /**
  * Persist a derived forecast exactly like a journal graph: one run per (revision, engine, input), with inspectable nodes.
  * The run and its nodes commit together, so a reused run always has its nodes:
- * inside the caller's transaction when `db` is given, otherwise in its own.
+ * inside the caller's transaction when `tx` is given, otherwise in its own.
  */
-export async function persistForecastRun(input: { companyId: string; financialStateRevision: string; run: ForecastRun; input: ForecastRunInput }, db?: DbExecutor) {
+export async function persistForecastRun(input: { companyId: string; financialStateRevision: string; run: ForecastRun; input: ForecastRunInput }, tx?: DbTransaction) {
   const inputJson = stableJson(input.input);
   const inputHash = createHash("sha256").update(inputJson).digest("hex");
-  const write = async (tx: DbExecutor) => {
+  const write = async (tx: DbTransaction) => {
     const inserted = await tx.insert(calculationRuns).values({
       companyId: input.companyId, engineVersion: input.run.formulaVersion, inputHash, financialStateRevision: input.financialStateRevision,
       asOfMonth: input.run.asOfMonth, horizonStart: input.run.horizon.start, horizonEnd: input.run.horizon.end,
@@ -30,7 +30,7 @@ export async function persistForecastRun(input: { companyId: string; financialSt
     })));
     return { id: run.id, reused: !inserted[0] };
   };
-  return db ? write(db) : getDatabase().transaction(write);
+  return tx ? write(tx) : getDatabase().transaction(write);
 }
 
 /** The most recent forecast run strictly before a revision, across forecast formula versions. */
