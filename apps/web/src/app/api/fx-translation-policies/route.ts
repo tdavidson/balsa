@@ -41,7 +41,7 @@ export async function PATCH(request: Request) {
     if (!policy.evidenceId && !policy.factId) return NextResponse.json({ error: "An FX policy must have approved evidence or a fact before it can affect reporting." }, { status: 409 });
     if (!approval || approval.action !== "approved" || (policy.evidenceId && approval.evidenceId !== policy.evidenceId) || (policy.factId && approval.factId !== policy.factId)) return NextResponse.json({ error: "Approval must be a recorded approval for this company and match the policy evidence." }, { status: 409 });
   }
-  const [updated] = await db.update(fxTranslationPolicies).set({ status: body.data.status, approvalEventId: body.data.approvalEventId, updatedAt: new Date() }).where(eq(fxTranslationPolicies.id, policy.id)).returning();
+  const [updated] = await db.update(fxTranslationPolicies).set({ status: body.data.status, approvalEventId: body.data.approvalEventId, updatedAt: new Date() }).where(and(eq(fxTranslationPolicies.id, policy.id), eq(fxTranslationPolicies.companyId, context.company.id))).returning();
   const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "fx_changed", subjectType: "fx_translation_policy", subjectId: updated?.id ?? null, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ policy: updated, calculationRun });
 }

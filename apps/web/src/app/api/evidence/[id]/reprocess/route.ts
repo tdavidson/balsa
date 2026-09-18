@@ -72,7 +72,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   let bytes: Buffer;
   try { bytes = await readSourceBlob(source.storageReference); } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to read retained source";
-    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(eq(sources.id, source.sourceId!));
+    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
     await finishExtractionRuns("failed", { reprocess: true, failure: "storage_read" }, message);
     await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "extraction", status: "failed", error: message, completedAt: new Date(), metadata: JSON.stringify({ reprocess: true }) });
     return NextResponse.json({ error: message }, { status: 404 });
@@ -80,7 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try { assertUploadSize(bytes.byteLength); } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Stored source is too large" }, { status: 413 }); }
   const actualHash = createHash("sha256").update(bytes).digest("hex");
   if (source.sourceHash && actualHash !== source.sourceHash) {
-    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: "The retained original failed its integrity check", processedAt: new Date() }).where(eq(sources.id, source.sourceId!));
+    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: "The retained original failed its integrity check", processedAt: new Date() }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
     await finishExtractionRuns("failed", { reprocess: true, failure: "integrity_check" }, "The retained original failed its integrity check");
     await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "storage", status: "failed", error: "The retained original failed its integrity check", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true }) });
     return NextResponse.json({ error: "The retained original failed its integrity check" }, { status: 409 });
@@ -113,7 +113,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Source extraction failed";
-    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(eq(sources.id, source.sourceId!));
+    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
     await finishExtractionRuns("failed", { reprocess: true, failure: "extraction" }, message);
     await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "extraction", status: "failed", error: message, completedAt: new Date(), metadata: JSON.stringify({ reprocess: true }) });
     return NextResponse.json({ error: message }, { status: 502 });
@@ -147,7 +147,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     endingBalance: statementMetadata.endingBalance ? String(parseFinancialAmount(statementMetadata.endingBalance) ?? "") : undefined,
     accountEntityId,
   } : {}), updatedAt: new Date() }).where(and(eq(evidence.id, id), eq(evidence.companyId, context.company.id)));
-  if (source.sourceId) await db.update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date(), metadata: JSON.stringify({ sourceRole, classification: sourceClassification, statementMetadata, currencies: detectedCurrencies, pdfQuality, workbook: workbookStructure }) }).where(eq(sources.id, source.sourceId));
+  if (source.sourceId) await db.update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date(), metadata: JSON.stringify({ sourceRole, classification: sourceClassification, statementMetadata, currencies: detectedCurrencies, pdfQuality, workbook: workbookStructure }) }).where(and(eq(sources.id, source.sourceId), eq(sources.companyId, context.company.id)));
   await db.delete(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, id)));
   await db.delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, id)));
   if (source.sourceId) await db.delete(observations).where(and(eq(observations.companyId, context.company.id), eq(observations.sourceId, source.sourceId)));
