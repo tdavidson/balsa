@@ -56,4 +56,12 @@ describe("diffForecastRuns", () => {
     expect(consequence.asOfMonth.before).toBeNull();
     expect(consequence.horizonEndCash.beforeMinor).toBeNull();
   });
+
+  it("reports category and amount changes with before/after values", () => {
+    const before = buildForecastRun(input([{ ...payroll, category: "salary", amountMinor: "100000" }]));
+    const consequence = diffForecastRuns(before, buildForecastRun(input([{ ...payroll, category: "contractor", amountMinor: "150000" }])))!;
+    expect(consequence.drivers.changed[0]?.fields).toEqual(["category", "amountMinor"]);
+    expect(consequence.drivers.changed[0]?.before).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "salary", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
+    expect(consequence.drivers.changed[0]?.after).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "contractor", amountMinor: "150000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
+  });
 });
