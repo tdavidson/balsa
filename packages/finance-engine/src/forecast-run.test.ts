@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { summarizeActualCash } from "./forecast-actuals";
 import { buildForecastRun, type ForecastAccount, type ForecastRunInput } from "./forecast-run";
 import { stableJson } from "./stable-json";
 import type { PostedJournalLine } from "./ledger";
@@ -23,12 +24,15 @@ const templates: ForecastRunInput["templates"] = [
 ];
 const payroll: ForecastRunInput["drivers"][number] = { id: "payroll", label: "Payroll", itemType: "obligation", direction: "spend", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-payroll" };
 const retainer: ForecastRunInput["drivers"][number] = { id: "retainer", label: "Retainer", itemType: "agreement", direction: "receipt", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09" };
-const base: ForecastRunInput = { actualLines: history, drivers: [payroll], templates, accounts, currency: "USD", asOfMonth: "2026-08", horizonMonths: 24, minimumCashMinor: "0" };
+// Tests state their actuals as posted lines; the engine takes their summary.
+type Input = Omit<ForecastRunInput, "actuals"> & { actualLines: PostedJournalLine[] };
+const forecast = ({ actualLines, ...input }: Input) => buildForecastRun({ ...input, actuals: summarizeActualCash(actualLines, input.currency, input.asOfMonth) });
+const base: Input = { actualLines: history, drivers: [payroll], templates, accounts, currency: "USD", asOfMonth: "2026-08", horizonMonths: 24, minimumCashMinor: "0" };
 const value = (run: ReturnType<typeof buildForecastRun>, id: string) => run.nodes.find((node) => node.id === id)?.value;
 
 describe("buildForecastRun", () => {
   it("projects cash forward and finds the cash-out month", () => {
-    const run = buildForecastRun(base);
+    const run = forecast(base);
     expect(run.horizon).toEqual({ start: "2026-09", end: "2028-08" });
     expect(value(run, "ending_cash:2026-08")).toBe("900000");
     expect(value(run, "ending_cash:2026-09")).toBe("800000");
@@ -41,63 +45,69 @@ describe("buildForecastRun", () => {
   });
 
   it("uses trailing actual burn for context", () => {
-    const run = buildForecastRun(base);
+    const run = forecast(base);
     expect(run.runway.trailingBurn3mMinor).toBe("100000");
     expect(run.runway.cashOverTrailingBurn).toBe("9.0");
   });
 
   it("honours a minimum cash floor above zero", () => {
-    const run = buildForecastRun({ ...base, minimumCashMinor: "200000" });
+    const run = forecast({ ...base, minimumCashMinor: "200000" });
     // 900,000 − 100,000·n < 200,000 first at n = 8: seven full months funded.
     expect(run.runway.cashOutMonth).toBe("2027-04");
     expect(run.runway.runwayMonths).toBe(7);
   });
 
   it("counts zero funded months when cash is already below the floor at as-of", () => {
-    const run = buildForecastRun({ ...base, minimumCashMinor: "1000000" });
+    const run = forecast({ ...base, minimumCashMinor: "1000000" });
     expect(run.runway.cashOutMonth).toBe("2026-08");
     expect(run.runway.runwayMonths).toBe(0);
   });
 
   it("reports no cash-out inside the horizon", () => {
-    expect(buildForecastRun({ ...base, drivers: [payroll, retainer] }).runway).toMatchObject({ cashOutMonth: null, runwayMonths: null });
-    expect(buildForecastRun({ ...base, horizonMonths: 6 }).runway.cashOutMonth).toBeNull();
+    expect(forecast({ ...base, drivers: [payroll, retainer] }).runway).toMatchObject({ cashOutMonth: null, runwayMonths: null });
+    expect(forecast({ ...base, horizonMonths: 6 }).runway.cashOutMonth).toBeNull();
   });
 
   it("has no trailing ratio when cash is not burning", () => {
-    const run = buildForecastRun({ ...base, actualLines: history.filter((line) => line.id.startsWith("capital")) });
+    const run = forecast({ ...base, actualLines: history.filter((line) => line.id.startsWith("capital")) });
     expect(run.runway.trailingBurn3mMinor).toBe("0");
     expect(run.runway.cashOverTrailingBurn).toBeNull();
   });
 
   it("keeps driver lineage on nodes and projected lines", () => {
-    const run = buildForecastRun(base);
+    const run = forecast(base);
     expect(run.nodes.find((node) => node.id === "ending_cash:2026-09")?.driverIds).toEqual(["payroll"]);
     expect(run.projectedLines[0]).toMatchObject({ basis: "forecast", period: "2026-09", provenance: { sourceLocation: "forecast-driver:payroll" } });
   });
 
   it("excludes unmapped drivers as exceptions without moving cash", () => {
     const orphan = { ...retainer, id: "orphan", itemType: "agreement" as const, category: "unmapped" };
-    const run = buildForecastRun({ ...base, templates: [templates[0]!], drivers: [payroll, orphan] });
+    const run = forecast({ ...base, templates: [templates[0]!], drivers: [payroll, orphan] });
     expect(run.exceptions.map((exception) => exception.driverId)).toEqual(["orphan"]);
     expect(run.verificationStatus).toBe("exception");
     expect(run.runway.cashOutMonth).toBe("2027-06");
   });
 
   it("excludes drivers whose template account is not an active account", () => {
-    const run = buildForecastRun({ ...base, accounts: accounts.filter((candidate) => candidate.accountId !== "payroll") });
+    const run = forecast({ ...base, accounts: accounts.filter((candidate) => candidate.accountId !== "payroll") });
     expect(run.exceptions).toEqual([{ driverId: "payroll", reason: "Forecast template account payroll is not an active chart account." }]);
     expect(run.projectedLines).toEqual([]);
   });
 
   it("ignores posted plan, forecast and scenario journals", () => {
     const withPlan = { ...base, actualLines: [...history, posted("plan:0", "cash", "999999", "0", "2026-08", "plan"), posted("plan:1", "revenue", "0", "999999", "2026-08", "plan")] };
-    expect(value(buildForecastRun(withPlan), "ending_cash:2026-08")).toBe("900000");
+    expect(value(forecast(withPlan), "ending_cash:2026-08")).toBe("900000");
   });
 
   it("is deterministic regardless of driver order", () => {
-    const one = buildForecastRun({ ...base, drivers: [payroll, retainer] });
-    const two = buildForecastRun({ ...base, drivers: [retainer, payroll] });
+    const one = forecast({ ...base, drivers: [payroll, retainer] });
+    const two = forecast({ ...base, drivers: [retainer, payroll] });
     expect(stableJson(one)).toBe(stableJson(two));
+  });
+
+  it("rejects an actuals summary for another as-of month or currency", () => {
+    const { actualLines, ...input } = base;
+    expect(() => buildForecastRun({ ...input, actuals: summarizeActualCash(actualLines, "USD", "2026-07") })).toThrow(/as of 2026-07/);
+    expect(() => buildForecastRun({ ...input, actuals: summarizeActualCash(actualLines, "EUR", "2026-08") })).toThrow(/in EUR/);
   });
 });

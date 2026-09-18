@@ -69,7 +69,7 @@ drivers, templates, and accounts, plus the summary's closing position.
 ```ts
 // forecast-actuals.ts
 type ActualCashMonth = { month: string; openingCashMinor: string; endingCashMinor: string; receiptsMinor: string; spendingMinor: string };
-type ActualCashSummary = { currency: string; asOfMonth: string; months: ActualCashMonth[] /* asOf-2..asOf */; cashAccountIds: string[] };
+type ActualCashSummary = { currency: string; asOfMonth: string; months: ActualCashMonth[] /* asOf-2..asOf */; cashGroups: [string, boolean][] /* [group key, is cash], sorted by key */ };
 summarizeActualCash(actualLines: PostedJournalLine[], currency: string, asOfMonth: string): ActualCashSummary
 ```
 
@@ -101,9 +101,12 @@ summarizeActualCash(actualLines: PostedJournalLine[], currency: string, asOfMont
   `period_close` entries are included. This matches statements.ts.
 - **Output.** Months from asOf−2 to asOf, each with opening and ending cash
   (the opening of asOf−2 is the ending balance at asOf−3), plus
-  `cashAccountIds`. `cashAccountIds` lists the accounts that the
-  ending-cash predicate marks as cash, and projected lines on those
-  accounts move ending cash.
+  `cashGroups`: every asset balance group seen in the actuals, keyed by
+  `statementLine ?? accountCode`, with its resolved cash flag. It is a
+  group-level map, not a list of cash account ids, because statements.ts
+  decides cash per balance group; carrying the flag per group (true and
+  false) lets a projected line on an account the actuals never touched
+  inherit its group's flag exactly as the statement would.
 
 ```ts
 // forecast-run.ts (new input shape)
@@ -114,9 +117,10 @@ buildForecastRun(input: ForecastRunInput): ForecastRun   // unchanged output sha
 - Projected entries and `projectedLines` are built exactly as in slice 1.
 - **Projected months.** Ending cash for each projected month is the
   previous ending cash plus the sum of `whole(debit) − whole(credit)` over
-  projected lines that are cash under the ending-cash rule. For each
-  projected line the rule is applied to the line's account metadata, and
-  the result is unioned with `actuals.cashAccountIds`. Receipts and spending
+  projected lines that are cash under the ending-cash rule. A projected
+  line's group takes its flag from `actuals.cashGroups` when the group is
+  known there; groups seen only on projected accounts are resolved from
+  their metadata in account-code order. Receipts and spending
   use the per-entry cash-flow rule over that month's projected lines.
 - Actual months, trailing burn, the ratio, cash-out, runway, and nodes are
   computed from the months exactly as before. Node ids, formulas, and
