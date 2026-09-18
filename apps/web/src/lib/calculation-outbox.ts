@@ -1,11 +1,13 @@
 import "server-only";
 import { and, asc, eq, lt, or } from "drizzle-orm";
 import { calculationOutbox, companies, getDatabase } from "@finance/database";
-import { buildJournalCalculationGraph, forecastFormulaVersion, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
 import { runForecastJob } from "@/lib/forecast-job";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
+
+const forecastEnginePrefix = "forecast-run-";
 
 export type CalculationJobResult = { id: string; status: "completed" | "superseded" | "failed" | "not_claimed"; error?: string };
 
@@ -29,7 +31,8 @@ export async function processCalculationOutboxJob(jobId: string, now = new Date(
       await db.update(calculationOutbox).set({ status: "superseded", completedAt: new Date(), updatedAt: new Date() }).where(eq(calculationOutbox.id, job.id));
       return { id: job.id, status: "superseded" };
     }
-    const run = job.engineVersion === forecastFormulaVersion && job.period === "forecast"
+    // A forecast job queued under an older formula version recomputes from current state, so it runs as the current forecast job.
+    const run = job.engineVersion.startsWith(forecastEnginePrefix) && job.period === "forecast"
       ? await runForecastJob(job.companyId, job.financialStateRevision, { now })
       : job.engineVersion === journalCalculationFormulaVersion && /^\d{4}-(0[1-9]|1[0-2])$/.test(job.period)
         ? await (async () => {
