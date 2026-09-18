@@ -10,7 +10,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
   const [name, setName] = useState(company);
   const [currency, setCurrency] = useState(baseCurrency);
   const [favicon, setFavicon] = useState<File | null>(null);
-  const [minimumCash, setMinimumCash] = useState("0");
+  const [minimumCash, setMinimumCash] = useState("");
+  // The stored value, or null until the GET succeeds. Without it, saving must not touch minimum cash.
+  const [loadedMinimumCash, setLoadedMinimumCash] = useState<string | null>(null);
+  const [minimumCashUnavailable, setMinimumCashUnavailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -19,12 +22,31 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/forecast/settings").then((response) => (response.ok ? response.json() : null)).then((result) => { if (result) setMinimumCash(String(result.minimumCash)); }).catch(() => undefined);
+    let cancelled = false;
+    const unavailable = () => { if (!cancelled) { setLoadedMinimumCash(null); setMinimumCashUnavailable(true); } };
+    fetch("/api/forecast/settings")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((result) => {
+        if (cancelled) return;
+        if (result && typeof result.minimumCash === "number") {
+          setMinimumCash(String(result.minimumCash));
+          setLoadedMinimumCash(String(result.minimumCash));
+          setMinimumCashUnavailable(false);
+        } else unavailable();
+      })
+      .catch(unavailable);
+    return () => { cancelled = true; };
   }, [open]);
 
   async function save() {
     if (!name.trim() || !/^[A-Za-z]{3}$/.test(currency.trim())) {
       setError("Enter a company name and a three-letter currency code.");
+      return;
+    }
+    const floor = Number(minimumCash);
+    const minimumCashChanged = loadedMinimumCash !== null && floor !== Number(loadedMinimumCash);
+    if (minimumCashChanged && (!minimumCash.trim() || !Number.isFinite(floor) || floor < 0)) {
+      setError("Minimum cash must be zero or a positive amount");
       return;
     }
     setSaving(true);
@@ -37,10 +59,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
       const response = await fetch("/api/company", { method: "PATCH", body: payload });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Unable to save company settings");
-      const floor = Number(minimumCash);
-      if (!Number.isFinite(floor) || floor < 0) throw new Error("Minimum cash must be zero or a positive amount");
-      const settings = await fetch("/api/forecast/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ minimumCash: floor }) });
-      if (!settings.ok) throw new Error((await settings.json()).error ?? "Unable to save the minimum cash setting");
+      if (minimumCashChanged) {
+        const settings = await fetch("/api/forecast/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ minimumCash: floor }) });
+        if (!settings.ok) throw new Error((await settings.json().catch(() => ({}))).error ?? "Unable to save the minimum cash setting");
+      }
       onOpenChange(false);
       window.location.reload();
     } catch (saveError) {
@@ -90,7 +112,8 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
           </label>
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Minimum cash for runway
-            <Input value={minimumCash} onChange={(event) => setMinimumCash(event.target.value)} inputMode="decimal" className="max-w-[160px]" />
+            <Input value={minimumCash} onChange={(event) => setMinimumCash(event.target.value)} inputMode="decimal" className="max-w-[160px]" disabled={loadedMinimumCash === null} placeholder={minimumCashUnavailable ? "Unavailable" : "Loading…"} />
+            {minimumCashUnavailable && <span className="text-[12px] text-ink-3">Couldn’t load the current minimum cash, so saving leaves it unchanged.</span>}
           </label>
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Browser icon
