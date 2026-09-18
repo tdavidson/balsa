@@ -13,13 +13,15 @@ export type ForecastPreviewChange =
 
 export class PreviewConflict extends Error {}
 
-/**
- * Whether the last `previewForecastChange` call reused the stored forecast
- * input ("stored") or fell back to a full ledger load ("loaded"). Test-only
- * indicator: a fallback for environments where spying on the ledger loader
- * cannot intercept the call.
- */
-export let lastPreviewSource: "stored" | "loaded" = "loaded";
+/** Parse the stored input, treating a parse failure or a non-object result as not reusable. */
+function parseStoredInput(inputJson: string): (Partial<ForecastRunInput> & Record<string, unknown>) | null {
+  try {
+    const parsed: unknown = JSON.parse(inputJson);
+    return parsed && typeof parsed === "object" ? (parsed as Partial<ForecastRunInput> & Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The base forecast input for a preview: the stored input when it is still current, otherwise a fresh ledger load. */
 async function loadPreviewBaseInput(companyId: string, now: Date): Promise<ForecastRunInput> {
@@ -33,15 +35,13 @@ async function loadPreviewBaseInput(companyId: string, now: Date): Promise<Forec
     db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)).limit(1),
   ]);
   if (latestRun && company && latestRun.revision === company.revision) {
-    const parsed = JSON.parse(latestRun.inputJson) as Partial<ForecastRunInput> & Record<string, unknown>;
+    const parsed = parseStoredInput(latestRun.inputJson);
     const asOfMonth = await forecastAsOfMonth(companyId, now, db);
-    if ("actuals" in parsed && parsed.asOfMonth === asOfMonth) {
+    if (parsed && "actuals" in parsed && parsed.asOfMonth === asOfMonth) {
       const { drivers, templates } = await loadForecastDrivers(companyId, {}, db);
-      lastPreviewSource = "stored";
       return { ...(parsed as ForecastRunInput), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)) };
     }
   }
-  lastPreviewSource = "loaded";
   return loadForecastInputs(companyId, { now, db });
 }
 

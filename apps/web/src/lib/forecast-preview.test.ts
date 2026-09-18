@@ -1,6 +1,6 @@
 import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
@@ -9,7 +9,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 
 describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { chartAccounts, closeDatabase, companies, decisions, economicItems, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { calculationRuns, chartAccounts, closeDatabase, companies, decisions, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { previewForecastChange } = await import("./forecast-preview");
   const { applyDecisionIfEffective } = await import("./decision-effects");
@@ -62,5 +62,59 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
     await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it("falls back to the ledger when the latest run is behind the company revision", async () => {
+    const ledger = await import("./journal-ledger");
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Legal", amount: "150", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+    const before = (await db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)))[0]!.revision;
+    const bumped = String(BigInt(before) + 1n);
+    await db.update(companies).set({ financialStateRevision: bumped }).where(eq(companies.id, companyId));
+    await db.insert(financialStateRevisions).values({ companyId, revision: bumped, kind: "entity_changed", subjectType: "company", subjectId: companyId, actorUserId: null, via: "worker" });
+    try {
+      const fallbackSpy = vi.spyOn(ledger, "loadPostedJournalLines");
+      const fallback = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(fallbackSpy).toHaveBeenCalled();
+      fallbackSpy.mockRestore();
+
+      await db.update(companies).set({ financialStateRevision: before }).where(eq(companies.id, companyId));
+      const reuseSpy = vi.spyOn(ledger, "loadPostedJournalLines");
+      const reused = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(reuseSpy).not.toHaveBeenCalled();
+      reuseSpy.mockRestore();
+
+      expect(headline(fallback.consequence)).toEqual(headline(reused.consequence));
+    } finally {
+      await db.update(companies).set({ financialStateRevision: before }).where(eq(companies.id, companyId));
+    }
+  });
+
+  it("falls back to the ledger when the stored input has the old actualLines shape", async () => {
+    const ledger = await import("./journal-ledger");
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Utilities", amount: "80", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+    const [row] = await db.select({ id: calculationRuns.id, inputJson: calculationRuns.inputJson }).from(calculationRuns)
+      .where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%")))
+      .orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1);
+    const originalInputJson = row!.inputJson;
+    const parsed = JSON.parse(originalInputJson) as Record<string, unknown>;
+    delete parsed.actuals;
+    const oldShape = JSON.stringify({ ...parsed, actualLines: [] });
+    await db.update(calculationRuns).set({ inputJson: oldShape }).where(eq(calculationRuns.id, row!.id));
+    try {
+      const fallbackSpy = vi.spyOn(ledger, "loadPostedJournalLines");
+      const fallback = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(fallbackSpy).toHaveBeenCalled();
+      fallbackSpy.mockRestore();
+
+      await db.update(calculationRuns).set({ inputJson: originalInputJson }).where(eq(calculationRuns.id, row!.id));
+      const reuseSpy = vi.spyOn(ledger, "loadPostedJournalLines");
+      const reused = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(reuseSpy).not.toHaveBeenCalled();
+      reuseSpy.mockRestore();
+
+      expect(headline(fallback.consequence)).toEqual(headline(reused.consequence));
+    } finally {
+      await db.update(calculationRuns).set({ inputJson: originalInputJson }).where(eq(calculationRuns.id, row!.id));
+    }
   });
 });
