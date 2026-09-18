@@ -1,6 +1,6 @@
 import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
@@ -11,7 +11,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { calculationRuns, chartAccounts, closeDatabase, companies, decisions, economicItems, evidence, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase, users } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
-  const { previewForecastChange } = await import("./forecast-preview");
+  const { previewForecastChange, PreviewConflict } = await import("./forecast-preview");
   const { applyDecisionIfEffective } = await import("./decision-effects");
   const { forecastAsOfMonth } = await import("./forecast-inputs");
   const { addMonths } = await import("@nevermodel/finance-engine");
@@ -58,6 +58,39 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
       expect(previewWithoutEvidence.sources).toEqual([]);
     } finally {
       await db.delete(users).where(eq(users.id, user!.id));
+    }
+  });
+
+  it("previews a batch confirmation exactly as a bulk confirm later lands", async () => {
+    const [user] = await db.insert(users).values({ authProvider: "test", authProviderUserId: `preview-batch-${Date.now()}`, email: `preview-batch-${Date.now()}@example.com` }).returning({ id: users.id });
+    const [source] = await db.insert(evidence).values({ companyId, createdByUserId: user!.id, sourceName: "Batch MSA.pdf", rawText: "" }).returning({ id: evidence.id });
+    try {
+      const [first, second] = await db.insert(economicItems).values([
+        { companyId, evidenceId: source!.id, type: "obligation", direction: "spend", label: "Batch A", amount: "120", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" },
+        { companyId, type: "obligation", direction: "spend", label: "Batch B", amount: "45", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" },
+      ]).returning({ id: economicItems.id });
+      const ids = [first!.id, second!.id];
+      const preview = await previewForecastChange(companyId, { kind: "confirm_items", itemIds: ids });
+      expect(preview.sources).toEqual([{ evidenceId: source!.id, sourceName: "Batch MSA.pdf" }]);
+      await db.update(economicItems).set({ status: "confirmed" }).where(inArray(economicItems.id, ids));
+      await refreshCurrentCalculationRun(companyId, { cause: { kind: "item_confirmed", subjectType: "economic_item", subjectId: null, actorUserId: null, via: "worker", subjectIds: ids } });
+      expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
+    } finally {
+      await db.delete(users).where(eq(users.id, user!.id));
+    }
+  });
+
+  it("rejects a batch preview that mixes a draft item with a non-draft item", async () => {
+    const [draft, confirmed] = await db.insert(economicItems).values([
+      { companyId, type: "obligation", direction: "spend", label: "Draft item", amount: "20", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" },
+      { companyId, type: "obligation", direction: "spend", label: "Already confirmed", amount: "30", cadence: "monthly", effectiveFrom: firstMonth, status: "confirmed" },
+    ]).returning({ id: economicItems.id });
+    try {
+      await expect(previewForecastChange(companyId, { kind: "confirm_items", itemIds: [draft!.id, confirmed!.id] })).rejects.toBeInstanceOf(PreviewConflict);
+    } finally {
+      // The "confirmed" item here was never picked up by a refresh, so it must not linger as an
+      // unaccounted-for driver for later tests in this shared company.
+      await db.delete(economicItems).where(inArray(economicItems.id, [draft!.id, confirmed!.id]));
     }
   });
 

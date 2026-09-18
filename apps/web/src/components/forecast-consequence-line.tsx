@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SourceLinks } from "@/components/source-links";
 import { describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 
-type PreviewRequest = { kind: "confirm_item"; itemId: string } | { kind: "apply_decision"; decisionId: string };
+type PreviewRequest = { kind: "confirm_item"; itemId: string } | { kind: "confirm_items"; itemIds: string[] } | { kind: "apply_decision"; decisionId: string };
 
 /**
  * "Forecast: …" under a pending approval, computed by the read-only preview endpoint.
@@ -21,7 +21,10 @@ export function ForecastConsequenceLine({ request, revision, onOpenEvidence }: {
       .then((response) => (response.ok ? response.json() : null))
       .then((result) => {
         if (cancelled) return;
-        setText(result ? result.note ?? describeConsequence(result.consequence, result.exceptionsAfter) : null);
+        // A batch preview can carry both a consequence and a note (e.g. some items were scenario-only
+        // and skipped): show the headline with the note appended, not one or the other.
+        const headline = result ? (result.consequence ? describeConsequence(result.consequence, result.exceptionsAfter) : result.note ?? null) : null;
+        setText(headline && result?.consequence && result.note ? `${headline} · ${result.note}` : headline);
         setSources(result?.sources ?? []);
       })
       .catch(() => { if (!cancelled) { setText(null); setSources([]); } });

@@ -381,7 +381,7 @@ type ChatEvidence = {
 };
 type ReviewQuestion = { id: string; reviewKey?: string | null; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected"; effectSummary?: string | null };
-type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null };
+type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null; evidenceId?: string | null };
 type BalanceSheetView = { month: string; hasOpening: boolean; balances: Record<string, number>; cashByAccount: { accountId: string | null; name: string; balance: number }[]; assets: number; liabilities: number; equity: number; check: number; balanced: boolean };
 type CashFlowView = { month: string; netIncome: number; eliminations: number; changes: Record<string, number>; operatingIndirect: number; operating: number; investing: number; financing: number; transfers: number; adjustments: number; netChange: number; openingCash?: number; endingCash?: number; ties: boolean };
 type EntityStructureView = { legalEntities: { id: string; name: string; consolidated: boolean }[]; accounts: { id: string; name: string; ownerEntityId: string | null }[] };
@@ -600,6 +600,14 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   }, new Map()).values()];
   const coveredMonths = [...new Set(evidence.map((item) => item.reportingMonth ?? item.statementPeriodEnd?.slice(0, 7)).filter((month): month is string => Boolean(month)))].sort();
   const draftItems = proposedItems.filter((item) => item.status === "draft");
+  // Draft items sharing an evidence id are grouped so a document with several interpreted items
+  // gets one header; a draft with no evidence is always its own (headerless) group.
+  const draftGroups = draftItems.reduce<{ evidenceId: string | null; sourceName: string | null; items: ProposedItem[] }[]>((groups, item) => {
+    const existing = item.evidenceId ? groups.find((group) => group.evidenceId === item.evidenceId) : null;
+    if (existing) existing.items.push(item);
+    else groups.push({ evidenceId: item.evidenceId ?? null, sourceName: item.sourceName ?? null, items: [item] });
+    return groups;
+  }, []);
   const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length + draftItems.length;
   useEffect(() => {
     const updatePlaceholder = () => setComposerPlaceholder(composerCallToAction(new Date(), { needsInputCount, hasConversation: turns.length > 0, hasFiles: files.length > 0 }));
@@ -1611,24 +1619,46 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               {draftItems.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2"><span>Interpreted items · confirm before they enter the forecast</span>{draftItems.length > 1 && <button type="button" className="normal-case tracking-normal text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={() => reviewProposedItems(draftItems.map((item) => item.id), "confirmed")}>Confirm all {draftItems.length}</button>}</div>
-                  {draftItems.map((item) => (
-                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`item-${item.id}`}>
-                      <div className="min-w-0">
-                        <div>{item.label}{item.counterpartyName || item.counterparty ? <span className="text-ink-2"> · {item.counterpartyName ?? item.counterparty}</span> : null}</div>
-                        <div className="mt-0.5 text-[13px] text-ink-2">
-                          <span className="font-medium text-ink">{item.direction === "spend" ? "−" : "+"}{money(item.amount ?? 0)}</span>
-                          {` ${item.cadence ?? "once"}`}{item.effectiveFrom ? ` from ${monthLabel(item.effectiveFrom)}` : ""}{item.effectiveTo ? ` to ${monthLabel(item.effectiveTo)}` : ""}
-                          {item.category ? ` · ${item.category.replace(/_/g, " ")}` : ""}{item.accountingTreatment !== "cash" ? ` · ${item.accountingTreatment}` : ""}{item.basis === "assumed" ? " · assumption" : ""}
-                          {item.confidence !== null && item.confidence !== undefined && item.confidence < 0.8 ? <span className="text-pencil"> · {Math.round(item.confidence * 100)}% confident</span> : null}
+                  {draftItems.length > 1 && (
+                    <div className="border-b border-rule py-2">
+                      <ForecastConsequenceLine request={{ kind: "confirm_items", itemIds: draftItems.map((item) => item.id) }} revision={runway?.revision} onOpenEvidence={openEvidence} />
+                    </div>
+                  )}
+                  {draftGroups.map((group) => (
+                    <div key={`item-group-${group.evidenceId ?? group.items[0]!.id}`}>
+                      {group.items.length > 1 && (
+                        <div className="flex items-center justify-between gap-2 border-b border-rule bg-paper-2 py-2 text-[13px]">
+                          <span className="font-medium text-ink">
+                            {group.evidenceId ? <button type="button" className="underline underline-offset-2" onClick={() => openEvidence(group.evidenceId!)}>{group.sourceName ?? "uploaded evidence"}</button> : (group.sourceName ?? "uploaded evidence")}
+                          </span>
+                          <button type="button" className="text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={() => reviewProposedItems(group.items.map((item) => item.id), "confirmed")}>Confirm all from this document</button>
                         </div>
-                        {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
-                        {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
-                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} onOpenEvidence={openEvidence} />
-                      </div>
-                      <span className="flex gap-1">
-                        <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
-                        <button className={actionButton} type="button" aria-label="Reject interpreted item" title="Reject" onClick={() => reviewProposedItems([item.id], "rejected")}><Trash2 /></button>
-                      </span>
+                      )}
+                      {group.items.length > 1 && (
+                        <div className="border-b border-rule py-1.5">
+                          <ForecastConsequenceLine request={{ kind: "confirm_items", itemIds: group.items.map((item) => item.id) }} revision={runway?.revision} onOpenEvidence={openEvidence} />
+                        </div>
+                      )}
+                      {group.items.map((item) => (
+                        <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`item-${item.id}`}>
+                          <div className="min-w-0">
+                            <div>{item.label}{item.counterpartyName || item.counterparty ? <span className="text-ink-2"> · {item.counterpartyName ?? item.counterparty}</span> : null}</div>
+                            <div className="mt-0.5 text-[13px] text-ink-2">
+                              <span className="font-medium text-ink">{item.direction === "spend" ? "−" : "+"}{money(item.amount ?? 0)}</span>
+                              {` ${item.cadence ?? "once"}`}{item.effectiveFrom ? ` from ${monthLabel(item.effectiveFrom)}` : ""}{item.effectiveTo ? ` to ${monthLabel(item.effectiveTo)}` : ""}
+                              {item.category ? ` · ${item.category.replace(/_/g, " ")}` : ""}{item.accountingTreatment !== "cash" ? ` · ${item.accountingTreatment}` : ""}{item.basis === "assumed" ? " · assumption" : ""}
+                              {item.confidence !== null && item.confidence !== undefined && item.confidence < 0.8 ? <span className="text-pencil"> · {Math.round(item.confidence * 100)}% confident</span> : null}
+                            </div>
+                            {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
+                            {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
+                            <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} onOpenEvidence={openEvidence} />
+                          </div>
+                          <span className="flex gap-1">
+                            <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
+                            <button className={actionButton} type="button" aria-label="Reject interpreted item" title="Reject" onClick={() => reviewProposedItems([item.id], "rejected")}><Trash2 /></button>
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

@@ -7,12 +7,14 @@ import { PreviewConflict, previewForecastChange, type ForecastPreviewChange } fr
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const body = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("confirm_item"), itemId: z.string().uuid(), edits: z.object({ amount: z.number().positive().optional(), cadence: z.enum(["once", "monthly", "quarterly", "annual"]).optional(), effectiveFrom: month.optional(), effectiveTo: month.nullable().optional(), category: z.enum(categories).optional() }).optional() }),
+  z.object({ kind: z.literal("confirm_items"), itemIds: z.array(z.string().uuid()).min(1).max(200) }),
   z.object({ kind: z.literal("apply_decision"), decisionId: z.string().uuid() }),
 ]);
 
 /** zod's inferred optionals allow `undefined` explicitly; exactOptionalPropertyTypes does not, so rebuild with conditional spreads. */
 function toChange(data: z.infer<typeof body>): ForecastPreviewChange {
   if (data.kind === "apply_decision") return { kind: "apply_decision", decisionId: data.decisionId };
+  if (data.kind === "confirm_items") return { kind: "confirm_items", itemIds: data.itemIds };
   const edits = data.edits;
   return {
     kind: "confirm_item",
