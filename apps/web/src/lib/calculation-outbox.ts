@@ -1,7 +1,8 @@
 import "server-only";
 import { and, asc, eq, lt, or } from "drizzle-orm";
 import { calculationOutbox, companies, getDatabase } from "@finance/database";
-import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, forecastFormulaVersion, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { runForecastJob } from "@/lib/forecast-job";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
@@ -28,7 +29,9 @@ export async function processCalculationOutboxJob(jobId: string): Promise<Calcul
       await db.update(calculationOutbox).set({ status: "superseded", completedAt: new Date(), updatedAt: new Date() }).where(eq(calculationOutbox.id, job.id));
       return { id: job.id, status: "superseded" };
     }
-    const run = job.engineVersion === journalCalculationFormulaVersion && /^\d{4}-(0[1-9]|1[0-2])$/.test(job.period)
+    const run = job.engineVersion === forecastFormulaVersion && job.period === "forecast"
+      ? await runForecastJob(job.companyId, job.financialStateRevision)
+      : job.engineVersion === journalCalculationFormulaVersion && /^\d{4}-(0[1-9]|1[0-2])$/.test(job.period)
         ? await (async () => {
           const reconciliation = await loadJournalReconciliation(job.companyId, job.period);
           const allocationAnalysis = await loadJournalAllocationAnalysis(job.companyId, job.period);
@@ -45,7 +48,7 @@ export async function processCalculationOutboxJob(jobId: string): Promise<Calcul
   }
 }
 
-/** Process a bounded batch for a cron/worker invocation. Journal jobs retry safely; former event jobs are superseded. */
+/** Process a bounded batch for a cron/worker invocation. Journal and forecast jobs retry safely. */
 export async function processQueuedCalculationJobs(limit = 10) {
   await recoverStaleCalculationJobs();
   const jobs = await getDatabase().select({ id: calculationOutbox.id }).from(calculationOutbox).where(or(eq(calculationOutbox.status, "queued"), eq(calculationOutbox.status, "failed"))).orderBy(asc(calculationOutbox.createdAt)).limit(Math.max(1, Math.min(limit, 50)));
