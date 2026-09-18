@@ -6,24 +6,28 @@ import { diffForecastRuns, stableJson, type ForecastRun, type ForecastRunInput }
 
 const forecastEngines = "forecast-run-%";
 
-/** Persist a derived forecast exactly like a journal graph: one run per (revision, engine, input), with inspectable nodes. */
+/**
+ * Persist a derived forecast exactly like a journal graph: one run per (revision, engine, input), with inspectable nodes.
+ * The run and its nodes commit together, so a reused run always has its nodes.
+ */
 export async function persistForecastRun(input: { companyId: string; financialStateRevision: string; run: ForecastRun; input: ForecastRunInput }) {
-  const db = getDatabase();
   const inputJson = stableJson(input.input);
   const inputHash = createHash("sha256").update(inputJson).digest("hex");
-  const inserted = await db.insert(calculationRuns).values({
-    companyId: input.companyId, engineVersion: input.run.formulaVersion, inputHash, financialStateRevision: input.financialStateRevision,
-    asOfMonth: input.run.asOfMonth, horizonStart: input.run.horizon.start, horizonEnd: input.run.horizon.end,
-    inputJson, outputJson: stableJson(input.run), verificationStatus: input.run.verificationStatus,
-  }).onConflictDoNothing().returning({ id: calculationRuns.id });
-  const run = inserted[0] ?? (await db.select({ id: calculationRuns.id }).from(calculationRuns).where(and(eq(calculationRuns.companyId, input.companyId), eq(calculationRuns.financialStateRevision, input.financialStateRevision), eq(calculationRuns.engineVersion, input.run.formulaVersion), eq(calculationRuns.inputHash, inputHash))).limit(1))[0];
-  if (!run) throw new Error("Unable to create or locate forecast calculation run");
-  if (inserted[0] && input.run.nodes.length) await db.insert(calculationNodes).values(input.run.nodes.map((node) => ({
-    calculationRunId: run.id, nodeKey: node.id, kind: node.kind, month: node.month, label: node.label, formula: node.formula, formulaVersion: node.formulaVersion,
-    valueJson: stableJson(node.value), inputNodeIds: stableJson(node.inputNodeIds), lineIds: stableJson([]), provenance: stableJson({ driverIds: node.driverIds }),
-    verificationStatus: input.run.verificationStatus, verificationReasons: stableJson(input.run.exceptions.map((exception) => exception.reason)),
-  })));
-  return { id: run.id, reused: !inserted[0] };
+  return getDatabase().transaction(async (tx) => {
+    const inserted = await tx.insert(calculationRuns).values({
+      companyId: input.companyId, engineVersion: input.run.formulaVersion, inputHash, financialStateRevision: input.financialStateRevision,
+      asOfMonth: input.run.asOfMonth, horizonStart: input.run.horizon.start, horizonEnd: input.run.horizon.end,
+      inputJson, outputJson: stableJson(input.run), verificationStatus: input.run.verificationStatus,
+    }).onConflictDoNothing().returning({ id: calculationRuns.id });
+    const run = inserted[0] ?? (await tx.select({ id: calculationRuns.id }).from(calculationRuns).where(and(eq(calculationRuns.companyId, input.companyId), eq(calculationRuns.financialStateRevision, input.financialStateRevision), eq(calculationRuns.engineVersion, input.run.formulaVersion), eq(calculationRuns.inputHash, inputHash))).limit(1))[0];
+    if (!run) throw new Error("Unable to create or locate forecast calculation run");
+    if (inserted[0] && input.run.nodes.length) await tx.insert(calculationNodes).values(input.run.nodes.map((node) => ({
+      calculationRunId: run.id, nodeKey: node.id, kind: node.kind, month: node.month, label: node.label, formula: node.formula, formulaVersion: node.formulaVersion,
+      valueJson: stableJson(node.value), inputNodeIds: stableJson(node.inputNodeIds), lineIds: stableJson([]), provenance: stableJson({ driverIds: node.driverIds }),
+      verificationStatus: input.run.verificationStatus, verificationReasons: stableJson(input.run.exceptions.map((exception) => exception.reason)),
+    })));
+    return { id: run.id, reused: !inserted[0] };
+  });
 }
 
 /** The most recent forecast run strictly before a revision, across forecast formula versions. */

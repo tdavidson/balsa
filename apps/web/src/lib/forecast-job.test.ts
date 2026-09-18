@@ -10,10 +10,12 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 // Real Postgres: what is under test is revision attribution across the outbox, which a fake would not prove.
 describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { calculationNodes, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
-  const { forecastAsOfMonth } = await import("./forecast-inputs");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { forecastAsOfMonth, loadForecastInputs } = await import("./forecast-inputs");
+  const { persistForecastRun } = await import("./forecast-persistence");
+  const { runForecastJob } = await import("./forecast-job");
+  const { addMonths, buildForecastRun } = await import("@nevermodel/finance-engine");
   const db = getDatabase();
   let companyId = ""; let itemId = ""; let firstMonth = "";
   const cause = (kind: "entity_changed" | "item_confirmed" | "item_edited", subjectId: string | null) => ({ kind, subjectType: kind === "entity_changed" ? "company" : "economic_item", subjectId, actorUserId: null, via: "worker" as const });
@@ -64,5 +66,23 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     const row = (await latestConsequence())!;
     expect((row.causes as { kind: string }[]).map((entry) => entry.kind)).toEqual(["fx_changed", "item_edited"]);
     expect((await db.select().from(financialStateRevisions).where(and(eq(financialStateRevisions.companyId, companyId)))).length).toBe(4);
+  });
+
+  it("records the consequence when a retried job finds its run already persisted", async () => {
+    // A job that persisted its run and then failed before recording the consequence.
+    const [bumped] = await db.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text` }).where(eq(companies.id, companyId)).returning({ revision: companies.financialStateRevision });
+    const revision = bumped!.revision;
+    await db.insert(financialStateRevisions).values({ companyId, revision, kind: "item_edited", subjectType: "economic_item", subjectId: itemId, via: "worker" });
+    await db.update(economicItems).set({ amount: "3000" }).where(eq(economicItems.id, itemId));
+    const input = await loadForecastInputs(companyId);
+    const persisted = await persistForecastRun({ companyId, financialStateRevision: revision, run: buildForecastRun(input), input });
+    expect(persisted.reused).toBe(false);
+    expect((await db.select().from(calculationNodes).where(eq(calculationNodes.calculationRunId, persisted.id))).length).toBeGreaterThan(0);
+
+    const retried = await runForecastJob(companyId, revision);
+    expect(retried).toEqual({ id: persisted.id, reused: true });
+    expect((await latestConsequence())?.revision).toBe(revision);
+    await runForecastJob(companyId, revision);
+    expect((await db.select().from(forecastConsequences).where(and(eq(forecastConsequences.companyId, companyId), eq(forecastConsequences.revision, revision)))).length).toBe(1);
   });
 });
