@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/auth";
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
-import { effectiveAsOfPeriod } from "@/lib/forecast-read";
+import { effectiveAsOfPeriod, loadLatestForecast } from "@/lib/forecast-read";
 
 const validMonth = (value: string | null): value is string => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 const sections = ["revenue", "expenses", "income_statement", "assets", "liabilities", "equity", "balance_sheet", "cash_flow", "cash_to_bank"] as const;
@@ -24,11 +24,14 @@ export async function GET(request: Request) {
   // withDerivedForecast in journal-ledger.ts); a forecast as-of after `period` is clamped
   // instead of rejecting the request, matching the reporting and calculations routes. A
   // caller-supplied asOfPeriod with no forecast anchoring still 400s as before.
-  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod);
+  // Load the forecast once per request and reuse it for both the as-of resolution and
+  // the report below.
+  const forecast = view === "projected" || view === "scenario" ? await loadLatestForecast(context.company.id) : undefined;
+  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod, forecast);
   if (!forecastAnchored && forecastAsOf && forecastAsOf > period) return NextResponse.json({ error: "Invalid asOfPeriod" }, { status: 400 });
   const asOfPeriod = forecastAnchored && forecastAsOf! > period ? period : forecastAsOf;
   const actualReconciliation = view === "actual" ? await loadJournalReconciliation(context.company.id, period) : null;
-  const report = actualReconciliation ?? await loadJournalReport(context.company.id, period, undefined, { view: view as "actual" | "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), ...(scenarioId ? { scenarioId } : {}) });
+  const report = actualReconciliation ?? await loadJournalReport(context.company.id, period, undefined, { view: view as "actual" | "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), ...(scenarioId ? { scenarioId } : {}) }, { ...(forecast !== undefined ? { forecast } : {}) });
   const { statements, trialBalance } = actualReconciliation ?? report;
   const currency = statements.byCurrency.find((item) => item.currency === context.company.baseCurrency) ?? statements.byCurrency[0];
   if (!currency) return NextResponse.json({ period, section, key, lines: [], accounts: [], verification: "unverified_no_posted_entries", verificationReasons: ["No posted journal entries are available for this period."] });

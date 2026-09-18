@@ -1,6 +1,7 @@
 import "server-only";
 import { endingCashMinor as computeEndingCashMinor, type CurrencyJournalStatements, JournalStatementSelection } from "@nevermodel/finance-engine";
 import { loadJournalReport } from "@/lib/journal-ledger";
+import { loadLatestForecast, type LatestForecast } from "@/lib/forecast-read";
 
 const nextMonth = (month: string) => { const [year, number] = month.split("-").map(Number); const date = new Date(Date.UTC(year!, number!, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; };
 const monthsInRange = (start: string, end: string) => { const months: string[] = []; for (let month = start; month <= end; month = nextMonth(month)) months.push(month); return months; };
@@ -17,11 +18,14 @@ export type JournalFinancialMonth = {
 };
 
 /** Convert entry-graph statements into the dashboard's display units, without redoing any accounting math. */
-export async function loadJournalFinancialMonths(input: { companyId: string; start: string; end: string; currency: string; entityId?: string; selection: JournalStatementSelection; asOfPeriod?: string; view: "actual" | "projected" | "scenario" }): Promise<JournalFinancialMonth[]> {
+export async function loadJournalFinancialMonths(input: { companyId: string; start: string; end: string; currency: string; entityId?: string; selection: JournalStatementSelection; asOfPeriod?: string; view: "actual" | "projected" | "scenario"; forecast?: LatestForecast | null }): Promise<JournalFinancialMonth[]> {
+  // Projected/scenario views read the same forecast for every month; load it once here
+  // rather than let each loadJournalReport call load it again.
+  const forecast = input.forecast !== undefined ? input.forecast : (input.view === "projected" || input.view === "scenario") ? await loadLatestForecast(input.companyId) : undefined;
   let priorCashMinor = 0n;
   const rows: JournalFinancialMonth[] = [];
   for (const month of monthsInRange(input.start, input.end)) {
-    const { statements } = await loadJournalReport(input.companyId, month, input.entityId, input.selection);
+    const { statements } = await loadJournalReport(input.companyId, month, input.entityId, input.selection, { ...(forecast !== undefined ? { forecast } : {}) });
     const statement = statements.byCurrency.find((candidate) => candidate.currency === input.currency) ?? null;
     if (!statement) {
       const priorCash = major(priorCashMinor);

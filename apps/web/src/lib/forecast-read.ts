@@ -7,10 +7,18 @@ import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
 const parsedRuns = new Map<string, ForecastRun>();
 
 /**
+ * Test-only call counter for `loadLatestForecast`, incremented only under Vitest.
+ * A fallback for tests that assert call counts when spying on the ESM export does
+ * not intercept calls from other modules in this app's module graph.
+ */
+export const __loadLatestForecastCallCount = { current: 0 };
+
+/**
  * The latest persisted forecast run. `stale` means a newer revision's forecast has not completed yet,
  * or the calendar has moved past the run's as-of month (the as-of the next run would use is later).
  */
 export async function loadLatestForecast(companyId: string, now = new Date()) {
+  if (process.env.VITEST) __loadLatestForecastCallCount.current += 1;
   const db = getDatabase();
   const [[row], [company], [closure]] = await Promise.all([
     db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, asOfMonth: calculationRuns.asOfMonth }).from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%"))).orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1),
@@ -30,6 +38,8 @@ export async function loadLatestForecast(companyId: string, now = new Date()) {
   return { runId: row.id, revision: row.revision, run, stale };
 }
 
+export type LatestForecast = NonNullable<Awaited<ReturnType<typeof loadLatestForecast>>>;
+
 /**
  * The as-of period a projected/scenario reader should validate against and report in
  * its labels/echo: the latest forecast's as-of month when one exists — matching the
@@ -38,11 +48,14 @@ export async function loadLatestForecast(companyId: string, now = new Date()) {
  * `forecastAnchored` tells the caller whether the as-of came from a forecast, so it can
  * clamp an out-of-range label instead of rejecting the request (the caller's own
  * out-of-range value, with no forecast involved, should still be rejected as before).
+ *
+ * `forecast` lets a caller that already loaded the forecast for this request reuse it:
+ * `undefined` (the default) loads it here as before; `null` means "no forecast exists".
  */
-export async function effectiveAsOfPeriod(companyId: string, view: string, requested: string | undefined): Promise<{ asOfPeriod: string | undefined; forecastAnchored: boolean }> {
+export async function effectiveAsOfPeriod(companyId: string, view: string, requested: string | undefined, forecast?: LatestForecast | null): Promise<{ asOfPeriod: string | undefined; forecastAnchored: boolean }> {
   if (view !== "projected" && view !== "scenario") return { asOfPeriod: requested, forecastAnchored: false };
-  const forecast = await loadLatestForecast(companyId);
-  return forecast ? { asOfPeriod: forecast.run.asOfMonth, forecastAnchored: true } : { asOfPeriod: requested, forecastAnchored: false };
+  const resolved = forecast !== undefined ? forecast : await loadLatestForecast(companyId);
+  return resolved ? { asOfPeriod: resolved.run.asOfMonth, forecastAnchored: true } : { asOfPeriod: requested, forecastAnchored: false };
 }
 
 export type ConsequenceCause = { revision: string; kind: string; subjectType: string; subjectId: string | null; subjectIds?: string[]; actorUserId: string | null; via: string; createdAt: string; subjectLabel: string | null; subjectLabels: string[] };
