@@ -1,5 +1,8 @@
 import type { ForecastConsequence } from "@nevermodel/finance-engine";
 
+/** A driver's or item's supporting document: the evidence id it links to, and its resolved name (company-scoped). */
+export type ConsequenceSource = { evidenceId: string; sourceName: string | null };
+
 const monthName = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 const signedMoney = (minor: string) => {
   const value = BigInt(minor); const dollars = Number((value < 0n ? -value : value) / 100n);
@@ -62,4 +65,16 @@ export function describeCause(cause: { kind: string; subjectLabel: string | null
   }
   const subjectLabel = cause.subjectLabel ?? (labels.length === 1 ? (labels[0] ?? null) : null);
   return `${verb} ${subjectLabel ?? noun}`;
+}
+
+/**
+ * Plain-text summary of the documents behind a consequence or item, named by the first
+ * source with the rest counted: "from Acme MSA.pdf", or "from Acme MSA.pdf and 2 more".
+ * Returns null when there are no sources. Rendered separately from any link — see design doc.
+ */
+export function describeSources(sources: ConsequenceSource[]): string | null {
+  if (!sources.length) return null;
+  const [first, ...rest] = sources;
+  const name = first!.sourceName ?? "a source";
+  return rest.length ? `from ${name} and ${rest.length} more` : `from ${name}`;
 }

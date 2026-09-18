@@ -9,7 +9,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 
 describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { calculationRuns, chartAccounts, closeDatabase, companies, decisions, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { calculationRuns, chartAccounts, closeDatabase, companies, decisions, economicItems, evidence, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase, users } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { previewForecastChange } = await import("./forecast-preview");
   const { applyDecisionIfEffective } = await import("./decision-effects");
@@ -43,6 +43,22 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
     await db.update(economicItems).set({ status: "confirmed" }).where(eq(economicItems.id, item!.id));
     await refreshCurrentCalculationRun(companyId, { cause: { kind: "item_confirmed", subjectType: "economic_item", subjectId: item!.id, actorUserId: null, via: "worker" } });
     expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
+  });
+
+  it("carries the draft item's evidence as a source, scoped to the company", async () => {
+    const [user] = await db.insert(users).values({ authProvider: "test", authProviderUserId: `preview-sources-${Date.now()}`, email: `preview-sources-${Date.now()}@example.com` }).returning({ id: users.id });
+    const [source] = await db.insert(evidence).values({ companyId, createdByUserId: user!.id, sourceName: "Retainer agreement.pdf", rawText: "" }).returning({ id: evidence.id });
+    try {
+      const [withEvidence] = await db.insert(economicItems).values({ companyId, evidenceId: source!.id, type: "obligation", direction: "spend", label: "Consulting", amount: "300", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+      const preview = await previewForecastChange(companyId, { kind: "confirm_item", itemId: withEvidence!.id });
+      expect(preview.sources).toEqual([{ evidenceId: source!.id, sourceName: "Retainer agreement.pdf" }]);
+
+      const [withoutEvidence] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "No source", amount: "40", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+      const previewWithoutEvidence = await previewForecastChange(companyId, { kind: "confirm_item", itemId: withoutEvidence!.id });
+      expect(previewWithoutEvidence.sources).toEqual([]);
+    } finally {
+      await db.delete(users).where(eq(users.id, user!.id));
+    }
   });
 
   it("previews a decision exactly as it later lands", async () => {

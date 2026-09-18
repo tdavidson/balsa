@@ -2,7 +2,7 @@
 
 import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { CompanyRole } from "@finance/auth";
 import type { ForecastRunway } from "@nevermodel/finance-engine";
 import { AccountMenu } from "@/components/account-menu";
@@ -464,6 +464,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [calculationNodes, setCalculationNodes] = useState<CalculationTraceNode[]>([]);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  /** Opens the Documents dialog on a specific piece of evidence, e.g. from a consequence or preview source link. */
+  const openEvidence = useCallback((evidenceId: string) => { setSelectedEvidenceId(evidenceId); setDocumentsOpen(true); }, []);
   const [reprocessingEvidenceId, setReprocessingEvidenceId] = useState<string | null>(null);
   const locallyRunningExtractionIds = useRef(new Set<string>());
   const [savingWorkbookReviewId, setSavingWorkbookReviewId] = useState<string | null>(null);
@@ -1621,7 +1623,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         </div>
                         {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
                         {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
-                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} />
+                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} onOpenEvidence={openEvidence} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
@@ -1640,7 +1642,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         <div>{decision.question}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
                         {decision.effectSummary && <div className="mt-0.5 text-[13px] text-pencil">If applied: {decision.effectSummary}</div>}
-                        <ForecastConsequenceLine request={{ kind: "apply_decision", decisionId: decision.id }} revision={runway?.revision} />
+                        <ForecastConsequenceLine request={{ kind: "apply_decision", decisionId: decision.id }} revision={runway?.revision} onOpenEvidence={openEvidence} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
@@ -1810,7 +1812,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               {...(runway ? { onClick: () => openCalculationTrace("forecast") } : {})}
             />
           </div>
-          {runway && <ForecastWhatChanged refreshKey={runway.revision} />}
+          {runway && <ForecastWhatChanged refreshKey={runway.revision} onOpenEvidence={openEvidence} />}
 
           {bars.length ? (
             <div className="grid gap-2.5">

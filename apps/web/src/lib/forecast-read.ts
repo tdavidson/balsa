@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { calculationRuns, companies, decisions, economicItems, evidence, forecastConsequences, getDatabase, journalPeriodClosures } from "@finance/database";
 import type { ForecastConsequence, ForecastRun } from "@nevermodel/finance-engine";
+import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
 
 const parsedRuns = new Map<string, ForecastRun>();
@@ -53,6 +54,16 @@ export async function effectiveAsOfPeriod(companyId: string, view: string, reque
 export type ConsequenceCause = { revision: string; kind: string; subjectType: string; subjectId: string | null; subjectIds?: string[]; actorUserId: string | null; via: string; createdAt: string; subjectLabel: string | null; subjectLabels: string[] };
 type RawCause = Omit<ConsequenceCause, "subjectLabel" | "subjectLabels">;
 
+/** Every evidence id a driver ref in a consequence's delta carries, deduplicated in order of first appearance. */
+function driverEvidenceIds(delta: ForecastConsequence): string[] {
+  const ids = [
+    ...delta.drivers.added.map((driver) => driver.evidenceId),
+    ...delta.drivers.removed.map((driver) => driver.evidenceId),
+    ...delta.drivers.changed.flatMap((change) => [change.before.evidenceId, change.after.evidenceId]),
+  ].filter((id): id is string => Boolean(id));
+  return [...new Set(ids)];
+}
+
 /** Recent consequences with a human label for each cause's subject, including every subject of a bulk cause. */
 export async function loadRecentConsequences(companyId: string, limit = 10) {
   const db = getDatabase();
@@ -60,14 +71,22 @@ export async function loadRecentConsequences(companyId: string, limit = 10) {
   const causes = rows.flatMap((row) => row.causes as RawCause[]);
   const subjectIds = (cause: RawCause) => [...(cause.subjectId ? [cause.subjectId] : []), ...(cause.subjectIds ?? [])];
   const ids = (type: string) => [...new Set(causes.filter((cause) => cause.subjectType === type).flatMap(subjectIds))];
+  const evidenceIds = [...new Set([...ids("evidence"), ...rows.flatMap((row) => driverEvidenceIds(row.delta as ForecastConsequence))])];
   const [items, documents, answers] = await Promise.all([
     ids("economic_item").length ? db.select({ id: economicItems.id, label: economicItems.label }).from(economicItems).where(and(eq(economicItems.companyId, companyId), inArray(economicItems.id, ids("economic_item")))) : [],
-    ids("evidence").length ? db.select({ id: evidence.id, label: evidence.sourceName }).from(evidence).where(and(eq(evidence.companyId, companyId), inArray(evidence.id, ids("evidence")))) : [],
+    evidenceIds.length ? db.select({ id: evidence.id, label: evidence.sourceName }).from(evidence).where(and(eq(evidence.companyId, companyId), inArray(evidence.id, evidenceIds))) : [],
     ids("decision").length ? db.select({ id: decisions.id, label: decisions.question }).from(decisions).where(and(eq(decisions.companyId, companyId), inArray(decisions.id, ids("decision")))) : [],
   ]);
   const labels = new Map([...items, ...documents, ...answers].map((row) => [row.id, row.label]));
-  return rows.map((row) => ({
-    id: row.id, revision: row.revision, createdAt: row.createdAt.toISOString(), delta: row.delta as ForecastConsequence,
-    causes: (row.causes as RawCause[]).map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null, subjectLabels: (cause.subjectIds ?? []).map((id) => labels.get(id)).filter((label): label is string => Boolean(label)) })),
-  }));
+  const sourceNames = new Map(documents.map((row) => [row.id, row.label]));
+  return rows.map((row) => {
+    const delta = row.delta as ForecastConsequence;
+    const sources: ConsequenceSource[] = driverEvidenceIds(delta)
+      .filter((evidenceId) => sourceNames.has(evidenceId))
+      .map((evidenceId) => ({ evidenceId, sourceName: sourceNames.get(evidenceId) ?? null }));
+    return {
+      id: row.id, revision: row.revision, createdAt: row.createdAt.toISOString(), delta, sources,
+      causes: (row.causes as RawCause[]).map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null, subjectLabels: (cause.subjectIds ?? []).map((id) => labels.get(id)).filter((label): label is string => Boolean(label)) })),
+    };
+  });
 }

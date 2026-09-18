@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ForecastConsequence } from "@nevermodel/finance-engine";
-import { describeCause, describeConsequence } from "./consequence-copy";
+import { describeCause, describeConsequence, describeSources } from "./consequence-copy";
 
 const base: ForecastConsequence = {
   asOfMonth: { before: "2026-08", after: "2026-08" }, rolledForward: false, methodChanged: false, cash: [], horizonEndCash: { month: "2028-08", beforeMinor: "0", afterMinor: "12000000", deltaMinor: "12000000" },
@@ -64,5 +64,15 @@ describe("consequence copy", () => {
   });
   it("labels a month rollover", () => {
     expect(describeCause({ kind: "period_rolled", subjectLabel: null })).toBe("Month rolled forward");
+  });
+  it("describes sources", () => {
+    expect(describeSources([])).toBeNull();
+    expect(describeSources([{ evidenceId: "e1", sourceName: "Acme MSA.pdf" }])).toBe("from Acme MSA.pdf");
+    expect(describeSources([{ evidenceId: "e1", sourceName: "Acme MSA.pdf" }, { evidenceId: "e2", sourceName: "Rent lease.pdf" }, { evidenceId: "e3", sourceName: "Payroll register.pdf" }]))
+      .toBe("from Acme MSA.pdf and 2 more");
+    expect(describeSources([{ evidenceId: "e1", sourceName: "Acme MSA.pdf" }, { evidenceId: "e2", sourceName: "Rent lease.pdf" }])).toBe("from Acme MSA.pdf and 1 more");
+  });
+  it("falls back to a generic label when the first source's name did not resolve", () => {
+    expect(describeSources([{ evidenceId: "e1", sourceName: null }])).toBe("from a source");
   });
 });
