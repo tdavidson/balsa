@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastEntryTemplates, getDatabase, journalPeriodClosures } from "@finance/database";
-import type { ForecastRunInput } from "@nevermodel/finance-engine";
+import { summarizeActualCash, type ForecastRunInput } from "@nevermodel/finance-engine";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 
@@ -36,5 +36,5 @@ export async function loadForecastInputs(companyId: string, now = new Date()): P
     loadPostedJournalLines(companyId, asOfMonth),
     db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))),
   ]);
-  return { actualLines, drivers, templates, accounts: accountRows.map(chartAccountToForecastAccount), currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor };
+  return { actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers, templates, accounts: accountRows.map(chartAccountToForecastAccount), currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor };
 }

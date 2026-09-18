@@ -1,33 +1,34 @@
-import { endingCashMinor } from "./cash";
+import { cashFlowTotals, isCashBalanceRow, resolveCashGroups, wholeMinor, type ActualCashSummary } from "./forecast-actuals";
 import { buildProjectedEntries, type ForecastDriver, type ForecastEntryTemplate } from "./forecast-projections";
 import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
-import { buildJournalStatements } from "./statements";
 
 export const forecastFormulaVersion = "forecast-run-2026-09-18.2";
 
 export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory">;
-export type ForecastRunInput = { actualLines: PostedJournalLine[]; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string };
+export type ForecastRunInput = { actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string };
 export type ForecastNodeKind = "ending_cash" | "net_burn" | "trailing_burn_3m" | "cash_over_trailing_burn" | "cash_out_month" | "runway_months";
 export type ForecastNode = { id: string; kind: ForecastNodeKind; month: string; label: string; formula: string; formulaVersion: string; value: string | null; inputNodeIds: string[]; driverIds: string[] };
 export type ForecastMonth = { month: string; basis: "actual" | "forecast"; openingCashMinor: string; endingCashMinor: string; receiptsMinor: string; spendingMinor: string; driverIds: string[] };
 export type ForecastRunway = { cashOutMonth: string | null; runwayMonths: number | null; trailingBurn3mMinor: string; cashOverTrailingBurn: string | null; minimumCashMinor: string; horizonMonths: number };
 export type ForecastRun = { formulaVersion: string; asOfMonth: string; horizon: { start: string; end: string }; currency: string; months: ForecastMonth[]; nodes: ForecastNode[]; projectedLines: PostedJournalLine[]; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[]; runway: ForecastRunway; verificationStatus: "verified" | "exception" };
 
-const reportedBases = new Set(["actual", "adjustment", "elimination"]);
 const monthsBetween = (from: string, to: string) => { const [fromYear, fromMonth] = from.split("-").map(Number); const [toYear, toMonth] = to.split("-").map(Number); return (toYear! - fromYear!) * 12 + (toMonth! - fromMonth!); };
 const tenths = (value: bigint) => { const negative = value < 0n; const magnitude = negative ? -value : value; return `${negative ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`; };
 const node = (kind: ForecastNodeKind, month: string, label: string, formula: string, value: string | null, inputNodeIds: string[], driverIds: string[]): ForecastNode => ({ id: `${kind}:${month}`, kind, month, label, formula, formulaVersion: forecastFormulaVersion, value, inputNodeIds, driverIds });
 
 /**
- * Derive the live forecast from posted actuals and confirmed drivers. Nothing
- * here posts: projected lines exist only in this run, so any change to a
- * driver or an actual produces a new, comparable run.
+ * Derive the live forecast from the posted-actuals cash summary and confirmed
+ * drivers. Projected months roll as-of cash forward over projected cash lines,
+ * so no statement is built. Nothing here posts: projected lines exist only in
+ * this run, so any change to a driver or an actual produces a new, comparable run.
  */
 export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   if (!isValidMonth(input.asOfMonth)) throw new Error(`Invalid forecast as-of month: ${input.asOfMonth}`);
   if (!Number.isInteger(input.horizonMonths) || input.horizonMonths < 1) throw new Error("Forecast horizon must be a positive whole number of months.");
   if (!/^\d+$/.test(input.minimumCashMinor)) throw new Error("Minimum cash must be a non-negative minor-unit amount.");
+  if (input.actuals.asOfMonth !== input.asOfMonth) throw new Error(`Actuals summary is as of ${input.actuals.asOfMonth}, not the forecast as-of ${input.asOfMonth}.`);
+  if (input.actuals.currency !== input.currency) throw new Error(`Actuals summary is in ${input.actuals.currency}, not the forecast currency ${input.currency}.`);
   const horizon = { start: addMonths(input.asOfMonth, 1), end: addMonths(input.asOfMonth, input.horizonMonths) };
   const drivers = [...input.drivers].sort((left, right) => left.id.localeCompare(right.id));
   const templates = [...input.templates].sort((left, right) => left.id.localeCompare(right.id));
@@ -56,18 +57,22 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   const driversByMonth = new Map<string, string[]>();
   for (const entry of entries) driversByMonth.set(entry.period, [...new Set([...(driversByMonth.get(entry.period) ?? []), entry.sourceDriverId])].sort());
 
-  const lines = [...input.actualLines.filter((line) => reportedBases.has(line.basis ?? "actual") && line.period <= input.asOfMonth), ...projectedLines];
-  const statementFor = (month: string) => buildJournalStatements(lines, month, undefined, { basis: "all" }).byCurrency.find((candidate) => candidate.currency === input.currency);
+  const groups = resolveCashGroups(projectedLines, new Map(input.actuals.cashGroups));
+  const projectedByMonth = new Map<string, PostedJournalLine[]>();
+  for (const line of projectedLines) projectedByMonth.set(line.period, [...(projectedByMonth.get(line.period) ?? []), line]);
   const nodes: ForecastNode[] = [];
   const months: ForecastMonth[] = [];
   const firstMonth = addMonths(input.asOfMonth, -3);
-  let opening = endingCashMinor(statementFor(firstMonth));
-  nodes.push(node("ending_cash", firstMonth, "Ending cash", "sum(cash asset balances)", opening.toString(), [], []));
+  const actualMonths = input.actuals.months;
+  nodes.push(node("ending_cash", firstMonth, "Ending cash", "sum(cash asset balances)", actualMonths[0]!.openingCashMinor, [], []));
+  let opening = BigInt(actualMonths[0]!.openingCashMinor);
   for (let month = addMonths(input.asOfMonth, -2); month <= horizon.end; month = addMonths(month, 1)) {
-    const statement = statementFor(month);
-    const ending = endingCashMinor(statement);
+    const actual = actualMonths.find((candidate) => candidate.month === month);
+    const monthLines = projectedByMonth.get(month) ?? [];
+    const ending = actual ? BigInt(actual.endingCashMinor) : opening + monthLines.reduce((sum, line) => sum + (isCashBalanceRow(line, groups) ? wholeMinor(line.debitMinor) - wholeMinor(line.creditMinor) : 0n), 0n);
+    const flow = actual ? { receipts: BigInt(actual.receiptsMinor), spending: BigInt(actual.spendingMinor) } : cashFlowTotals(monthLines);
     const driverIds = driversByMonth.get(month) ?? [];
-    months.push({ month, basis: month <= input.asOfMonth ? "actual" : "forecast", openingCashMinor: opening.toString(), endingCashMinor: ending.toString(), receiptsMinor: statement?.cashFlow?.cashReceiptsMinor ?? "0", spendingMinor: statement?.cashFlow?.cashSpendingMinor ?? "0", driverIds });
+    months.push({ month, basis: month <= input.asOfMonth ? "actual" : "forecast", openingCashMinor: opening.toString(), endingCashMinor: ending.toString(), receiptsMinor: flow.receipts.toString(), spendingMinor: flow.spending.toString(), driverIds });
     nodes.push(node("ending_cash", month, "Ending cash", "sum(cash asset balances)", ending.toString(), [], driverIds));
     nodes.push(node("net_burn", month, "Net burn", "opening cash − ending cash", (opening - ending).toString(), [`ending_cash:${addMonths(month, -1)}`, `ending_cash:${month}`], driverIds));
     opening = ending;

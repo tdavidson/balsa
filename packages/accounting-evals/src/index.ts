@@ -1,4 +1,4 @@
-import { buildForecastRun, buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, diffForecastRuns, selectApprovedFxRate, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { buildForecastRun, buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, diffForecastRuns, selectApprovedFxRate, summarizeActualCash, type PostedJournalLine } from "@nevermodel/finance-engine";
 import { detectSourceCurrencies, normalizeTransactions } from "@nevermodel/ingestion";
 
 export type AccountingEvalStage = "extraction" | "journal" | "financial_statements" | "forecasting" | "provenance" | "fx";
@@ -59,7 +59,7 @@ export const accountingEvals: AccountingEval[] = [
       const templates = [{ id: "spend", itemType: "obligation" as const, direction: "spend" as const, debitAccountId: "6000", creditAccountId: "1000" }, { id: "receipt", itemType: "agreement" as const, direction: "receipt" as const, debitAccountId: "1000", creditAccountId: "4000" }];
       const payroll = { id: "payroll", label: "Payroll", itemType: "obligation" as const, direction: "spend" as const, amountMinor: "100000", cadence: "monthly" as const, effectiveFrom: "2026-09" };
       const contract = { id: "contract", label: "Acme retainer", itemType: "agreement" as const, direction: "receipt" as const, amountMinor: "100000", cadence: "monthly" as const, effectiveFrom: "2026-09", evidenceId: "ev-acme" };
-      const input = { actualLines, templates, accounts, currency: "USD", asOfMonth: "2026-08", horizonMonths: 24, minimumCashMinor: "0" };
+      const input = { actuals: summarizeActualCash(actualLines, "USD", "2026-08"), templates, accounts, currency: "USD", asOfMonth: "2026-08", horizonMonths: 24, minimumCashMinor: "0" };
       const before = buildForecastRun({ ...input, drivers: [payroll] });
       const consequence = diffForecastRuns(before, buildForecastRun({ ...input, drivers: [payroll, contract] }));
       return [

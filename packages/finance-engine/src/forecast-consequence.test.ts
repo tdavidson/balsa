@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { diffForecastRuns } from "./forecast-consequence";
+import { summarizeActualCash } from "./forecast-actuals";
 import { buildForecastRun, type ForecastRunInput } from "./forecast-run";
+import type { PostedJournalLine } from "./ledger";
 
 const accounts: ForecastRunInput["accounts"] = [
   { accountId: "cash", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
@@ -17,17 +19,20 @@ const templates: ForecastRunInput["templates"] = [
   { id: "receipt", itemType: "agreement", direction: "receipt", debitAccountId: "cash", creditAccountId: "revenue" },
 ];
 const payroll: ForecastRunInput["drivers"][number] = { id: "payroll", label: "Payroll", itemType: "obligation", direction: "spend", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" };
-const input = (drivers: ForecastRunInput["drivers"], asOfMonth = "2026-08"): ForecastRunInput => ({ actualLines: capital, drivers, templates, accounts, currency: "USD", asOfMonth, horizonMonths: 24, minimumCashMinor: "0" });
+// Tests state their actuals as posted lines; the engine takes their summary.
+type Input = Omit<ForecastRunInput, "actuals"> & { actualLines: PostedJournalLine[] };
+const forecast = ({ actualLines, ...input }: Input) => buildForecastRun({ ...input, actuals: summarizeActualCash(actualLines, input.currency, input.asOfMonth) });
+const input = (drivers: ForecastRunInput["drivers"], asOfMonth = "2026-08"): Input => ({ actualLines: capital, drivers, templates, accounts, currency: "USD", asOfMonth, horizonMonths: 24, minimumCashMinor: "0" });
 
 describe("diffForecastRuns", () => {
   it("returns null when no headline figure changed", () => {
-    const run = buildForecastRun(input([payroll]));
-    expect(diffForecastRuns(run, buildForecastRun(input([payroll])))).toBeNull();
-    expect(diffForecastRuns(run, buildForecastRun(input([{ ...payroll, label: "Renamed" }])))).toBeNull();
+    const run = forecast(input([payroll]));
+    expect(diffForecastRuns(run, forecast(input([payroll])))).toBeNull();
+    expect(diffForecastRuns(run, forecast(input([{ ...payroll, label: "Renamed" }])))).toBeNull();
   });
 
   it("attributes an added driver and its runway effect", () => {
-    const consequence = diffForecastRuns(buildForecastRun(input([])), buildForecastRun(input([payroll])))!;
+    const consequence = diffForecastRuns(forecast(input([])), forecast(input([payroll])))!;
     expect(consequence.cashOutMonth).toEqual({ before: null, after: "2027-06" });
     expect(consequence.runwayMonths).toEqual({ before: null, after: 9 });
     expect(consequence.projectedSpending.deltaMinor).toBe("2400000");
@@ -36,11 +41,11 @@ describe("diffForecastRuns", () => {
   });
 
   it("reports changed and removed drivers", () => {
-    const before = buildForecastRun(input([payroll]));
-    const changed = diffForecastRuns(before, buildForecastRun(input([{ ...payroll, amountMinor: "30000" }])))!;
+    const before = forecast(input([payroll]));
+    const changed = diffForecastRuns(before, forecast(input([{ ...payroll, amountMinor: "30000" }])))!;
     expect(changed.drivers.changed[0]?.fields).toEqual(["amountMinor"]);
     expect(changed.runwayMonths.after).toBeNull();
-    const removed = diffForecastRuns(before, buildForecastRun(input([])))!;
+    const removed = diffForecastRuns(before, forecast(input([])))!;
     expect(removed.drivers.removed.map((driver) => driver.id)).toEqual(["payroll"]);
     expect(removed.cashOutMonth).toEqual({ before: "2027-06", after: null });
   });
@@ -48,7 +53,7 @@ describe("diffForecastRuns", () => {
   it("handles a previous run with a different horizon", () => {
     // Capital lands before both as-of months, so rolling forward with the same drivers changes no common month.
     const early = capital.map((line) => ({ ...line, period: "2026-06" }));
-    const rolled = (asOfMonth: string, drivers: ForecastRunInput["drivers"]) => buildForecastRun({ ...input(drivers, asOfMonth), actualLines: early });
+    const rolled = (asOfMonth: string, drivers: ForecastRunInput["drivers"]) => forecast({ ...input(drivers, asOfMonth), actualLines: early });
     const consequence = diffForecastRuns(rolled("2026-07", [payroll]), rolled("2026-08", [payroll]))!;
     expect(consequence.asOfMonth).toEqual({ before: "2026-07", after: "2026-08" });
     expect(consequence.rolledForward).toBe(true);
@@ -69,7 +74,7 @@ describe("diffForecastRuns", () => {
 
   it("does not compare horizons that share no forecast month", () => {
     const early = capital.map((line) => ({ ...line, period: "2026-06" }));
-    const short = (asOfMonth: string, minimumCashMinor: string) => buildForecastRun({ ...input([payroll], asOfMonth), actualLines: early, horizonMonths: 1, minimumCashMinor });
+    const short = (asOfMonth: string, minimumCashMinor: string) => forecast({ ...input([payroll], asOfMonth), actualLines: early, horizonMonths: 1, minimumCashMinor });
     // A higher floor moves cash-out into the new horizon, so there is a consequence to inspect.
     const consequence = diffForecastRuns(short("2026-07", "0"), short("2026-09", "850000"))!;
     expect(consequence.rolledForward).toBe(true);
@@ -80,27 +85,27 @@ describe("diffForecastRuns", () => {
   });
 
   it("is not rolled forward when the as-of month is unchanged or there is no previous run", () => {
-    expect(diffForecastRuns(buildForecastRun(input([])), buildForecastRun(input([payroll])))!.rolledForward).toBe(false);
-    expect(diffForecastRuns(null, buildForecastRun(input([payroll])))!.rolledForward).toBe(false);
+    expect(diffForecastRuns(forecast(input([])), forecast(input([payroll])))!.rolledForward).toBe(false);
+    expect(diffForecastRuns(null, forecast(input([payroll])))!.rolledForward).toBe(false);
   });
 
   it("flags a method change when the formula version moved", () => {
-    const before = buildForecastRun(input([payroll]));
-    const differentVersion = { ...buildForecastRun(input([payroll])), formulaVersion: `${before.formulaVersion}-next` };
+    const before = forecast(input([payroll]));
+    const differentVersion = { ...forecast(input([payroll])), formulaVersion: `${before.formulaVersion}-next` };
     expect(diffForecastRuns(before, differentVersion)!.methodChanged).toBe(true);
-    expect(diffForecastRuns(before, buildForecastRun(input([{ ...payroll, amountMinor: "30000" }])))!.methodChanged).toBe(false);
-    expect(diffForecastRuns(null, buildForecastRun(input([payroll])))!.methodChanged).toBe(false);
+    expect(diffForecastRuns(before, forecast(input([{ ...payroll, amountMinor: "30000" }])))!.methodChanged).toBe(false);
+    expect(diffForecastRuns(null, forecast(input([payroll])))!.methodChanged).toBe(false);
   });
 
   it("treats a missing previous run as all-null before values", () => {
-    const consequence = diffForecastRuns(null, buildForecastRun(input([payroll])))!;
+    const consequence = diffForecastRuns(null, forecast(input([payroll])))!;
     expect(consequence.asOfMonth.before).toBeNull();
     expect(consequence.horizonEndCash.beforeMinor).toBeNull();
   });
 
   it("reports category and amount changes with before/after values", () => {
-    const before = buildForecastRun(input([{ ...payroll, category: "salary", amountMinor: "100000" }]));
-    const consequence = diffForecastRuns(before, buildForecastRun(input([{ ...payroll, category: "contractor", amountMinor: "150000" }])))!;
+    const before = forecast(input([{ ...payroll, category: "salary", amountMinor: "100000" }]));
+    const consequence = diffForecastRuns(before, forecast(input([{ ...payroll, category: "contractor", amountMinor: "150000" }])))!;
     expect(consequence.drivers.changed[0]?.fields).toEqual(["category", "amountMinor"]);
     expect(consequence.drivers.changed[0]?.before).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "salary", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
     expect(consequence.drivers.changed[0]?.after).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "contractor", amountMinor: "150000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
