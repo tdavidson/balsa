@@ -1,8 +1,8 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastEntryTemplates, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, type ForecastRunInput } from "@nevermodel/finance-engine";
-import { chartAccountToForecastAccount, economicItemToDriver, templateRowToTemplate } from "@/lib/forecast-drivers";
+import type { ForecastRunInput } from "@nevermodel/finance-engine";
+import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 
 export const forecastHorizonMonths = 24;
@@ -20,10 +20,10 @@ export async function loadForecastDrivers(companyId: string, options: { scenario
   };
 }
 
-/** The latest closed period; before any close, the last full calendar month. */
+/** max(latest closed period, last full calendar month). */
 export async function forecastAsOfMonth(companyId: string, now: Date) {
   const [closure] = await getDatabase().select({ period: journalPeriodClosures.period }).from(journalPeriodClosures).where(eq(journalPeriodClosures.companyId, companyId)).orderBy(desc(journalPeriodClosures.period)).limit(1);
-  return closure?.period ?? addMonths(now.toISOString().slice(0, 7), -1);
+  return forecastAsOfFromClosure(closure?.period ?? null, now);
 }
 
 export async function loadForecastInputs(companyId: string, now = new Date()): Promise<ForecastRunInput> {
