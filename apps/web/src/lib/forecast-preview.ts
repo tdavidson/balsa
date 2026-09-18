@@ -1,7 +1,8 @@
 import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { calculationRuns, companies, decisions, economicItems, getDatabase } from "@finance/database";
+import { calculationRuns, companies, decisions, economicItems, evidence, getDatabase } from "@finance/database";
 import { buildForecastRun, diffForecastRuns, forecastFormulaVersion, type ForecastRunInput } from "@nevermodel/finance-engine";
+import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { parseStoredEffect } from "@/lib/decision-effects";
 import { projectDecisionEffectOnDrivers } from "@/lib/decision-driver-effects";
 import { amountToMinor, economicItemToDriver } from "@/lib/forecast-drivers";
@@ -62,11 +63,16 @@ export async function previewForecastChange(companyId: string, change: ForecastP
   const inputs = await loadPreviewBaseInput(companyId, now);
   const db = getDatabase();
   let drivers = inputs.drivers;
+  let sources: ConsequenceSource[] = [];
   if (change.kind === "confirm_item") {
     const [item] = await db.select().from(economicItems).where(and(eq(economicItems.id, change.itemId), eq(economicItems.companyId, companyId))).limit(1);
     if (!item) throw new PreviewConflict("Item not found");
     if (item.status !== "draft") throw new PreviewConflict("Only a draft item can be previewed");
-    if (item.scenarioId) return { consequence: null, exceptionsAfter: 0, note: "Scenario items do not change the base forecast." };
+    if (item.scenarioId) return { consequence: null, exceptionsAfter: 0, note: "Scenario items do not change the base forecast.", sources };
+    if (item.evidenceId) {
+      const [source] = await db.select({ sourceName: evidence.sourceName }).from(evidence).where(and(eq(evidence.id, item.evidenceId), eq(evidence.companyId, companyId))).limit(1);
+      if (source) sources = [{ evidenceId: item.evidenceId, sourceName: source.sourceName }];
+    }
     const edits = change.edits ?? {};
     const driver = economicItemToDriver({ ...item, ...(edits.cadence ? { cadence: edits.cadence } : {}), ...(edits.effectiveFrom ? { effectiveFrom: edits.effectiveFrom } : {}), ...(edits.effectiveTo !== undefined ? { effectiveTo: edits.effectiveTo } : {}), ...(edits.category ? { category: edits.category } : {}) });
     drivers = [...drivers, edits.amount !== undefined ? { ...driver, amountMinor: amountToMinor(String(edits.amount)) } : driver];
@@ -75,10 +81,10 @@ export async function previewForecastChange(companyId: string, change: ForecastP
     if (!decision) throw new PreviewConflict("Decision not found");
     if (decision.status !== "proposed") throw new PreviewConflict("Only a proposed decision can be previewed");
     const effect = parseStoredEffect(decision.effect);
-    if (!effect) return { consequence: null, exceptionsAfter: 0, note: "This decision has no forecast effect." };
+    if (!effect) return { consequence: null, exceptionsAfter: 0, note: "This decision has no forecast effect.", sources };
     drivers = projectDecisionEffectOnDrivers(drivers, effect, change.decisionId);
   }
   const asIs = buildForecastRun(inputs);
   const withChange = buildForecastRun({ ...inputs, drivers });
-  return { consequence: diffForecastRuns(asIs, withChange), exceptionsAfter: withChange.exceptions.length };
+  return { consequence: diffForecastRuns(asIs, withChange), exceptionsAfter: withChange.exceptions.length, sources };
 }
