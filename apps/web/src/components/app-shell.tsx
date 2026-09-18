@@ -4,6 +4,7 @@ import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, Fil
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { CompanyRole } from "@finance/auth";
+import type { ForecastRunway } from "@nevermodel/finance-engine";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { UsageModal } from "@/components/usage-modal";
 import { AccountingModal } from "@/components/accounting-modal";
 import { FinancialInspector } from "@/components/financial-inspector";
+import { ForecastConsequenceLine } from "@/components/forecast-consequence-line";
+import { ForecastWhatChanged } from "@/components/forecast-what-changed";
 
 // Next inlines NEXT_PUBLIC_ variables at build time, so this is a build-time constant.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
@@ -483,6 +486,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [selectedEntity, setSelectedEntity] = useState<string>("consolidated");
   const entityQuery = selectedEntity === "consolidated" ? "" : `?entity=${selectedEntity}`;
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
+  const [runway, setRunway] = useState<(ForecastRunway & { revision: string; horizonEnd: string; stale: boolean; exceptions: number }) | null>(null);
   const [calculationBasis, setCalculationBasis] = useState<"persisted" | "live_preview">("live_preview");
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [reconciliationLedger, setReconciliationLedger] = useState<ReconciliationLedgerSummary | null>(null);
@@ -776,6 +780,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       const response = await fetch("/api/journal-financials");
       const payload = response.ok ? await readJson(response) : null;
       if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; applyJournalDashboard(payload.months); setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
+      setRunway(payload?.runway ?? null);
       const reconciliationResponse = await fetch("/api/reconciliation");
       const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
       if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
@@ -1600,6 +1605,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         </div>
                         {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
                         {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
+                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
@@ -1618,6 +1624,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         <div>{decision.question}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
                         {decision.effectSummary && <div className="mt-0.5 text-[13px] text-pencil">If applied: {decision.effectSummary}</div>}
+                        <ForecastConsequenceLine request={{ kind: "apply_decision", decisionId: decision.id }} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
@@ -1746,7 +1753,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
             </div>
           </details>}
 
-          <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 sm:grid-cols-5">
             <Figure
               label="Cash"
               value={currentForecast && currentForecast.hasCashBalance !== false ? money(currentForecast.endingCash) : "—"}
@@ -1777,7 +1784,15 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               pencil={Boolean(currentForecast) && !showActuals}
               negative={Boolean(currentForecast && (showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) < 0)}
             />
+            <Figure
+              label="Runway"
+              value={runway ? (runway.runwayMonths === null ? `> ${runway.horizonMonths} mo` : `${runway.runwayMonths} mo`) : "—"}
+              note={runway ? `${runway.cashOutMonth ? `Cash-out ${monthLabel(runway.cashOutMonth)}` : "No cash-out in horizon"}${BigInt(runway.trailingBurn3mMinor) > 0n ? ` · burn ${money(Number(runway.trailingBurn3mMinor) / 100)}/mo` : ""}${runway.cashOverTrailingBurn ? ` · ${runway.cashOverTrailingBurn}× burn` : ""}${runway.stale ? " · updating" : ""}` : "Forecast not calculated yet"}
+              pencil
+              negative={Boolean(runway?.runwayMonths !== null && runway?.runwayMonths !== undefined && runway.runwayMonths < 6)}
+            />
           </div>
+          {runway && <ForecastWhatChanged refreshKey={runway.revision} />}
 
           {bars.length ? (
             <div className="grid gap-2.5">

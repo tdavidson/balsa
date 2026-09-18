@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,11 +10,17 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
   const [name, setName] = useState(company);
   const [currency, setCurrency] = useState(baseCurrency);
   const [favicon, setFavicon] = useState<File | null>(null);
+  const [minimumCash, setMinimumCash] = useState("0");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/forecast/settings").then((response) => (response.ok ? response.json() : null)).then((result) => { if (result) setMinimumCash(String(result.minimumCash)); }).catch(() => undefined);
+  }, [open]);
 
   async function save() {
     if (!name.trim() || !/^[A-Za-z]{3}$/.test(currency.trim())) {
@@ -31,6 +37,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
       const response = await fetch("/api/company", { method: "PATCH", body: payload });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Unable to save company settings");
+      const floor = Number(minimumCash);
+      if (!Number.isFinite(floor) || floor < 0) throw new Error("Minimum cash must be zero or a positive amount");
+      const settings = await fetch("/api/forecast/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ minimumCash: floor }) });
+      if (!settings.ok) throw new Error((await settings.json()).error ?? "Unable to save the minimum cash setting");
       onOpenChange(false);
       window.location.reload();
     } catch (saveError) {
@@ -77,6 +87,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Base currency
             <Input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} maxLength={3} className="max-w-[120px] uppercase" />
+          </label>
+          <label className="grid gap-1.5 text-[13px] text-ink-2">
+            Minimum cash for runway
+            <Input value={minimumCash} onChange={(event) => setMinimumCash(event.target.value)} inputMode="decimal" className="max-w-[160px]" />
           </label>
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Browser icon
