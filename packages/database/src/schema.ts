@@ -308,7 +308,13 @@ export const assumptions = pgTable("assumptions", {
 }, (table) => [index("assumptions_company_index").on(table.companyId, table.active)]);
 
 export const scenarios = pgTable("scenarios", {
-  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), name: text("name").notNull(), assumptionIds: text("assumption_ids").default("[]").notNull(), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), name: text("name").notNull(),
+  /** What the scenario explores, in the CFO's words. */
+  description: text("description"),
+  assumptionIds: text("assumption_ids").default("[]").notNull(),
+  /** Hypothetical driver changes (ScenarioChange[], apps/web/src/lib/scenario-changes.ts), applied in order over the base forecast. Read with parseStoredChanges. */
+  changes: jsonb("changes").$type<unknown>().default([]).notNull(),
+  active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
 }, (table) => [index("scenarios_company_index").on(table.companyId, table.active)]);
 
 export const knowledgeDocuments = pgTable(
