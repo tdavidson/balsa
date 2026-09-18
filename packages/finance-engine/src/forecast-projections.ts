@@ -1,6 +1,6 @@
 import type { EntryBasis } from "./ledger";
 
-export type ForecastDriver = { id: string; label: string; itemType: "agreement" | "obligation"; direction: "receipt" | "spend"; category?: string; amountMinor: string; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; scenarioId?: string; decisionId?: string; policyId?: string };
+export type ForecastDriver = { id: string; label: string; itemType: "agreement" | "obligation"; direction: "receipt" | "spend"; category?: string; amountMinor: string; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; scenarioId?: string; decisionId?: string; policyId?: string; /** Lineage back to the evidence and fact behind the economic item. */ evidenceId?: string; factId?: string; counterpartyEntityId?: string };
 export type ForecastEntryTemplate = { id: string; itemType: ForecastDriver["itemType"]; direction: ForecastDriver["direction"]; category?: string; debitAccountId: string; creditAccountId: string; decisionId?: string; policyId?: string };
 export type ProjectedEntry = { idempotencyKey: string; projectionKey: string; period: string; postingDate: string; memo: string; basis: Extract<EntryBasis, "forecast" | "scenario">; scenarioId?: string; sourceDriverId: string; templateId: string; lines: { accountId: string; debitMinor: string; creditMinor: string }[] };
 
