@@ -93,7 +93,7 @@ buildForecastRun(input: {
   actualTrialBalance: TrialBalanceLine[]; // actuals through asOf
   drivers: ForecastDriver[];
   templates: ForecastEntryTemplate[];
-  asOfMonth: string;          // latest closed period, else last full calendar month
+  asOfMonth: string;          // max(latest closed period, last full calendar month)
   horizonMonths: number;      // 24
   minimumCashMinor: string;   // company setting, default "0"
 }): ForecastRun
@@ -179,6 +179,16 @@ diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConse
 
 A failed forecast job stays in the outbox and is retried by the existing
 cron job. The dashboard serves the last completed run with `stale: true`.
+
+The as-of month is **max(latest closed period, last full calendar month)**,
+compared as `YYYY-MM` strings. Actuals posted after the last close are
+therefore never hidden behind an old close. Before any close it is the last
+full calendar month.
+
+`stale` is true when the latest run's revision is not the company's current
+revision, **or** when the run's as-of month is earlier than the as-of month a
+run computed now would use (for example, the calendar has moved into a new
+month since the run was derived).
 
 ### Table `forecast_consequences`
 

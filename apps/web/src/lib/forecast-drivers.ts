@@ -1,4 +1,4 @@
-import type { ForecastAccount, ForecastDriver, ForecastEntryTemplate, WorkingCapitalCategory } from "@nevermodel/finance-engine";
+import { addMonths, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@nevermodel/finance-engine";
 
 const cadences = ["once", "monthly", "quarterly", "annual"] as const;
 const cashFlowCategories = ["operating", "investing", "financing", "none"] as const;
@@ -36,4 +36,10 @@ export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAcc
     ...(row.statementSection ? { statementSection: row.statementSection } : {}), ...(row.statementLine ? { statementLine: row.statementLine } : {}),
     ...(timing ? { balanceTiming: timing } : {}), ...(cashFlow ? { cashFlowCategory: cashFlow } : {}), ...(workingCapital ? { workingCapitalCategory: workingCapital } : {}),
   };
+}
+
+/** The forecast's as-of month: max(latest closed period, last full calendar month), so posted actuals after an old close stay visible. */
+export function forecastAsOfFromClosure(latestClosedPeriod: string | null, now: Date): string {
+  const lastFullMonth = addMonths(now.toISOString().slice(0, 7), -1);
+  return latestClosedPeriod && latestClosedPeriod > lastFullMonth ? latestClosedPeriod : lastFullMonth;
 }
