@@ -30,7 +30,7 @@ export async function processCalculationOutboxJob(jobId: string, now = new Date(
       return { id: job.id, status: "superseded" };
     }
     const run = job.engineVersion === forecastFormulaVersion && job.period === "forecast"
-      ? await runForecastJob(job.companyId, job.financialStateRevision, now)
+      ? await runForecastJob(job.companyId, job.financialStateRevision, { now })
       : job.engineVersion === journalCalculationFormulaVersion && /^\d{4}-(0[1-9]|1[0-2])$/.test(job.period)
         ? await (async () => {
           const reconciliation = await loadJournalReconciliation(job.companyId, job.period);
@@ -39,6 +39,11 @@ export async function processCalculationOutboxJob(jobId: string, now = new Date(
           return persistJournalCalculationGraph({ companyId: job.companyId, financialStateRevision: job.financialStateRevision, graph, input: { trialBalance: reconciliation.trialBalance, statements: reconciliation.statements, ledgerReconciliation: reconciliation.report, accountBalances: reconciliation.accountBalances, allocationAnalysis } });
         })()
         : (() => { throw new Error(`Unsupported calculation engine or period: ${job.engineVersion} / ${job.period}`); })();
+    // The forecast job re-checks the revision under its lock; a revision that moved meanwhile persisted nothing.
+    if ("superseded" in run) {
+      await db.update(calculationOutbox).set({ status: "superseded", completedAt: new Date(), updatedAt: new Date() }).where(eq(calculationOutbox.id, job.id));
+      return { id: job.id, status: "superseded" };
+    }
     await db.update(calculationOutbox).set({ status: "completed", calculationRunId: run.id, completedAt: new Date(), updatedAt: new Date() }).where(eq(calculationOutbox.id, job.id));
     return { id: job.id, status: "completed" };
   } catch (error) {

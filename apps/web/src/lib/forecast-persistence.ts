@@ -3,17 +3,19 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { calculationNodes, calculationRuns, financialStateRevisions, forecastConsequences, getDatabase } from "@finance/database";
 import { diffForecastRuns, stableJson, type ForecastRun, type ForecastRunInput } from "@nevermodel/finance-engine";
+import type { DbExecutor } from "@/lib/db-executor";
 
 const forecastEngines = "forecast-run-%";
 
 /**
  * Persist a derived forecast exactly like a journal graph: one run per (revision, engine, input), with inspectable nodes.
- * The run and its nodes commit together, so a reused run always has its nodes.
+ * The run and its nodes commit together, so a reused run always has its nodes:
+ * inside the caller's transaction when `db` is given, otherwise in its own.
  */
-export async function persistForecastRun(input: { companyId: string; financialStateRevision: string; run: ForecastRun; input: ForecastRunInput }) {
+export async function persistForecastRun(input: { companyId: string; financialStateRevision: string; run: ForecastRun; input: ForecastRunInput }, db?: DbExecutor) {
   const inputJson = stableJson(input.input);
   const inputHash = createHash("sha256").update(inputJson).digest("hex");
-  return getDatabase().transaction(async (tx) => {
+  const write = async (tx: DbExecutor) => {
     const inserted = await tx.insert(calculationRuns).values({
       companyId: input.companyId, engineVersion: input.run.formulaVersion, inputHash, financialStateRevision: input.financialStateRevision,
       asOfMonth: input.run.asOfMonth, horizonStart: input.run.horizon.start, horizonEnd: input.run.horizon.end,
@@ -27,12 +29,13 @@ export async function persistForecastRun(input: { companyId: string; financialSt
       verificationStatus: input.run.verificationStatus, verificationReasons: stableJson(input.run.exceptions.map((exception) => exception.reason)),
     })));
     return { id: run.id, reused: !inserted[0] };
-  });
+  };
+  return db ? write(db) : getDatabase().transaction(write);
 }
 
 /** The most recent forecast run strictly before a revision, across forecast formula versions. */
-export async function loadPreviousForecastRun(companyId: string, beforeRevision: string) {
-  const [row] = await getDatabase().select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, outputJson: calculationRuns.outputJson }).from(calculationRuns)
+export async function loadPreviousForecastRun(companyId: string, beforeRevision: string, db: DbExecutor = getDatabase()) {
+  const [row] = await db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, outputJson: calculationRuns.outputJson }).from(calculationRuns)
     .where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, forecastEngines), sql`${calculationRuns.financialStateRevision}::bigint < ${beforeRevision}::bigint`))
     .orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1);
   return row ? { id: row.id, revision: row.revision, run: JSON.parse(row.outputJson) as ForecastRun } : null;
@@ -43,12 +46,11 @@ export async function loadPreviousForecastRun(companyId: string, beforeRevision:
  * run. Revisions whose own jobs were superseded are included in `causes`.
  * The first run has nothing to compare against and records nothing.
  */
-export async function recordForecastConsequence(input: { companyId: string; financialStateRevision: string; nextRunId: string; run: ForecastRun }) {
-  const previous = await loadPreviousForecastRun(input.companyId, input.financialStateRevision);
+export async function recordForecastConsequence(input: { companyId: string; financialStateRevision: string; nextRunId: string; run: ForecastRun }, db: DbExecutor = getDatabase()) {
+  const previous = await loadPreviousForecastRun(input.companyId, input.financialStateRevision, db);
   if (!previous) return null;
   const delta = diffForecastRuns(previous.run, input.run);
   if (!delta) return null;
-  const db = getDatabase();
   const causes = await db.select().from(financialStateRevisions).where(and(
     eq(financialStateRevisions.companyId, input.companyId),
     sql`${financialStateRevisions.revision}::bigint > ${previous.revision}::bigint`,
