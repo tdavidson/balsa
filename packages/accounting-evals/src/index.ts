@@ -63,7 +63,7 @@ export const accountingEvals: AccountingEval[] = [
       const before = buildForecastRun({ ...input, drivers: [payroll] });
       const consequence = diffForecastRuns(before, buildForecastRun({ ...input, drivers: [payroll, contract] }));
       return [
-        before.runway.runwayMonths === 4 ? "" : "Payroll against 3,000 of cash did not produce a four-month runway.",
+        before.runway.runwayMonths === 3 ? "" : "Payroll against 3,000 of cash did not fund exactly three full months before cash-out.",
         consequence?.runwayMonths.after === null ? "" : "A contract that covers payroll did not extend runway beyond the horizon.",
         consequence?.drivers.added[0]?.evidenceId === "ev-acme" ? "" : "The runway consequence lost its link to the contract evidence.",
       ];

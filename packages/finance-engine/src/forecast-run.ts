@@ -79,13 +79,13 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   const ratio = trailingBurn > 0n ? tenths((asOfCash * 10n) / trailingBurn) : null;
   const floor = BigInt(input.minimumCashMinor);
   const cashOutMonth = months.find((month) => month.month >= input.asOfMonth && BigInt(month.endingCashMinor) < floor)?.month ?? null;
-  const runwayMonths = cashOutMonth ? monthsBetween(input.asOfMonth, cashOutMonth) : null;
+  const runwayMonths = cashOutMonth ? Math.max(0, monthsBetween(input.asOfMonth, cashOutMonth) - 1) : null;
   const trailingIds = trailingMonths.map((month) => `net_burn:${month.month}`);
   nodes.push(node("trailing_burn_3m", input.asOfMonth, "Trailing 3-month net burn", "average(net burn, last 3 actual months), truncated to minor units", trailingBurn.toString(), trailingIds, []));
   nodes.push(node("cash_over_trailing_burn", input.asOfMonth, "Cash ÷ trailing burn", "ending cash ÷ trailing burn, truncated to 0.1", ratio, [`ending_cash:${input.asOfMonth}`, `trailing_burn_3m:${input.asOfMonth}`], []));
   const projectedCashIds = months.filter((month) => month.month >= input.asOfMonth).map((month) => `ending_cash:${month.month}`);
   nodes.push(node("cash_out_month", input.asOfMonth, "Cash-out month", `first month with ending cash < ${input.minimumCashMinor}`, cashOutMonth, projectedCashIds, cashOutMonth ? (driversByMonth.get(cashOutMonth) ?? []) : []));
-  nodes.push(node("runway_months", input.asOfMonth, "Runway", "months from as-of to cash-out month", runwayMonths === null ? null : String(runwayMonths), [`cash_out_month:${input.asOfMonth}`], []));
+  nodes.push(node("runway_months", input.asOfMonth, "Runway", "full months funded before the cash-out month", runwayMonths === null ? null : String(runwayMonths), [`cash_out_month:${input.asOfMonth}`], []));
 
   return {
     formulaVersion: forecastFormulaVersion, asOfMonth: input.asOfMonth, horizon, currency: input.currency, months, nodes, projectedLines, drivers, exceptions,

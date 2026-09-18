@@ -33,9 +33,10 @@ describe("buildForecastRun", () => {
     expect(value(run, "ending_cash:2026-08")).toBe("900000");
     expect(value(run, "ending_cash:2026-09")).toBe("800000");
     expect(value(run, "net_burn:2026-09")).toBe("100000");
-    // 900,000 − 100,000·n < 0 first at n = 10.
+    // 900,000 − 100,000·n < 0 first at n = 10, so nine full months are funded before the cash-out month.
     expect(run.runway.cashOutMonth).toBe("2027-06");
-    expect(run.runway.runwayMonths).toBe(10);
+    expect(run.runway.runwayMonths).toBe(9);
+    expect(value(run, "runway_months:2026-08")).toBe("9");
     expect(run.verificationStatus).toBe("verified");
   });
 
@@ -47,9 +48,15 @@ describe("buildForecastRun", () => {
 
   it("honours a minimum cash floor above zero", () => {
     const run = buildForecastRun({ ...base, minimumCashMinor: "200000" });
-    // 900,000 − 100,000·n < 200,000 first at n = 8.
+    // 900,000 − 100,000·n < 200,000 first at n = 8: seven full months funded.
     expect(run.runway.cashOutMonth).toBe("2027-04");
-    expect(run.runway.runwayMonths).toBe(8);
+    expect(run.runway.runwayMonths).toBe(7);
+  });
+
+  it("counts zero funded months when cash is already below the floor at as-of", () => {
+    const run = buildForecastRun({ ...base, minimumCashMinor: "1000000" });
+    expect(run.runway.cashOutMonth).toBe("2026-08");
+    expect(run.runway.runwayMonths).toBe(0);
   });
 
   it("reports no cash-out inside the horizon", () => {

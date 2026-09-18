@@ -115,8 +115,10 @@ It:
      positive meaning burn
    - `cash_out_month`, the first projected month where ending cash is below
      `minimumCashMinor`, or `null` if there is none within the horizon
-   - `runway_months`, the number of months from asOf to `cash_out_month`, or
-     `null` (shown as "> horizon")
+   - `runway_months`, the number of full months funded before
+     `cash_out_month`: `max(0, months from asOf to cash_out_month − 1)`, or
+     `null` (shown as "> horizon") when there is no cash-out month. A cash-out
+     in the month right after asOf is 0 months of runway.
    - `trailing_burn_3m`, the average net burn over the last three actual
      months
    - `cash_over_trailing_burn`, ending actual cash divided by trailing burn,
