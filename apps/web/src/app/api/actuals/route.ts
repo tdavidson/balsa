@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   if (canonicalSource?.id) await getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: canonicalSource.id, stage: "storage", status: "succeeded", metadata: JSON.stringify({ storageReference, sourceHash }) });
   const failImport = async (message: string, status = 400) => {
     if (canonicalSource?.id) {
-      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(eq(sources.id, canonicalSource.id));
+      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(and(eq(sources.id, canonicalSource.id), eq(sources.companyId, context.company.id)));
       await getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: canonicalSource.id, stage: "classification", status: "failed", error: message, completedAt: new Date(), metadata: "{}" });
     }
     return NextResponse.json({ error: message }, { status });
@@ -134,9 +134,9 @@ export async function POST(request: Request) {
       await getDatabase().insert(observations).values(events.map((event) => ({ companyId: context.company.id, sourceId: canonicalSource.id, eventId: eventByKey.get(event.externalKey), type: "bank_transaction", effectiveDate: new Date(`${event.postedDate ?? `${event.month}-01`}T00:00:00Z`), amount: event.amount, ...(sourceCurrency ? { currency: sourceCurrency } : {}), counterpartyText: event.description, attributes: JSON.stringify({ direction: event.direction, externalKey: event.externalKey, postedDate: event.postedDate, sourceLocation: event.sourceLocation }), confidence: "high" })));
     }
     const importedFact = { label: "Imported transaction set", value: `${events.length} transactions parsed from ${file.name}; approve the source and treatment to post them as actual cash activity.`, accountingRole: "transaction", confidence: 1 };
-    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} transactions parsed and staged for review${account ? ` (${account.name})` : ""}`, facts: [importedFact], questions: [] }), ...(sourceCurrency ? { currency: sourceCurrency } : {}), accountEntityId, status: "pending", updatedAt: new Date() }).where(eq(evidence.id, placeholder!.id));
+    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary: `${events.length} transactions parsed and staged for review${account ? ` (${account.name})` : ""}`, facts: [importedFact], questions: [] }), ...(sourceCurrency ? { currency: sourceCurrency } : {}), accountEntityId, status: "pending", updatedAt: new Date() }).where(and(eq(evidence.id, placeholder!.id), eq(evidence.companyId, context.company.id)));
     await getDatabase().insert(factRecords).values({ companyId: context.company.id, evidenceId: placeholder!.id, ...importedFact, sourceLocation: "transaction file", ...(sourceCurrency ? { currency: sourceCurrency } : {}), confidence: String(importedFact.confidence), status: "pending" });
-    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length, classification: sourceClassification, currencies: detectedCurrencies }) }).where(eq(sources.id, canonicalSource!.id));
+    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ importedTransactions: events.length, classification: sourceClassification, currencies: detectedCurrencies }) }).where(and(eq(sources.id, canonicalSource!.id), eq(sources.companyId, context.company.id)));
     await getDatabase().insert(ingestionRuns).values([
       { companyId: context.company.id, sourceId: canonicalSource!.id, stage: "classification", status: "succeeded", metadata: JSON.stringify({ transactions: events.length }) },
       { companyId: context.company.id, sourceId: canonicalSource!.id, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ months }) },
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
     const related = await getDatabase().select({ id: evidence.id, sourceId: evidence.sourceId }).from(evidence).where(and(eq(evidence.companyId, context.company.id), ne(evidence.id, placeholder!.id), inArray(evidence.reportingMonth, months), eq(evidence.status, "approved")));
     reprocessEvidenceIds = related.flatMap((item) => item.sourceId ? [item.id] : []);
     await Promise.all(related.flatMap((item) => item.sourceId ? [
-      getDatabase().update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date() }).where(eq(sources.id, item.sourceId)),
+      getDatabase().update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date() }).where(and(eq(sources.id, item.sourceId), eq(sources.companyId, context.company.id))),
       getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: item.sourceId, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ triggeredByEvidenceId: placeholder!.id, months }) }),
     ] : []));
     importedCount = inserted.length;
