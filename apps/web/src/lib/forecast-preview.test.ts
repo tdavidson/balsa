@@ -1,0 +1,57 @@
+import { config } from "dotenv";
+import { fileURLToPath } from "node:url";
+import { desc, eq, sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
+config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)) });
+if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+
+describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () => {
+  if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
+  const { chartAccounts, closeDatabase, companies, decisions, economicItems, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
+  const { previewForecastChange } = await import("./forecast-preview");
+  const { applyDecisionIfEffective } = await import("./decision-effects");
+  const { forecastAsOfMonth } = await import("./forecast-inputs");
+  const { addMonths } = await import("@nevermodel/finance-engine");
+  const db = getDatabase();
+  let companyId = ""; let firstMonth = "";
+  const headline = (delta: unknown) => { const value = delta as { horizonEndCash: unknown; cashOutMonth: unknown; runwayMonths: unknown; projectedSpending: unknown; projectedReceipts: unknown }; return { horizonEndCash: value.horizonEndCash, cashOutMonth: value.cashOutMonth, runwayMonths: value.runwayMonths, projectedSpending: value.projectedSpending, projectedReceipts: value.projectedReceipts }; };
+  const latest = async () => (await db.select().from(forecastConsequences).where(eq(forecastConsequences.companyId, companyId)).orderBy(desc(sql`${forecastConsequences.revision}::bigint`)).limit(1))[0]!;
+
+  beforeAll(async () => {
+    const [company] = await db.insert(companies).values({ name: `Preview parity ${Date.now()}` }).returning({ id: companies.id });
+    companyId = company!.id;
+    const [cash, payroll] = await db.insert(chartAccounts).values([
+      { companyId, code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
+      { companyId, code: "6000", name: "Payroll", accountType: "expense", normalBalance: "debit" },
+    ]).returning({ id: chartAccounts.id });
+    await db.insert(forecastEntryTemplates).values({ companyId, name: "Spend", itemType: "obligation", direction: "spend", debitAccountId: payroll!.id, creditAccountId: cash!.id });
+    firstMonth = addMonths(await forecastAsOfMonth(companyId, new Date()), 1);
+    await refreshCurrentCalculationRun(companyId, { cause: { kind: "entity_changed", subjectType: "company", subjectId: companyId, actorUserId: null, via: "worker" } });
+  });
+
+  afterAll(async () => {
+    if (companyId) await db.delete(companies).where(eq(companies.id, companyId));
+    await closeDatabase();
+  });
+
+  it("previews an item confirmation exactly as it later lands", async () => {
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Rent", amount: "500", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+    const preview = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+    await db.update(economicItems).set({ status: "confirmed" }).where(eq(economicItems.id, item!.id));
+    await refreshCurrentCalculationRun(companyId, { cause: { kind: "item_confirmed", subjectType: "economic_item", subjectId: item!.id, actorUserId: null, via: "worker" } });
+    expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
+  });
+
+  it("previews a decision exactly as it later lands", async () => {
+    const effect = { kind: "add_item", item: { label: "Contractor", direction: "spend", amount: 250, cadence: "monthly", effectiveFrom: firstMonth, category: "contractor", accountingTreatment: "cash" } };
+    const [decision] = await db.insert(decisions).values({ companyId, question: "Hire a contractor?", answer: "Yes", status: "proposed", effect: JSON.stringify(effect) }).returning({ id: decisions.id });
+    const preview = await previewForecastChange(companyId, { kind: "apply_decision", decisionId: decision!.id });
+    await db.update(decisions).set({ status: "applied" }).where(eq(decisions.id, decision!.id));
+    await applyDecisionIfEffective(companyId, decision!.id, null);
+    await refreshCurrentCalculationRun(companyId, { cause: { kind: "decision_applied", subjectType: "decision", subjectId: decision!.id, actorUserId: null, via: "worker" } });
+    expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
+  });
+});
