@@ -499,10 +499,15 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
-  const applyJournalDashboard = (rows: JournalDashboardMonth[]) => {
-    setForecast(rows.map((row) => ({ month: row.month, status: row.status, openingCash: row.forecast.openingCash, endingCash: row.forecast.endingCash, hasCashBalance: row.forecast.hasCashBalance, receipts: row.forecast.receipts, spending: row.forecast.spending, actualReceipts: row.forecast.actualReceipts, actualSpending: row.forecast.actualSpending, actualNet: row.forecast.actualNet, contractualReceipts: row.basis === "forecast" ? row.forecast.receipts : 0, contractualSpending: row.basis === "forecast" ? row.forecast.spending : 0, assumedReceipts: row.basis === "scenario" ? row.forecast.receipts : 0, assumedSpending: row.basis === "scenario" ? row.forecast.spending : 0, variance: 0, journalStatement: row.statements, balanceSheet: { month: row.month, hasOpening: true, balances: row.balanceSheet.balances, cashByAccount: [], assets: row.balanceSheet.assets, liabilities: row.balanceSheet.liabilities, equity: row.balanceSheet.equity + row.balanceSheet.retainedEarnings, check: row.balanceSheet.check, balanced: row.balanceSheet.balanced }, cashFlow: { month: row.month, netIncome: row.pnl.operatingIncome, eliminations: 0, changes: {}, operatingIndirect: row.forecast.cashFlow.operating, operating: row.forecast.cashFlow.operating, investing: row.forecast.cashFlow.investing, financing: row.forecast.cashFlow.financing, transfers: 0, adjustments: 0, netChange: row.forecast.cashFlow.netChange, openingCash: row.forecast.cashFlow.openingCash, endingCash: row.forecast.cashFlow.endingCash, ties: row.forecast.cashFlow.ties } })));
-    setPnl(rows.map((row) => ({ ...row.pnl, month: row.month })));
-    setCalculationBasis("live_preview");
+  /** The one place that applies a /api/journal-financials payload, so every caller keeps forecast, P&L, and runway in sync — none can update one without the other. */
+  const applyJournalDashboard = (payload: { months?: JournalDashboardMonth[]; runway?: (ForecastRunway & { revision: string; horizonEnd: string; stale: boolean; exceptions: number }) | null } | null) => {
+    const rows = payload?.months;
+    if (rows) {
+      setForecast(rows.map((row) => ({ month: row.month, status: row.status, openingCash: row.forecast.openingCash, endingCash: row.forecast.endingCash, hasCashBalance: row.forecast.hasCashBalance, receipts: row.forecast.receipts, spending: row.forecast.spending, actualReceipts: row.forecast.actualReceipts, actualSpending: row.forecast.actualSpending, actualNet: row.forecast.actualNet, contractualReceipts: row.basis === "forecast" ? row.forecast.receipts : 0, contractualSpending: row.basis === "forecast" ? row.forecast.spending : 0, assumedReceipts: row.basis === "scenario" ? row.forecast.receipts : 0, assumedSpending: row.basis === "scenario" ? row.forecast.spending : 0, variance: 0, journalStatement: row.statements, balanceSheet: { month: row.month, hasOpening: true, balances: row.balanceSheet.balances, cashByAccount: [], assets: row.balanceSheet.assets, liabilities: row.balanceSheet.liabilities, equity: row.balanceSheet.equity + row.balanceSheet.retainedEarnings, check: row.balanceSheet.check, balanced: row.balanceSheet.balanced }, cashFlow: { month: row.month, netIncome: row.pnl.operatingIncome, eliminations: 0, changes: {}, operatingIndirect: row.forecast.cashFlow.operating, operating: row.forecast.cashFlow.operating, investing: row.forecast.cashFlow.investing, financing: row.forecast.cashFlow.financing, transfers: 0, adjustments: 0, netChange: row.forecast.cashFlow.netChange, openingCash: row.forecast.cashFlow.openingCash, endingCash: row.forecast.cashFlow.endingCash, ties: row.forecast.cashFlow.ties } })));
+      setPnl(rows.map((row) => ({ ...row.pnl, month: row.month })));
+      setCalculationBasis("live_preview");
+    }
+    setRunway(payload?.runway ?? null);
   };
   const selectPeriodPreset = (value: string) => {
     const next = value as PeriodPreset;
@@ -779,8 +784,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     async function loadForecast() {
       const response = await fetch("/api/journal-financials");
       const payload = response.ok ? await readJson(response) : null;
-      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; applyJournalDashboard(payload.months); setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
-      setRunway(payload?.runway ?? null);
+      applyJournalDashboard(payload);
+      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
       const reconciliationResponse = await fetch("/api/reconciliation");
       const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
       if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
@@ -834,7 +839,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       fetch("/api/evidence"),
     ]);
     refreshProposedItems().catch(() => undefined);
-    if (financialResponse.ok) { const payload = await readJson(financialResponse); if (payload.months) applyJournalDashboard(payload.months); }
+    if (financialResponse.ok) applyJournalDashboard(await readJson(financialResponse));
     if (evidenceResponse.ok) {
       const payload = await readJson(evidenceResponse);
       if (payload.evidence) {
