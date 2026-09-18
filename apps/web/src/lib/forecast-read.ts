@@ -55,7 +55,7 @@ export type ConsequenceCause = { revision: string; kind: string; subjectType: st
 type RawCause = Omit<ConsequenceCause, "subjectLabel" | "subjectLabels">;
 
 /** Every evidence id a driver ref in a consequence's delta carries, deduplicated in order of first appearance. */
-function driverEvidenceIds(delta: ForecastConsequence): string[] {
+export function driverEvidenceIds(delta: ForecastConsequence): string[] {
   const ids = [
     ...delta.drivers.added.map((driver) => driver.evidenceId),
     ...delta.drivers.removed.map((driver) => driver.evidenceId),
