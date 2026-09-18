@@ -1,4 +1,4 @@
-import { buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, selectApprovedFxRate, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { buildForecastRun, buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, diffForecastRuns, selectApprovedFxRate, type PostedJournalLine } from "@nevermodel/finance-engine";
 import { detectSourceCurrencies, normalizeTransactions } from "@nevermodel/ingestion";
 
 export type AccountingEvalStage = "extraction" | "journal" | "financial_statements" | "forecasting" | "provenance" | "fx";
@@ -42,6 +42,31 @@ export const accountingEvals: AccountingEval[] = [
       const projected = buildProjectedEntries([{ id: "fee", label: "Monthly management fee", itemType: "agreement", direction: "receipt", category: "management_fee", amountMinor: "125000", cadence: "monthly", effectiveFrom: "2026-09" }], [{ id: "fee-template", itemType: "agreement", direction: "receipt", category: "management_fee", debitAccountId: "1000", creditAccountId: "4000" }], { start: "2026-09", end: "2026-10" });
       const first = projected.entries[0];
       return [projected.exceptions.length === 0 && projected.entries.length === 2 ? "" : "An approved forecast driver did not expand across an open forecast horizon.", first?.basis === "forecast" && first.lines[0]?.debitMinor === "125000" && first.lines[1]?.creditMinor === "125000" ? "" : "Forecast output was not a balanced journal overlay."];
+    },
+  },
+  {
+    id: "confirming-a-contract-extends-runway-with-attribution",
+    stage: "forecasting",
+    reason: "A confirmed contract must move the forward runway, and the consequence must trace back to the evidence behind it.",
+    execute: () => {
+      const accounts = [
+        { accountId: "1000", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit" as const, statementLine: "Cash" },
+        { accountId: "3000", accountCode: "3000", accountName: "Capital", accountType: "equity", normalBalance: "credit" as const },
+        { accountId: "4000", accountCode: "4000", accountName: "Revenue", accountType: "revenue", normalBalance: "credit" as const },
+        { accountId: "6000", accountCode: "6000", accountName: "Payroll", accountType: "expense", normalBalance: "debit" as const },
+      ];
+      const actualLines = [{ ...line("capital", "1000", "asset", "debit", "300000", "0", "2026-08"), accountName: "Cash", statementLine: "Cash" }, line("capital-equity", "3000", "equity", "credit", "0", "300000", "2026-08")];
+      const templates = [{ id: "spend", itemType: "obligation" as const, direction: "spend" as const, debitAccountId: "6000", creditAccountId: "1000" }, { id: "receipt", itemType: "agreement" as const, direction: "receipt" as const, debitAccountId: "1000", creditAccountId: "4000" }];
+      const payroll = { id: "payroll", label: "Payroll", itemType: "obligation" as const, direction: "spend" as const, amountMinor: "100000", cadence: "monthly" as const, effectiveFrom: "2026-09" };
+      const contract = { id: "contract", label: "Acme retainer", itemType: "agreement" as const, direction: "receipt" as const, amountMinor: "100000", cadence: "monthly" as const, effectiveFrom: "2026-09", evidenceId: "ev-acme" };
+      const input = { actualLines, templates, accounts, currency: "USD", asOfMonth: "2026-08", horizonMonths: 24, minimumCashMinor: "0" };
+      const before = buildForecastRun({ ...input, drivers: [payroll] });
+      const consequence = diffForecastRuns(before, buildForecastRun({ ...input, drivers: [payroll, contract] }));
+      return [
+        before.runway.runwayMonths === 4 ? "" : "Payroll against 3,000 of cash did not produce a four-month runway.",
+        consequence?.runwayMonths.after === null ? "" : "A contract that covers payroll did not extend runway beyond the horizon.",
+        consequence?.drivers.added[0]?.evidenceId === "ev-acme" ? "" : "The runway consequence lost its link to the contract evidence.",
+      ];
     },
   },
   {
