@@ -1610,7 +1610,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         </div>
                         {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
                         {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
-                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} />
+                        <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
@@ -1629,7 +1629,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         <div>{decision.question}</div>
                         <div className="mt-0.5 text-[13px] text-ink-2">Proposed answer: {decision.answer}</div>
                         {decision.effectSummary && <div className="mt-0.5 text-[13px] text-pencil">If applied: {decision.effectSummary}</div>}
-                        <ForecastConsequenceLine request={{ kind: "apply_decision", decisionId: decision.id }} />
+                        <ForecastConsequenceLine request={{ kind: "apply_decision", decisionId: decision.id }} revision={runway?.revision} />
                       </div>
                       <span className="flex gap-1">
                         <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
