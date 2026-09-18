@@ -110,6 +110,18 @@ describe("buildJournalStatements", () => {
     expect(statements.byCurrency[0]!.balanceSheet.totalAssetsMinor).toBe("3500");
   });
 
+  it("excludes a plan pin from the scenario view even when its scenario id matches", () => {
+    const lines = [
+      { ...line("actual-cash", "asset", "debit", "1000", "0", "2026-09", "Cash"), entryId: "actual", basis: "actual" as const }, { ...line("actual-equity", "equity", "credit", "0", "1000", "2026-09", "Capital"), entryId: "actual", basis: "actual" as const },
+      { ...line("plan-cash", "asset", "debit", "9000", "0", "2026-10", "Cash"), entryId: "plan-pin", basis: "plan" as const, scenarioId: "scenario-a" }, { ...line("plan-revenue", "revenue", "credit", "0", "9000", "2026-10", "Fees"), entryId: "plan-pin", basis: "plan" as const, scenarioId: "scenario-a" },
+      { ...line("scenario-cash", "asset", "debit", "500", "0", "2026-10", "Cash"), entryId: "scenario-a", basis: "scenario" as const, scenarioId: "scenario-a" }, { ...line("scenario-revenue", "revenue", "credit", "0", "500", "2026-10", "Fees"), entryId: "scenario-a", basis: "scenario" as const, scenarioId: "scenario-a" },
+    ];
+    const statements = buildJournalStatements(lines, "2026-10", undefined, { view: "scenario", asOfPeriod: "2026-09", scenarioId: "scenario-a" });
+    // Only the scenario-basis line (500) is added on top of actuals; the plan pin (9000) never reaches a live view.
+    expect(statements.byCurrency[0]!.incomeStatement.netIncomeMinor).toBe("500");
+    expect(statements.byCurrency[0]!.balanceSheet.totalAssetsMinor).toBe("1500");
+  });
+
   it("uses an explicitly classified contra asset to reduce assets", () => {
     const statements = buildJournalStatements([
       line("equipment", "asset", "debit", "10000", "0", "2026-09", "Equipment"),

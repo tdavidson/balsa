@@ -50,7 +50,9 @@ export function selectJournalLinesForReporting(lines: PostedJournalLine[], perio
     const entryBasis = line.basis ?? "actual";
     if (["actual", "adjustment", "elimination"].includes(entryBasis)) return line.period <= asOfPeriod;
     if (entryBasis === "forecast") return line.period > asOfPeriod;
-    return view === "scenario" && Boolean(selection.scenarioId) && line.scenarioId === selection.scenarioId && line.period > asOfPeriod;
+    // A plan pin (basis "plan") is a frozen snapshot for later variance
+    // comparison; only a live scenario projection belongs in the scenario view.
+    return entryBasis === "scenario" && view === "scenario" && Boolean(selection.scenarioId) && line.scenarioId === selection.scenarioId && line.period > asOfPeriod;
   });
 }
 
