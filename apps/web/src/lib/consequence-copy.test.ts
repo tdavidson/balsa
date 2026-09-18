@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ForecastConsequence } from "@nevermodel/finance-engine";
-import { describeCause, describeConsequence, describeSources } from "./consequence-copy";
+import { describeCause, describeConsequence, describeSources, visibleSources } from "./consequence-copy";
 
 const base: ForecastConsequence = {
   asOfMonth: { before: "2026-08", after: "2026-08" }, rolledForward: false, methodChanged: false, cash: [], horizonEndCash: { month: "2028-08", beforeMinor: "0", afterMinor: "12000000", deltaMinor: "12000000" },
@@ -74,5 +74,17 @@ describe("consequence copy", () => {
   });
   it("falls back to a generic label when the first source's name did not resolve", () => {
     expect(describeSources([{ evidenceId: "e1", sourceName: null }])).toBe("from a source");
+  });
+  it("splits sources into what to show as links and what to count as overflow, capped at 2 by default", () => {
+    const s = (n: number) => ({ evidenceId: `e${n}`, sourceName: `Source ${n}.pdf` });
+    expect(visibleSources([])).toEqual({ shown: [], overflow: 0 });
+    expect(visibleSources([s(1)])).toEqual({ shown: [s(1)], overflow: 0 });
+    expect(visibleSources([s(1), s(2)])).toEqual({ shown: [s(1), s(2)], overflow: 0 });
+    expect(visibleSources([s(1), s(2), s(3)])).toEqual({ shown: [s(1), s(2)], overflow: 1 });
+    expect(visibleSources([s(1), s(2), s(3), s(4), s(5)])).toEqual({ shown: [s(1), s(2)], overflow: 3 });
+  });
+  it("honors a custom cap", () => {
+    const s = (n: number) => ({ evidenceId: `e${n}`, sourceName: `Source ${n}.pdf` });
+    expect(visibleSources([s(1), s(2), s(3)], 1)).toEqual({ shown: [s(1)], overflow: 2 });
   });
 });
