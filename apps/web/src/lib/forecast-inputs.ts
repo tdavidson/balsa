@@ -26,7 +26,7 @@ export async function forecastAsOfMonth(companyId: string, now: Date, db: DbExec
   return forecastAsOfFromClosure(closure?.period ?? null, now);
 }
 
-const compareIds = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+export const compareIds = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
 /**
  * The compact, canonical forecast input: an actuals summary rather than raw

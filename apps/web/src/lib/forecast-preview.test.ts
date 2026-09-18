@@ -1,7 +1,7 @@
 import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { desc, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)) });
@@ -53,5 +53,14 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
     await applyDecisionIfEffective(companyId, decision!.id, null);
     await refreshCurrentCalculationRun(companyId, { cause: { kind: "decision_applied", subjectType: "decision", subjectId: decision!.id, actorUserId: null, via: "worker" } });
     expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
+  });
+
+  it("does not load the ledger when the latest forecast run is current", async () => {
+    const ledger = await import("./journal-ledger");
+    const spy = vi.spyOn(ledger, "loadPostedJournalLines");
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Insurance", amount: "100", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+    await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
