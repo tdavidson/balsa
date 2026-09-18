@@ -3,7 +3,7 @@ import type { ForecastConsequence } from "@nevermodel/finance-engine";
 import { describeCause, describeConsequence } from "./consequence-copy";
 
 const base: ForecastConsequence = {
-  asOfMonth: { before: "2026-08", after: "2026-08" }, cash: [], horizonEndCash: { month: "2028-08", beforeMinor: "0", afterMinor: "12000000", deltaMinor: "12000000" },
+  asOfMonth: { before: "2026-08", after: "2026-08" }, rolledForward: false, cash: [], horizonEndCash: { month: "2028-08", beforeMinor: "0", afterMinor: "12000000", deltaMinor: "12000000" },
   cashOutMonth: { before: "2028-03", after: null }, runwayMonths: { before: 14, after: null },
   projectedReceipts: { beforeMinor: "0", afterMinor: "12000000", deltaMinor: "12000000" }, projectedSpending: { beforeMinor: "0", afterMinor: "0", deltaMinor: "0" },
   drivers: { added: [], removed: [], changed: [] }, exceptions: { before: 0, after: 0 },
@@ -20,6 +20,18 @@ describe("consequence copy", () => {
   it("says when nothing moves and when drivers are excluded", () => {
     expect(describeConsequence(null)).toBe("No forecast effect");
     expect(describeConsequence(null, 2)).toBe("No forecast effect · 2 drivers excluded");
+  });
+  it("leads with the roll when the as-of month moved, without a cash change from the roll itself", () => {
+    const rolled: ForecastConsequence = { ...base, asOfMonth: { before: "2026-07", after: "2026-08" }, rolledForward: true, horizonEndCash: { month: "2028-07", beforeMinor: "500000", afterMinor: "500000", deltaMinor: "0" }, runwayMonths: { before: 10, after: 9 }, cashOutMonth: { before: "2027-06", after: "2027-06" } };
+    expect(describeConsequence(rolled)).toBe("Forecast rolled forward to Aug 2026 · runway 10 mo → 9 mo");
+    expect(describeConsequence({ ...rolled, runwayMonths: { before: 9, after: 9 } })).toBe("Forecast rolled forward to Aug 2026");
+    expect(describeConsequence({ ...rolled, horizonEndCash: { ...rolled.horizonEndCash, deltaMinor: "-500000" }, cashOutMonth: { before: "2027-06", after: "2027-05" } })).toBe("Forecast rolled forward to Aug 2026 · Jul 2028 ending cash −$5k · runway 10 mo → 9 mo · cash-out Jun 2027 → May 2027");
+  });
+  it("reports the largest monthly cash change when the horizon end and runway did not move", () => {
+    const interior: ForecastConsequence = { ...base, horizonEndCash: { ...base.horizonEndCash, deltaMinor: "0" }, runwayMonths: { before: 14, after: 14 }, cashOutMonth: { before: null, after: null },
+      cash: [{ month: "2027-02", beforeMinor: "0", afterMinor: "200000", deltaMinor: "200000" }, { month: "2027-03", beforeMinor: "600000", afterMinor: "100000", deltaMinor: "-500000" }, { month: "2027-04", beforeMinor: "0", afterMinor: "0", deltaMinor: "0" }] };
+    expect(describeConsequence(interior)).toBe("Mar 2027 ending cash −$5k");
+    expect(describeConsequence({ ...interior, cash: [] })).toBe("No forecast effect");
   });
   it("describes causes", () => {
     expect(describeCause({ kind: "item_confirmed", subjectLabel: "Acme retainer" })).toBe("Confirmed Acme retainer");

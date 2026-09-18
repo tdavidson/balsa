@@ -8,13 +8,24 @@ const signedMoney = (minor: string) => {
 };
 const runway = (months: number | null) => (months === null ? "beyond horizon" : `${months} mo`);
 
-/** One line a CFO can read before approving: the horizon-end cash change, runway, and cash-out month. */
+const magnitude = (minor: string) => { const value = BigInt(minor); return value < 0n ? -value : value; };
+
+/**
+ * One line a CFO can read before approving: the horizon-end cash change, runway, and cash-out month.
+ * A roll of the as-of month leads the line and contributes no cash change of its own.
+ */
 export function describeConsequence(consequence: ForecastConsequence | null, exceptionsAfter = 0): string {
   const parts: string[] = [];
   if (consequence) {
     if (consequence.horizonEndCash.deltaMinor !== "0") parts.push(`${monthName(consequence.horizonEndCash.month)} ending cash ${signedMoney(consequence.horizonEndCash.deltaMinor)}`);
     if (consequence.runwayMonths.before !== consequence.runwayMonths.after) parts.push(`runway ${runway(consequence.runwayMonths.before)} → ${runway(consequence.runwayMonths.after)}`);
     if (consequence.cashOutMonth.before !== consequence.cashOutMonth.after) parts.push(`cash-out ${consequence.cashOutMonth.before ? monthName(consequence.cashOutMonth.before) : "none"} → ${consequence.cashOutMonth.after ? monthName(consequence.cashOutMonth.after) : "none"}`);
+    if (!parts.length) {
+      // Cash moved inside the horizon but netted out by its end: name the month that moved most.
+      const largest = consequence.cash.filter((row) => row.deltaMinor !== "0").reduce<ForecastConsequence["cash"][number] | null>((best, row) => (!best || magnitude(row.deltaMinor) > magnitude(best.deltaMinor) ? row : best), null);
+      if (largest) parts.push(`${monthName(largest.month)} ending cash ${signedMoney(largest.deltaMinor)}`);
+    }
+    if (consequence.rolledForward) parts.unshift(`Forecast rolled forward to ${monthName(consequence.asOfMonth.after)}`);
   }
   const head = parts.length ? parts.join(" · ") : "No forecast effect";
   return exceptionsAfter > 0 ? `${head} · ${exceptionsAfter} driver${exceptionsAfter === 1 ? "" : "s"} excluded` : head;

@@ -146,6 +146,14 @@ diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConse
   - `cash_out_month`
   - `runway_months`
   - total projected receipts and total spend over the horizon
+- `rolledForward` is true when the two runs have different as-of months.
+  The horizons are then offset, so only months forecast by **both** runs are
+  compared: `cash` rows cover only those common months, projected receipts
+  and spend are summed over only those months on both sides, and
+  `horizonEndCash` uses the latest common month. If the horizons share no
+  forecast month, `horizonEndCash` uses the next run's horizon end with a
+  null before value and a delta of `"0"`. The roll itself is never reported
+  as a cash change.
 - Driver changes: drivers that were added, removed, or changed (amount,
   cadence, or effective dates), keyed by `economicItemId`.
 - The exceptions count before and after.
@@ -238,7 +246,12 @@ tables.
   cash +$120k · runway 14 mo → beyond horizon · cash-out Mar 2028 → none",
   where the cash figure is at the end of the horizon. If
   drivers were excluded, the line adds "· 2 drivers excluded". If the item
-  has no forecast effect, it shows "No forecast effect".
+  has no forecast effect, it shows "No forecast effect". When the horizon-end
+  cash, runway, and cash-out month are unchanged but a month inside the
+  horizon moved, the line names the month with the largest change instead,
+  for example "Mar 2027 ending cash −$5k". When the as-of month moved, the
+  line starts with "Forecast rolled forward to <Mon YYYY>" followed by any
+  other changes.
 - **Proposed treatments:** the same line appears next to "If applied:".
 - **Dashboard:**
   - The runway figure shows forward runway months and the cash-out month,
