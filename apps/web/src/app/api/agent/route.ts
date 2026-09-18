@@ -10,6 +10,7 @@ import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";
 import { relevantEvidenceContext } from "@/lib/evidence-context";
 import { loadJournalFinancialMonths, type JournalFinancialMonth } from "@/lib/journal-financial-views";
 import { loadJournalReport } from "@/lib/journal-ledger";
+import { loadLatestForecast, loadRecentConsequences } from "@/lib/forecast-read";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { describeEffect, effectFromFlat, flatEffectJsonSchema, flatEffectSchema } from "@/lib/decision-effects";
@@ -72,7 +73,7 @@ function parseToolInput(input: string): Record<string, unknown> {
   try { const parsed = JSON.parse(input) as unknown; return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {}; } catch { return { query: input }; }
 }
 
-async function runTool(tool: (typeof toolNames)[number], rawInput: string, context: { companyId: string; currency: string; financials: JournalFinancialMonth[]; asOfMonth: string; policies: unknown; items: unknown; entities: { id: string; name: string; type: string; category: Category | null }[]; evidenceDocuments: Parameters<typeof relevantEvidenceContext>[0] }) {
+async function runTool(tool: (typeof toolNames)[number], rawInput: string, context: { companyId: string; currency: string; financials: JournalFinancialMonth[]; asOfMonth: string; policies: unknown; items: unknown; entities: { id: string; name: string; type: string; category: Category | null }[]; evidenceDocuments: Parameters<typeof relevantEvidenceContext>[0]; consequences: Awaited<ReturnType<typeof loadRecentConsequences>> }) {
   const input = parseToolInput(rawInput);
   const { financials } = context;
   const asOf = context.asOfMonth;
@@ -109,7 +110,7 @@ async function runTool(tool: (typeof toolNames)[number], rawInput: string, conte
       return { error: "Scenario simulation is being rebuilt as explicit scenario journal-entry overlays. It is unavailable until those entries are created and approved." };
     }
     case "read_policies": return context.policies;
-    case "read_company_state": return { items: context.items, entities: context.entities, asOfMonth: asOf, horizon: { start: financials[0]?.month ?? asOf, end: financials.at(-1)?.month ?? asOf } };
+    case "read_company_state": return { items: context.items, entities: context.entities, asOfMonth: asOf, horizon: { start: financials[0]?.month ?? asOf, end: financials.at(-1)?.month ?? asOf }, recentForecastConsequences: context.consequences };
     case "read_evidence": return relevantEvidenceContext(context.evidenceDocuments, typeof input.query === "string" ? input.query : rawInput);
   }
 }
@@ -123,8 +124,10 @@ export async function POST(request: Request) {
   if (!quota.allowed) return NextResponse.json({ error: "Chat limit reached. Try again later." }, { status: 429, headers: { "Retry-After": String(quota.retryAfterSeconds) } });
   const db = getDatabase();
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const [financials, itemRows, docs, activePolicies, priorDecisions, proposedDecisionRows, openReviews, evidenceDocuments, entityRows] = await Promise.all([
-    loadJournalFinancialMonths({ companyId: context.company.id, start: `${currentMonth.slice(0, 4)}-01`, end: (() => { const [year, number] = currentMonth.split("-").map(Number); const date = new Date(Date.UTC(year!, number! + 10, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; })(), currency: context.company.baseCurrency, selection: { view: "projected", asOfPeriod: currentMonth }, asOfPeriod: currentMonth, view: "projected" }),
+  const forecast = await loadLatestForecast(context.company.id);
+  const asOfMonth = forecast?.run.asOfMonth ?? currentMonth;
+  const [financials, itemRows, docs, activePolicies, priorDecisions, proposedDecisionRows, openReviews, evidenceDocuments, entityRows, recentConsequences] = await Promise.all([
+    loadJournalFinancialMonths({ companyId: context.company.id, start: `${currentMonth.slice(0, 4)}-01`, end: (() => { const [year, number] = currentMonth.split("-").map(Number); const date = new Date(Date.UTC(year!, number! + 10, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; })(), currency: context.company.baseCurrency, selection: { view: "projected", asOfPeriod: asOfMonth }, asOfPeriod: asOfMonth, view: "projected" }),
     db.select({ id: economicItems.id, type: economicItems.type, label: economicItems.label, counterparty: economicItems.counterparty, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, effectiveFrom: economicItems.effectiveFrom, effectiveTo: economicItems.effectiveTo, category: economicItems.category, basis: economicItems.basis, status: economicItems.status, confidence: economicItems.confidence }).from(economicItems).where(eq(economicItems.companyId, context.company.id)).orderBy(desc(economicItems.createdAt)).limit(150),
     db.select({ slug: knowledgeDocuments.slug, content: knowledgeDocuments.content }).from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)),
     db.select({ name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y"))),
@@ -133,11 +136,12 @@ export async function POST(request: Request) {
     db.select({ id: reviewItems.id, reviewKey: reviewItems.reviewKey, question: reviewItems.question, evidenceId: reviewItems.evidenceId }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.status, "open"))).orderBy(desc(reviewItems.createdAt)).limit(50),
     db.select({ id: evidence.id, sourceName: evidence.sourceName, rawText: evidence.rawText, extractedJson: evidence.extractedJson }).from(evidence).where(eq(evidence.companyId, context.company.id)).orderBy(desc(evidence.createdAt)).limit(20),
     db.select({ id: entities.id, name: entities.name, type: entities.type, attributes: entities.attributes }).from(entities).where(eq(entities.companyId, context.company.id)),
+    loadRecentConsequences(context.company.id, 5),
   ]);
   const consolidatedOpenReviews = uniqueReviewQuestions(openReviews);
-  const asOf = currentMonth;
+  const asOf = asOfMonth;
   const calculated = financials.filter((month) => month.month >= asOf).map((month) => ({ month: month.month, basis: month.basis, verification: month.verification, endingCash: month.forecast.endingCash, receipts: month.forecast.receipts, spending: month.forecast.spending, operatingIncome: month.pnl.operatingIncome }));
-  const asOfMonth = financials.find((month) => month.month === asOf);
+  const asOfMonthRow = financials.find((month) => month.month === asOf);
   const confirmedItems = itemRows.filter((item) => item.status === "confirmed").map((item) => ({ ...item, amount: Number(item.amount ?? 0) }));
   const draftItems = itemRows.filter((item) => item.status === "draft").map((item) => ({ id: item.id, label: item.label, amount: Number(item.amount ?? 0), direction: item.direction, cadence: item.cadence, effectiveFrom: item.effectiveFrom, category: item.category, confidence: item.confidence ? Number(item.confidence) : null }));
   const knownEntities = entityRows.map((entity) => ({ id: entity.id, name: entity.name, type: entity.type, category: parseEntityAttributes(entity.attributes).category ?? null }));
@@ -158,7 +162,7 @@ Tools (request at most one per turn as toolCalls; results come back on the next 
 - trace_value {"month":"YYYY-MM","category":"professional_services","label":"Cash"}: matching journal account balances, line ids, and provenance. Use it for every "why is this number" question.
 - get_obligations {}: confirmed drivers; settlement analysis is still migrating.
 - get_allocations {} and simulate {}: report their explicit availability result; never use a legacy calculation to answer.
-- read_policies {}, read_company_state {}, read_evidence {"query":"..."}.
+- read_policies {}, read_company_state {}, read_evidence {"query":"..."}. read_company_state includes recentForecastConsequences: each explains how a committed change moved projected cash and runway, with its causes.
 
 When the CFO states an assumption or asks you to change the forecast ("assume we hire a contractor in January at $6k"), respond with a proposedDecision whose effect encodes it exactly (add_item with basis assumed, end_item, change_amount, or set_category for a counterparty). Proposals are suggestions only: they apply when the CFO presses Apply, never from chat, and you must never claim a proposal was applied or rejected. Use the same effect shape as simulate; set effect to null for decisions with no structured change.
 
@@ -170,9 +174,9 @@ Policies: ${JSON.stringify(activePolicies)}
 Prior decisions: ${JSON.stringify(priorDecisions)}
 Proposed decisions awaiting the CFO: ${JSON.stringify(proposedDecisionRows.map((decision) => ({ id: decision.id, question: decision.question, answer: decision.answer })))}
 Open clarification questions: ${JSON.stringify(consolidatedOpenReviews)}
-Opening cash: ${JSON.stringify(asOfMonth?.forecast.openingCash ?? null)}
+Opening cash: ${JSON.stringify(asOfMonthRow?.forecast.openingCash ?? null)}
 Legal entities: ${JSON.stringify(knownEntities)}
-Balance sheet as of ${asOf}: ${JSON.stringify(asOfMonth?.balanceSheet ?? null)}
+Balance sheet as of ${asOf}: ${JSON.stringify(asOfMonthRow?.balanceSheet ?? null)}
 Engine summary from ${asOf} (twelve months): ${JSON.stringify(calculated)}
 Confirmed items: ${JSON.stringify(confirmedItems)}
 Draft items awaiting confirmation: ${JSON.stringify(draftItems)}
@@ -191,7 +195,7 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
   const runIds: string[] = [];
   const firstRun = await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "agent", request: { message: body.data.message, history: body.data.history, evidence: body.data.evidence, reviewQuestionId: body.data.reviewQuestionId, month: body.data.month }, response: JSON.stringify(result) });
   if (firstRun) runIds.push(firstRun);
-  const toolContext = { companyId: context.company.id, currency: context.company.baseCurrency, financials, asOfMonth: asOf, policies: activePolicies, items: confirmedItems, entities: knownEntities, evidenceDocuments };
+  const toolContext = { companyId: context.company.id, currency: context.company.baseCurrency, financials, asOfMonth: asOf, policies: activePolicies, items: confirmedItems, entities: knownEntities, evidenceDocuments, consequences: recentConsequences };
   const toolTranscript: Array<{ tool: string; input: string; result: unknown }> = [];
   for (let turn = 0; turn < 2 && result.toolCalls.length; turn += 1) {
     const call = result.toolCalls[0]!;
