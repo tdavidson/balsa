@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/auth";
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
+import { effectiveAsOfPeriod } from "@/lib/forecast-read";
 
 const validMonth = (value: string | null): value is string => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 const nextMonth = (month: string) => { const [year, number] = month.split("-").map(Number); const date = new Date(Date.UTC(year!, number!, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; };
@@ -19,13 +20,21 @@ export async function GET(request: Request) {
   const start = url.searchParams.get("start");
   const end = url.searchParams.get("end");
   const view = url.searchParams.get("view") ?? "actual";
-  const asOfPeriod = url.searchParams.get("asOfPeriod") ?? undefined;
+  const requestedAsOfPeriod = url.searchParams.get("asOfPeriod") ?? undefined;
   const scenarioId = url.searchParams.get("scenarioId") ?? undefined;
   const entityId = url.searchParams.get("entityId") ?? undefined;
   if (!validMonth(start) || !validMonth(end) || start > end) return NextResponse.json({ error: "start and end must be ordered YYYY-MM values" }, { status: 400 });
   if (!(["actual", "projected", "scenario"] as string[]).includes(view)) return NextResponse.json({ error: "view must be actual, projected, or scenario" }, { status: 400 });
-  if (asOfPeriod && (!validMonth(asOfPeriod) || asOfPeriod > end)) return NextResponse.json({ error: "asOfPeriod must be a month on or before end" }, { status: 400 });
+  if (requestedAsOfPeriod && !validMonth(requestedAsOfPeriod)) return NextResponse.json({ error: "asOfPeriod must be a month on or before end" }, { status: 400 });
   if (view === "scenario" && !scenarioId) return NextResponse.json({ error: "scenario view requires scenarioId" }, { status: 400 });
+  // Projected/scenario views are anchored at the latest forecast's as-of month, matching
+  // withDerivedForecast's override in journal-ledger.ts, so the reported/labeled as-of
+  // always matches what the engine actually used. If that as-of falls after `end`, the
+  // label is clamped to `end` rather than rejecting the request; a caller-supplied
+  // asOfPeriod with no forecast anchoring still 400s on an out-of-range value, as before.
+  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod);
+  if (!forecastAnchored && forecastAsOf && forecastAsOf > end) return NextResponse.json({ error: "asOfPeriod must be a month on or before end" }, { status: 400 });
+  const asOfPeriod = forecastAnchored && forecastAsOf! > end ? end : forecastAsOf;
   const selection = view === "actual" ? { view: "actual" as const } : { view: view as "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), ...(scenarioId ? { scenarioId } : {}) };
   const months = await Promise.all(monthsInRange(start, end).map(async (period) => {
     const report = await loadJournalReport(context.company.id, period, entityId, selection);

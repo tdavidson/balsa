@@ -311,14 +311,16 @@ function composerCallToAction(now: Date, context: { needsInputCount: number; has
 
 const actionButton = "grid size-7 place-items-center rounded-md border border-rule text-ink-2 transition-colors hover:bg-rule hover:text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background [&_svg]:size-3.5";
 
-function Figure({ label, value, note, pencil, negative }: { label: string; value: string; note: string; pencil?: boolean; negative?: boolean }) {
-  return (
-    <div className="min-w-0">
+function Figure({ label, value, note, pencil, negative, onClick }: { label: string; value: string; note: string; pencil?: boolean; negative?: boolean; onClick?: () => void }) {
+  const content = (
+    <>
       <span className="block text-[13px] text-ink-2">{label}</span>
       <strong className={cn("figure mt-1.5 block text-[26px] leading-[1.15]", pencil && "font-normal text-ink-2", negative && "text-red-ink")}>{value}</strong>
       <em className="mt-1 block truncate text-[12px] text-pencil not-italic">{note}</em>
-    </div>
+    </>
   );
+  if (onClick) return <button type="button" className="min-w-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" onClick={onClick}>{content}</button>;
+  return <div className="min-w-0">{content}</div>;
 }
 
 type AppShellProps = {
@@ -453,6 +455,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [usageOpen, setUsageOpen] = useState(false);
   const [accountingOpen, setAccountingOpen] = useState(false);
   const [calculationTraceOpen, setCalculationTraceOpen] = useState(false);
+  const [calculationTraceEngine, setCalculationTraceEngine] = useState<"journal" | "forecast">("journal");
   const [calculationRun, setCalculationRun] = useState<CalculationRunView | null>(null);
   const [calculationRunHistory, setCalculationRunHistory] = useState<CalculationRunView[]>([]);
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -629,15 +632,17 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     loadEvidence().catch(() => undefined);
   }, []);
 
-  const loadCalculationTrace = (runId?: string) => {
+  const loadCalculationTrace = (runId?: string, engine: "journal" | "forecast" = calculationTraceEngine) => {
     const query = new URLSearchParams();
-    if (runId) query.set("runId", runId); else if (selectedMonth) query.set("period", selectedMonth);
+    if (engine === "forecast") query.set("engine", "forecast");
+    if (runId) query.set("runId", runId); else if (engine === "journal" && selectedMonth) query.set("period", selectedMonth);
     fetch(`/api/calculations${query.size ? `?${query.toString()}` : ""}`).then((response) => response.ok ? response.json() : null).then((payload) => {
       setCalculationRun(payload?.run ?? null);
       setCalculationRunHistory(payload?.runs ?? []);
       setCalculationNodes(payload?.nodes ?? []);
     }).catch(() => undefined);
   };
+  const openCalculationTrace = (engine: "journal" | "forecast") => { setCalculationTraceEngine(engine); setCalculationTraceOpen(true); };
   const recalculateBaseCase = async () => {
     setIsRecalculating(true);
     try {
@@ -652,10 +657,10 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   };
   useEffect(() => {
     if (!calculationTraceOpen) return;
-    loadCalculationTrace();
-    // Fetch only when the dialog opens; selecting history is explicit.
+    loadCalculationTrace(undefined, calculationTraceEngine);
+    // Fetch only when the dialog opens or the engine changes; selecting history is explicit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calculationTraceOpen]);
+  }, [calculationTraceOpen, calculationTraceEngine]);
 
   // A hosted deployment also drains these durable jobs through its scheduler.
   // On localhost there may be no scheduler, so the open browser safely runs a
@@ -1754,7 +1759,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <span>{endingCashCalculation.inputNodeIds.length} calculation inputs · {endingCashCalculation.lineIds.length} source rows</span>
               {endingCashCalculation.verification.reasons.slice(1).map((reason) => <span key={reason}>{reason}</span>)}
               {calculationChecks.map((check) => <span key={check.id}>{check.label}: {check.verification.status}{check.verification.reasons[0] ? ` — ${check.verification.reasons[0]}` : ""}</span>)}
-              <button type="button" className="w-fit underline underline-offset-2" onClick={() => setCalculationTraceOpen(true)}>Open calculation trace</button>
+              <button type="button" className="w-fit underline underline-offset-2" onClick={() => openCalculationTrace("journal")}>Open calculation trace</button>
             </div>
           </details>}
 
@@ -1765,6 +1770,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               note={currentForecast ? (currentForecast.hasCashBalance === false ? "No opening balance for this month" : showActuals ? "Ending cash" : "Projected ending cash") : "Awaiting opening balance"}
               pencil={Boolean(currentForecast) && !showActuals}
               negative={Boolean(currentForecast && currentForecast.endingCash < 0)}
+              {...(currentForecast && !showActuals ? { onClick: () => openCalculationTrace("forecast") } : {})}
             />
             <Figure
               label="Cash in"
@@ -1790,11 +1796,12 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               negative={Boolean(currentForecast && (showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) < 0)}
             />
             <Figure
-              label="Runway"
+              label={selectedEntity === "consolidated" ? "Runway" : "Consolidated runway"}
               value={runway ? (runway.runwayMonths === null ? `> ${runway.horizonMonths} mo` : `${runway.runwayMonths} mo`) : "—"}
-              note={runway ? `${runway.cashOutMonth ? `Cash-out ${monthLabel(runway.cashOutMonth)}` : "No cash-out in horizon"}${BigInt(runway.trailingBurn3mMinor) > 0n ? ` · burn ${money(Number(runway.trailingBurn3mMinor) / 100)}/mo` : ""}${runway.cashOverTrailingBurn && Number(runway.cashOverTrailingBurn) !== 0 ? ` · ${runway.cashOverTrailingBurn}× burn` : ""}${runway.stale ? " · updating" : ""}` : "Forecast not calculated yet"}
+              note={runway ? `${runway.cashOutMonth ? `Cash-out ${monthLabel(runway.cashOutMonth)}` : "No cash-out in horizon"}${BigInt(runway.trailingBurn3mMinor) > 0n ? ` · burn ${money(Number(runway.trailingBurn3mMinor) / 100)}/mo` : ""}${runway.cashOverTrailingBurn && Number(runway.cashOverTrailingBurn) !== 0 ? ` · ${runway.cashOverTrailingBurn}× burn` : ""}${runway.stale ? " · updating" : ""}${selectedEntity === "consolidated" ? "" : " · all entities"}` : "Forecast not calculated yet"}
               pencil
               negative={Boolean(runway?.runwayMonths !== null && runway?.runwayMonths !== undefined && runway.runwayMonths < 6)}
+              {...(runway ? { onClick: () => openCalculationTrace("forecast") } : {})}
             />
           </div>
           {runway && <ForecastWhatChanged refreshKey={runway.revision} />}
@@ -1908,9 +1915,15 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       <Dialog open={calculationTraceOpen} onOpenChange={setCalculationTraceOpen}>
         <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[900px]">
           <DialogHeader className="border-b border-rule px-6 py-6 pr-14 text-left">
-            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>Calculation trace</DialogTitle>
+            <DialogTitle className="display text-[26px] font-medium" style={{ fontVariationSettings: '"opsz" 26' }}>{calculationTraceEngine === "forecast" ? "Forecast calculation trace" : "Calculation trace"}</DialogTitle>
             <DialogDescription>{calculationRun ? `${monthLabel(calculationRun.horizonStart, shortMonthFormatter)} through ${monthLabel(calculationRun.horizonEnd, shortMonthFormatter)} · engine ${calculationRun.engineVersion} · ${calculationRun.verificationStatus}` : "Loading the latest persisted deterministic run…"}</DialogDescription>
-            {calculationRun && (!calculationRun.isCurrentFormula || !calculationRun.isCurrentState) && <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-pencil"><span>{!calculationRun.isCurrentFormula ? "This run uses an earlier formula version." : "Financial state changed after this run."}</span><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={isRecalculating} onClick={recalculateBaseCase}>{isRecalculating ? "Recalculating…" : "Recalculate current base case"}</button></div>}
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px]">
+              <div className="flex gap-1">
+                <button type="button" className={cn("rounded-md border px-2 py-1", calculationTraceEngine === "journal" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2")} onClick={() => openCalculationTrace("journal")}>Journal</button>
+                <button type="button" className={cn("rounded-md border px-2 py-1", calculationTraceEngine === "forecast" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2")} onClick={() => openCalculationTrace("forecast")}>Forecast</button>
+              </div>
+              {calculationTraceEngine === "journal" && calculationRun && (!calculationRun.isCurrentFormula || !calculationRun.isCurrentState) && <span className="flex items-center gap-3 text-pencil"><span>{!calculationRun.isCurrentFormula ? "This run uses an earlier formula version." : "Financial state changed after this run."}</span><button type="button" className="underline underline-offset-2 disabled:opacity-50" disabled={isRecalculating} onClick={recalculateBaseCase}>{isRecalculating ? "Recalculating…" : "Recalculate current base case"}</button></span>}
+            </div>
           </DialogHeader>
           {calculationRunHistory.length > 1 && <div className="flex gap-2 overflow-x-auto border-b border-rule px-6 py-3 text-[12px]">{calculationRunHistory.map((run) => <button type="button" key={run.id} onClick={() => loadCalculationTrace(run.id)} className={cn("shrink-0 rounded-md border px-2.5 py-1.5 text-left", calculationRun?.id === run.id ? "border-ink bg-ink text-paper" : "border-rule bg-background text-ink-2")}>{new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(run.createdAt))}</button>)}</div>}
           <ScrollArea className="max-h-[66vh] px-6 py-4">
