@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/auth";
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
+import { effectiveAsOfPeriod } from "@/lib/forecast-read";
 
 const validMonth = (value: string | null): value is string => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 const sections = ["revenue", "expenses", "income_statement", "assets", "liabilities", "equity", "balance_sheet", "cash_flow", "cash_to_bank"] as const;
@@ -12,13 +13,20 @@ export async function GET(request: Request) {
   await auth.protect();
   const context = await requireCompanyAccess();
   const url = new URL(request.url); const period = url.searchParams.get("period"); const section = url.searchParams.get("section");
-  const key = url.searchParams.get("key") ?? undefined; const view = url.searchParams.get("view") ?? "projected"; const asOfPeriod = url.searchParams.get("asOfPeriod") ?? undefined; const scenarioId = url.searchParams.get("scenarioId") ?? undefined;
+  const key = url.searchParams.get("key") ?? undefined; const view = url.searchParams.get("view") ?? "projected"; const requestedAsOfPeriod = url.searchParams.get("asOfPeriod") ?? undefined; const scenarioId = url.searchParams.get("scenarioId") ?? undefined;
   if (!validMonth(period) || !sections.includes(section as typeof sections[number])) return NextResponse.json({ error: "period and valid statement section are required" }, { status: 400 });
   if (!(["actual", "projected", "scenario"] as string[]).includes(view)) return NextResponse.json({ error: "Invalid view" }, { status: 400 });
-  if (asOfPeriod && (!validMonth(asOfPeriod) || asOfPeriod > period)) return NextResponse.json({ error: "Invalid asOfPeriod" }, { status: 400 });
+  if (requestedAsOfPeriod && !validMonth(requestedAsOfPeriod)) return NextResponse.json({ error: "Invalid asOfPeriod" }, { status: 400 });
   if (view === "scenario" && !scenarioId) return NextResponse.json({ error: "scenario view requires scenarioId" }, { status: 400 });
   const selectedSection = section as typeof sections[number];
   if (selectedSection === "cash_to_bank" && view !== "actual") return NextResponse.json({ error: "cash_to_bank inspection is available only for actual periods" }, { status: 400 });
+  // Projected/scenario views are anchored at the latest forecast's as-of month (see
+  // withDerivedForecast in journal-ledger.ts); a forecast as-of after `period` is clamped
+  // instead of rejecting the request, matching the reporting and calculations routes. A
+  // caller-supplied asOfPeriod with no forecast anchoring still 400s as before.
+  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod);
+  if (!forecastAnchored && forecastAsOf && forecastAsOf > period) return NextResponse.json({ error: "Invalid asOfPeriod" }, { status: 400 });
+  const asOfPeriod = forecastAnchored && forecastAsOf! > period ? period : forecastAsOf;
   const actualReconciliation = view === "actual" ? await loadJournalReconciliation(context.company.id, period) : null;
   const report = actualReconciliation ?? await loadJournalReport(context.company.id, period, undefined, { view: view as "actual" | "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), ...(scenarioId ? { scenarioId } : {}) });
   const { statements, trialBalance } = actualReconciliation ?? report;

@@ -30,6 +30,21 @@ export async function loadLatestForecast(companyId: string, now = new Date()) {
   return { runId: row.id, revision: row.revision, run, stale };
 }
 
+/**
+ * The as-of period a projected/scenario reader should validate against and report in
+ * its labels/echo: the latest forecast's as-of month when one exists — matching the
+ * override `withDerivedForecast` applies in journal-ledger.ts, so the value agrees with
+ * what the engine actually used — otherwise the caller's requested value, unchanged.
+ * `forecastAnchored` tells the caller whether the as-of came from a forecast, so it can
+ * clamp an out-of-range label instead of rejecting the request (the caller's own
+ * out-of-range value, with no forecast involved, should still be rejected as before).
+ */
+export async function effectiveAsOfPeriod(companyId: string, view: string, requested: string | undefined): Promise<{ asOfPeriod: string | undefined; forecastAnchored: boolean }> {
+  if (view !== "projected" && view !== "scenario") return { asOfPeriod: requested, forecastAnchored: false };
+  const forecast = await loadLatestForecast(companyId);
+  return forecast ? { asOfPeriod: forecast.run.asOfMonth, forecastAnchored: true } : { asOfPeriod: requested, forecastAnchored: false };
+}
+
 export type ConsequenceCause = { revision: string; kind: string; subjectType: string; subjectId: string | null; subjectIds?: string[]; actorUserId: string | null; via: string; createdAt: string; subjectLabel: string | null; subjectLabels: string[] };
 type RawCause = Omit<ConsequenceCause, "subjectLabel" | "subjectLabels">;
 

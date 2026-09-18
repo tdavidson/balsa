@@ -264,9 +264,19 @@ tables.
 - `/api/ledger/calculations?view=projected` and every other projected or
   scenario reader get the derived run the same way. The shared ledger loaders
   (`journal-ledger.ts`) overlay the latest run's projected lines and anchor
-  the view at its as-of month.
+  the view at its as-of month. `/api/ledger/reporting`, `/api/ledger/inspect`
+  and `/api/ledger/calculations` resolve the same effective as-of themselves
+  (`effectiveAsOfPeriod` in `forecast-read.ts`) before validating and echoing
+  it, so their labels agree with what the loader actually used; a forecast
+  as-of past the caller's range is clamped to that range instead of
+  rejecting the request. A caller-supplied `asOfPeriod` with no forecast to
+  anchor it is still rejected as out of range, unchanged.
 - Minimum cash is set in Company settings (`/api/forecast/settings`). A change
   is a revision with cause `settings_changed`.
+- The runway figure is consolidated (per "Out of scope: per-entity
+  forecasts"); when the dashboard is filtered to one entity it is labeled
+  "Consolidated runway" with " · all entities" appended to its note, so it
+  isn't read as entity-scoped.
 
 ## UI
 
@@ -295,7 +305,16 @@ tables.
     "Confirmed 3 items: Acme retainer, Rent, Payroll", or "... and N more"
     past three. A cause from the calendar rolling forward (`period_rolled`)
     reads "Month rolled forward".
-- **Calculation trace dialog:** works on forecast nodes with no changes.
+- **Calculation trace dialog:** lists forecast nodes (`ending_cash`,
+  `net_burn`, `trailing_burn_3m`, `cash_over_trailing_burn`, `cash_out_month`,
+  `runway_months`) with a Journal/Forecast toggle. `/api/calculations`
+  accepts `?engine=forecast` to return the latest persisted forecast run's
+  nodes instead of a period's journal graph, resolving each node's
+  `driverIds` provenance to economic item labels (company-scoped); the
+  reader accepts both the journal array and forecast object provenance
+  shapes (`normalizeCalculationProvenance` in `calculation-provenance.ts`),
+  so no data migration is needed. The Runway figure and the Cash figure
+  (when projected) open the dialog directly on the forecast nodes.
 - **Accounting modal:** the "Forecast entries" tab becomes "Pin as plan".
   The Templates tab is unchanged.
 
@@ -347,6 +366,11 @@ tables.
   behind the calendar gets a new revision with cause `period_rolled` and an
   advanced `asOfMonth`; a repeat call with the same `now` refreshes nothing;
   a company with no forecast run yet is never a candidate.
+- `normalizeCalculationProvenance`/`driverIdsFromProvenance`: a journal
+  node's provenance array passes through unchanged; a forecast node's
+  `{ driverIds }` object normalizes into source entries with ids resolved
+  through a label map (falling back to the raw id); non-array/non-object and
+  malformed shapes normalize to `[]`.
 
 **accounting-evals**: a new eval, "confirming a contract extends runway and
 the consequence is attributed to its source evidence."
