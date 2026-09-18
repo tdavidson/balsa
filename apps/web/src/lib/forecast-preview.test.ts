@@ -117,4 +117,50 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
       await db.update(calculationRuns).set({ inputJson: originalInputJson }).where(eq(calculationRuns.id, row!.id));
     }
   });
+
+  it("sees a chart account and template added after the latest run without a revision bump", async () => {
+    const ledger = await import("./journal-ledger");
+    const [cash] = await db.select({ id: chartAccounts.id }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.code, "1000")));
+    // No refresh: the stored run's input predates this account, so only a fresh account load can map the template.
+    const [revenue] = await db.insert(chartAccounts).values({ companyId, code: "4000", name: "Revenue", accountType: "revenue", normalBalance: "credit" }).returning({ id: chartAccounts.id });
+    await db.insert(forecastEntryTemplates).values({ companyId, name: "Receipts", itemType: "agreement", direction: "receipt", debitAccountId: cash!.id, creditAccountId: revenue!.id });
+    const [item] = await db.insert(economicItems).values({ companyId, type: "agreement", direction: "receipt", label: "Retainer", amount: "700", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+
+    const reuseSpy = vi.spyOn(ledger, "loadPostedJournalLines");
+    const reused = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+    expect(reuseSpy).not.toHaveBeenCalled();
+    reuseSpy.mockRestore();
+    expect(reused.exceptionsAfter).toBe(0);
+    expect(reused.consequence!.exceptions.after).toBe(reused.consequence!.exceptions.before);
+    expect(reused.consequence!.projectedReceipts.deltaMinor).not.toBe("0");
+
+    // A forced full load: the latest run falls behind the company revision, so nothing stored is reused.
+    const before = (await db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)))[0]!.revision;
+    const bumped = String(BigInt(before) + 1n);
+    await db.update(companies).set({ financialStateRevision: bumped }).where(eq(companies.id, companyId));
+    try {
+      const full = await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(reused).toEqual(full);
+    } finally {
+      await db.update(companies).set({ financialStateRevision: before }).where(eq(companies.id, companyId));
+    }
+  });
+
+  it("reuses only a stored run at the current forecast formula version", async () => {
+    const ledger = await import("./journal-ledger");
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Hosting", amount: "60", cadence: "monthly", effectiveFrom: firstMonth, status: "draft" }).returning({ id: economicItems.id });
+    const [row] = await db.select({ id: calculationRuns.id, engineVersion: calculationRuns.engineVersion }).from(calculationRuns)
+      .where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%")))
+      .orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1);
+    // An older formula's run at the head revision: its stored input shape is not guaranteed, so it must not be reused.
+    await db.update(calculationRuns).set({ engineVersion: "forecast-run-2026-01-01.1" }).where(eq(calculationRuns.id, row!.id));
+    try {
+      const spy = vi.spyOn(ledger, "loadPostedJournalLines");
+      await previewForecastChange(companyId, { kind: "confirm_item", itemId: item!.id });
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+    } finally {
+      await db.update(calculationRuns).set({ engineVersion: row!.engineVersion }).where(eq(calculationRuns.id, row!.id));
+    }
+  });
 });

@@ -28,6 +28,12 @@ export async function forecastAsOfMonth(companyId: string, now: Date, db: DbExec
 
 export const compareIds = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
+/** The company's active chart accounts as forecast accounts, in id order. */
+export async function loadForecastAccounts(companyId: string, db: DbExecutor = getDatabase()) {
+  const rows = await db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y")));
+  return rows.map(chartAccountToForecastAccount).sort((left, right) => compareIds(left.accountId, right.accountId));
+}
+
 /**
  * The compact, canonical forecast input: an actuals summary rather than raw
  * lines, with drivers, templates, and accounts in id order so the stored input
@@ -39,11 +45,10 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const [company] = await db.select({ baseCurrency: companies.baseCurrency, minimumCashMinor: companies.minimumCashMinor }).from(companies).where(eq(companies.id, companyId)).limit(1);
   if (!company) throw new Error("Company not found while loading forecast inputs");
   const asOfMonth = await forecastAsOfMonth(companyId, now, db);
-  const [{ drivers, templates }, actualLines, accountRows] = await Promise.all([
+  const [{ drivers, templates }, actualLines, accounts] = await Promise.all([
     loadForecastDrivers(companyId, {}, db),
     loadPostedJournalLines(companyId, asOfMonth, db),
-    db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))),
+    loadForecastAccounts(companyId, db),
   ]);
-  const accounts = accountRows.map(chartAccountToForecastAccount).sort((left, right) => compareIds(left.accountId, right.accountId));
   return { actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor };
 }

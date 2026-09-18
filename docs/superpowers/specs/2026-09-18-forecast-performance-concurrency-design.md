@@ -159,15 +159,23 @@ So `inputHash` is canonical.
 
 `previewForecastChange` loads only these:
 
-- the latest persisted forecast run's `inputJson`, which is a small query
+- the `inputJson` of the latest persisted forecast run whose
+  `engineVersion` is exactly `forecastFormulaVersion` (an exact match, not
+  `LIKE 'forecast-run-%'`: an older formula's stored input shape is not
+  guaranteed), which is a small query
 - the current company revision
-- the drivers and templates, which are small queries
+- the drivers, templates, and active chart accounts, which are small queries
 - the changed item or decision
 
-If the latest run's revision equals the company revision, and its as-of
-equals today's computed as-of, it reuses `input.actuals`, and the accounts
-and settings from the stored input. Otherwise it falls back to
-`loadForecastInputs`, which loads the ledger once. Both sides are then
+If that run's revision equals the company revision, and its as-of equals
+today's computed as-of, it reuses `input.actuals` and the settings
+(currency, horizon, minimum cash) from the stored input. Drivers, templates,
+and accounts always come from the fresh load: a chart account or template
+can be added without a revision bump, and a stale account list would
+exclude a driver whose template uses the new account. Accounts are mapped
+with `chartAccountToForecastAccount` and sorted by `compareIds`, the same as
+`loadForecastInputs` (both use `loadForecastAccounts`). Otherwise it falls
+back to `loadForecastInputs`, which loads the ledger once. Both sides are then
 built with `buildForecastRun`, which is now O(P). The preview is still
 never written.
 
@@ -264,5 +272,8 @@ enforced structurally rather than by timing.
   - the preview parity tests still pass
   - a new preview test asserts that the ledger loader is not called when the
     latest run is current
+  - a preview after a chart account and template are added without a
+    revision bump does not exclude the driver that uses them, and equals a
+    full-load preview; a head run at an older formula version is not reused
 - **reader:** a unit or integration check that `loadLatestForecast` is
   called once per journal-financials request, through a spy or a counter.
