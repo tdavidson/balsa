@@ -59,7 +59,7 @@ type RevisionCause = {
     | "item_confirmed" | "item_rejected" | "item_edited" | "item_created"
     | "decision_applied" | "journal_posted" | "journal_reversed"
     | "period_closed" | "period_reopened" | "fx_changed" | "entity_changed"
-    | "allocation_changed" | "mapping_approved" | "plan_pinned";
+    | "allocation_changed" | "mapping_approved" | "plan_pinned" | "settings_changed";
   subjectType: string;       // "evidence" | "economic_item" | "decision" | "journal_entry" | ...
   subjectId: string | null;
   actorUserId: string | null;
@@ -128,7 +128,7 @@ It:
 `buildForecastRun` is deterministic: the same input gives byte-identical
 `stableJson` output. `stableJson` moves from `apps/web/src/lib/journal-calculation-graph.ts` into `finance-engine` so both can share it. Minor units stay as `bigint`/string throughout, and
 there are no floats except in the `cash_over_trailing_burn` ratio, which is
-rounded to one decimal place.
+truncated to one decimal place.
 
 ### Consequence diff (pure)
 
@@ -161,7 +161,8 @@ diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConse
    `calculation_nodes`.
 4. Load the previous **completed** forecast run for the company, and run
    `diffForecastRuns` against it.
-5. If there is a consequence, insert a `forecast_consequences` row. Its
+5. If there is a previous run and a consequence, insert a `forecast_consequences` row. The first
+   forecast run has nothing to compare against and records nothing. Its
    `causes` field holds every `financial_state_revisions` row after the
    previous run's revision, up to and including this one, so causes whose
    jobs were superseded are still attributed.
@@ -191,10 +192,10 @@ tables.
   and returns `diffForecastRuns(asIs, withChange)`. Nothing is persisted.
   Computing both sides fresh keeps the preview correct when the stored run is
   stale.
-- `decision-effects.ts` is split into a pure
-  `projectDecisionEffectOnDrivers(drivers, decision)` and the existing
-  persistence path. The real apply uses the pure function, so the preview and
-  the committed result cannot diverge.
+- A pure `projectDecisionEffectOnDrivers(drivers, effect, decisionId)` mirrors
+  `applyDecisionEffect` in memory. A database-backed parity test confirms each
+  preview's headline figures equal the consequence recorded after the real
+  confirmation or apply.
 - The route returns 409 if the item is not a draft, or if the decision is not
   `proposed`.
 
@@ -207,11 +208,11 @@ tables.
 - A pin bumps the revision **once**, with cause `plan_pinned`. The posting
   helper gains a batch mode that defers the refresh until the batch
   completes.
-- Existing posted `forecast`-basis journals are treated as plan entries. No
-  data migration is needed.
-- `selectJournalLinesForReporting`: the `projected` and `scenario` views no
-  longer include posted `forecast` or `plan` lines. Views that show the
-  projection read the derived forecast run instead.
+- Existing posted `forecast`-basis journals are treated as plan entries. The
+  ledger loader reads both stored `forecast` and `plan` as in-memory `plan`, so
+  no data migration is needed. `selectJournalLinesForReporting` is unchanged:
+  it never includes `plan` lines, and the in-memory `forecast` basis now comes
+  only from the derived run.
 
 ### Readers switched to the derived run
 
@@ -221,13 +222,19 @@ tables.
   `cashOverTrailingBurn` and `stale`.
 - The agent's `get_financials` and context use the same source. The context
   also includes the five most recent consequences, each with its causes.
-- `/api/ledger/calculations?view=projected` returns the forecast run.
+- `/api/ledger/calculations?view=projected` and every other projected or
+  scenario reader get the derived run the same way. The shared ledger loaders
+  (`journal-ledger.ts`) overlay the latest run's projected lines and anchor
+  the view at its as-of month.
+- Minimum cash is set in Company settings (`/api/forecast/settings`). A change
+  is a revision with cause `settings_changed`.
 
 ## UI
 
 - **Interpreted items** ("confirm before they enter…"): each draft row
-  lazily calls preview and shows one line, for example "Q4 ending cash
-  +$120k · runway 14 → 16 mo · cash-out Mar 2028 → beyond horizon". If
+  lazily calls preview and shows one line, for example "Aug 2028 ending
+  cash +$120k · runway 14 mo → beyond horizon · cash-out Mar 2028 → none",
+  where the cash figure is at the end of the horizon. If
   drivers were excluded, the line adds "· 2 drivers excluded". If the item
   has no forecast effect, it shows "No forecast effect".
 - **Proposed treatments:** the same line appears next to "If applied:".
@@ -236,8 +243,8 @@ tables.
     with a secondary line for trailing burn and cash ÷ burn, and a stale
     badge when relevant.
   - A new "What changed" list shows the latest consequences. Each entry has
-    a headline delta and cause links that open the evidence, item, or
-    decision.
+    a headline delta and its causes, named by the label of the item,
+    evidence, or decision.
 - **Calculation trace dialog:** works on forecast nodes with no changes.
 - **Accounting modal:** the "Forecast entries" tab becomes "Pin as plan".
   The Templates tab is unchanged.
@@ -270,8 +277,8 @@ tables.
   - added, removed and changed drivers
   - cash-out moving from `null` to a month and back
   - handles a previous run whose horizon differs
-- `selectJournalLinesForReporting`: projected views exclude posted `forecast`
-  and `plan` lines.
+- Stored `forecast` and `plan` bases are read as `plan`. Plan lines never
+  reach the actual or projected views.
 
 **web**:
 - A type-level check that `refreshCurrentCalculationRun` without `cause`
