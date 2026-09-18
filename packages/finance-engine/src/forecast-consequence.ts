@@ -1,7 +1,7 @@
 import type { ForecastDriver } from "./forecast-projections";
 import type { ForecastRun } from "./forecast-run";
 
-export type ForecastDriverRef = Pick<ForecastDriver, "id" | "label" | "direction" | "amountMinor" | "cadence" | "effectiveFrom" | "effectiveTo" | "evidenceId" | "decisionId">;
+export type ForecastDriverRef = Pick<ForecastDriver, "id" | "label" | "direction" | "category" | "amountMinor" | "cadence" | "effectiveFrom" | "effectiveTo" | "evidenceId" | "decisionId">;
 export type ForecastConsequence = {
   asOfMonth: { before: string | null; after: string };
   cash: { month: string; beforeMinor: string | null; afterMinor: string | null; deltaMinor: string }[];
@@ -18,7 +18,7 @@ const comparedFields = ["label", "direction", "category", "amountMinor", "cadenc
 const forecastMonths = (run: ForecastRun | null) => (run?.months ?? []).filter((month) => month.basis === "forecast");
 const total = (run: ForecastRun | null, field: "receiptsMinor" | "spendingMinor") => forecastMonths(run).reduce((sum, month) => sum + BigInt(month[field]), 0n);
 const pair = (before: bigint, after: bigint) => ({ beforeMinor: before.toString(), afterMinor: after.toString(), deltaMinor: (after - before).toString() });
-const ref = (driver: ForecastDriver): ForecastDriverRef => ({ id: driver.id, label: driver.label, direction: driver.direction, amountMinor: driver.amountMinor, cadence: driver.cadence, effectiveFrom: driver.effectiveFrom, ...(driver.effectiveTo ? { effectiveTo: driver.effectiveTo } : {}), ...(driver.evidenceId ? { evidenceId: driver.evidenceId } : {}), ...(driver.decisionId ? { decisionId: driver.decisionId } : {}) });
+const ref = (driver: ForecastDriver): ForecastDriverRef => ({ id: driver.id, label: driver.label, direction: driver.direction, amountMinor: driver.amountMinor, cadence: driver.cadence, effectiveFrom: driver.effectiveFrom, ...(driver.category ? { category: driver.category } : {}), ...(driver.effectiveTo ? { effectiveTo: driver.effectiveTo } : {}), ...(driver.evidenceId ? { evidenceId: driver.evidenceId } : {}), ...(driver.decisionId ? { decisionId: driver.decisionId } : {}) });
 
 /** The forward consequence of moving from one forecast run to the next, or null when no headline figure moved. */
 export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConsequence | null {
