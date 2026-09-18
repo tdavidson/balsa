@@ -10,11 +10,12 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 // Real Postgres: what is under test is revision attribution across the outbox, which a fake would not prove.
 describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { calculationNodes, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { calculationNodes, calculationOutbox, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { forecastAsOfMonth, loadForecastInputs } = await import("./forecast-inputs");
   const { persistForecastRun } = await import("./forecast-persistence");
-  const { runForecastJob } = await import("./forecast-job");
+  const { FORECAST_LOCK_NAMESPACE, runForecastJob } = await import("./forecast-job");
+  const { processCalculationOutboxJob } = await import("./calculation-outbox");
   const { addMonths, buildForecastRun } = await import("@nevermodel/finance-engine");
   const db = getDatabase();
   let companyId = ""; let itemId = ""; let firstMonth = "";
@@ -130,12 +131,12 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     const { Client } = await import("pg");
     const other = new Client({ connectionString: process.env.DATABASE_URL });
     await other.connect();
-    const key = `forecast:${companyId}`; // the same key runForecastJob hashes
-    // pg_locks splits a bigint advisory key into classid (high word) and objid (low word).
-    const locksOnKey = async (granted: boolean) => (await other.query<{ n: number }>("select count(*)::int as n from pg_locks where locktype = 'advisory' and granted = $2 and ((classid::bigint << 32) | objid::bigint) = hashtext($1)::bigint", [key, granted])).rows[0]!.n;
+    // The same two-key lock runForecastJob takes: (namespace, hashtext(companyId)).
+    // pg_locks shows a two-key advisory lock as classid = key1, objid = key2 (as an unsigned oid), objsubid = 2.
+    const locksOnKey = async (granted: boolean) => (await other.query<{ n: number }>("select count(*)::int as n from pg_locks where locktype = 'advisory' and granted = $3 and objsubid = 2 and classid::bigint = $1 and objid::bigint = (hashtext($2)::bigint & 4294967295)", [FORECAST_LOCK_NAMESPACE, companyId, granted])).rows[0]!.n;
     try {
       await other.query("begin");
-      await other.query("select pg_advisory_xact_lock(hashtext($1))", [key]);
+      await other.query("select pg_advisory_xact_lock($1, hashtext($2))", [FORECAST_LOCK_NAMESPACE, companyId]);
       expect(await locksOnKey(true)).toBe(1);
 
       const job = runForecastJob(companyId, revision);
@@ -152,5 +153,15 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     } finally {
       await other.end();
     }
+  });
+
+  it("processes a queued forecast job from an older formula version as the current forecast job", async () => {
+    const [company] = await db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId));
+    const [job] = await db.insert(calculationOutbox).values({ companyId, financialStateRevision: company!.revision, engineVersion: "forecast-run-2026-01-01.1", period: "forecast", status: "queued" }).returning({ id: calculationOutbox.id });
+    const result = await processCalculationOutboxJob(job!.id);
+    expect(result).toEqual({ id: job!.id, status: "completed" });
+    const [run] = await db.select({ engineVersion: calculationRuns.engineVersion }).from(calculationRuns).innerJoin(calculationOutbox, eq(calculationOutbox.calculationRunId, calculationRuns.id)).where(eq(calculationOutbox.id, job!.id));
+    expect(run?.engineVersion).toMatch(/^forecast-run-/);
+    expect(run?.engineVersion).not.toBe("forecast-run-2026-01-01.1");
   });
 });

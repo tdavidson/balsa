@@ -193,11 +193,18 @@ already loaded `forecast` value (or `null`).
 ### B5. Serialized forecast jobs, checked before and after
 
 `runForecastJob(companyId, revision, { now? })` becomes one READ COMMITTED
-transaction. Every query inside it uses the `tx` executor. Nothing may call
-`getDatabase()`, because the dev pool has one connection.
+transaction, requested explicitly (`{ isolationLevel: "read committed" }`)
+rather than inherited from the database default. Every query inside it uses
+the `tx` executor. Nothing may call `getDatabase()`, because the dev pool has
+one connection.
 
-1. Run `select pg_advisory_xact_lock(hashtext('forecast:' || companyId))`.
-   This blocks until any other forecast job for the company commits.
+1. Run `select pg_advisory_xact_lock(FORECAST_LOCK_NAMESPACE,
+   hashtext(companyId))`, the two-key form with the exported constant
+   `FORECAST_LOCK_NAMESPACE = 7401` as its first key, so these locks cannot
+   collide with a single-key advisory lock elsewhere. `pg_locks` shows it as
+   `classid = 7401`, `objid = hashtext(companyId)` (as an unsigned oid),
+   `objsubid = 2`. This blocks until any other forecast job for the company
+   commits.
 2. Read the company revision. If it is not equal to `revision`, return
    `{ superseded: true }` without writing anything.
 3. Load the inputs through `tx`, compute, persist the run and its nodes, and

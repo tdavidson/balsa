@@ -8,13 +8,21 @@ import { persistForecastRun, recordForecastConsequence } from "@/lib/forecast-pe
 
 class ForecastSuperseded extends Error {}
 
+/**
+ * First key of the two-key advisory lock that serializes a company's forecast
+ * jobs: `pg_advisory_xact_lock(FORECAST_LOCK_NAMESPACE, hashtext(companyId))`.
+ * The namespace keeps these locks apart from any other advisory lock user.
+ */
+export const FORECAST_LOCK_NAMESPACE = 7401;
+
 export type ForecastJobResult = { id: string; reused: boolean } | { superseded: true };
 
 /**
  * Derive, persist, and diff the forecast for one committed revision.
  *
- * One READ COMMITTED transaction. Jobs for a company serialize on an advisory
- * lock, so the previous-run lookup sees every run committed before this job.
+ * One READ COMMITTED transaction, set explicitly so a changed database
+ * default cannot turn it into a snapshot that predates the lock wait. Jobs for
+ * a company serialize on an advisory lock, so the previous-run lookup sees every run committed before this job.
  * A run is persisted only if the company is still at this revision both
  * before and after the work; otherwise nothing is written and the result is
  * `{ superseded: true }`, leaving this revision's causes to the newer job.
@@ -30,7 +38,7 @@ export async function runForecastJob(companyId: string, financialStateRevision: 
   const currentRevision = async (tx: DbExecutor) => (await tx.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)).limit(1))[0]?.revision;
   try {
     return await getDatabase().transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`forecast:${companyId}`}))`);
+      await tx.execute(sql`select pg_advisory_xact_lock(${FORECAST_LOCK_NAMESPACE}, hashtext(${companyId}))`);
       if ((await currentRevision(tx)) !== financialStateRevision) throw new ForecastSuperseded();
       const input = await loadForecastInputs(companyId, { ...(options.now ? { now: options.now } : {}), db: tx });
       const run = buildForecastRun(input);
@@ -40,7 +48,7 @@ export async function runForecastJob(companyId: string, financialStateRevision: 
       if (options.afterCompute) await options.afterCompute(tx);
       if ((await currentRevision(tx)) !== financialStateRevision) throw new ForecastSuperseded();
       return persisted;
-    });
+    }, { isolationLevel: "read committed" });
   } catch (error) {
     if (error instanceof ForecastSuperseded) return { superseded: true };
     throw error;
