@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SourceLinks } from "@/components/source-links";
 import { describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 
 type PreviewRequest = { kind: "confirm_item"; itemId: string } | { kind: "apply_decision"; decisionId: string };
@@ -8,7 +9,7 @@ type PreviewRequest = { kind: "confirm_item"; itemId: string } | { kind: "apply_
 /**
  * "Forecast: …" under a pending approval, computed by the read-only preview endpoint.
  * `revision` is the current forecast revision: when another approval lands, the preview is recomputed.
- * `onOpenEvidence`, when given, renders each source as a button opening the Documents dialog on it.
+ * Any sources render via `SourceLinks`: as buttons when `onOpenEvidence` is given, as plain text otherwise.
  */
 export function ForecastConsequenceLine({ request, revision, onOpenEvidence }: { request: PreviewRequest; revision?: string | undefined; onOpenEvidence?: ((evidenceId: string) => void) | undefined }) {
   const [text, setText] = useState<string | null>(null);
@@ -30,11 +31,7 @@ export function ForecastConsequenceLine({ request, revision, onOpenEvidence }: {
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-pencil">
       <span>Forecast: {text}</span>
-      {onOpenEvidence && sources.map((source) => (
-        <button key={source.evidenceId} type="button" className="underline underline-offset-2" onClick={() => onOpenEvidence(source.evidenceId)}>
-          {source.sourceName ?? "Open source"}
-        </button>
-      ))}
+      <SourceLinks sources={sources} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }

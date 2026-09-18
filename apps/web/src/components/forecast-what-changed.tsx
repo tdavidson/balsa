@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import { SourceLinks } from "@/components/source-links";
 import { describeCause, describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 
 type Cause = { kind: string; subjectType: string; subjectId: string | null; subjectLabel: string | null; subjectLabels?: string[] };
@@ -9,7 +10,7 @@ type Row = { id: string; createdAt: string; delta: ForecastConsequence; sources:
 
 /**
  * The latest forecast consequences, each with what caused it. `refreshKey` changes when a new forecast revision lands.
- * `onOpenEvidence`, when given, makes each row's sources and any evidence-subject cause a button into the Documents dialog.
+ * `onOpenEvidence`, when given, makes each row's sources (via `SourceLinks`) and any evidence-subject cause a button into the Documents dialog.
  */
 export function ForecastWhatChanged({ refreshKey, onOpenEvidence }: { refreshKey: string; onOpenEvidence?: ((evidenceId: string) => void) | undefined }) {
   const [rows, setRows] = useState<Row[]>([]);
@@ -38,14 +39,9 @@ export function ForecastWhatChanged({ refreshKey, onOpenEvidence }: { refreshKey
             ))}
             <span>· {new Date(row.createdAt).toLocaleString()}</span>
           </span>
-          {onOpenEvidence && row.sources.length > 0 && (
-            <span className="flex flex-wrap items-center gap-1.5 text-pencil">
-              <span>Sources:</span>
-              {row.sources.map((source) => (
-                <button key={source.evidenceId} type="button" className="underline underline-offset-2" onClick={() => onOpenEvidence(source.evidenceId)}>
-                  {source.sourceName ?? "Open source"}
-                </button>
-              ))}
+          {row.sources.length > 0 && (
+            <span className="text-pencil">
+              <SourceLinks sources={row.sources} onOpenEvidence={onOpenEvidence} />
             </span>
           )}
         </div>

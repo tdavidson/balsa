@@ -78,3 +78,12 @@ export function describeSources(sources: ConsequenceSource[]): string | null {
   const name = first!.sourceName ?? "a source";
   return rest.length ? `from ${name} and ${rest.length} more` : `from ${name}`;
 }
+
+/**
+ * Splits sources into what a caller should render as individual links (`shown`, capped at
+ * `max`) and how many more there are (`overflow`), so a UI can render up to `max` buttons
+ * and a trailing "and N more" for the rest without truncating the underlying list itself.
+ */
+export function visibleSources(sources: ConsequenceSource[], max = 2): { shown: ConsequenceSource[]; overflow: number } {
+  return { shown: sources.slice(0, max), overflow: Math.max(0, sources.length - max) };
+}
