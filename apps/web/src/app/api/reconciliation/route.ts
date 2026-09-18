@@ -249,7 +249,7 @@ async function handleReconciliation(request: Request, persist: boolean) {
         { companyId: context.company.id, sourceId: run.sourceId, stage: "matching", status: "succeeded", completedAt: now, metadata: JSON.stringify({ matched, unmatched, currencyPending: ledgerEntries.filter((entry) => entry.kind === "currency_pending").length }) },
         { companyId: context.company.id, sourceId: run.sourceId, stage: "grouped_review", status: "succeeded", completedAt: now, metadata: JSON.stringify({ questions }) },
       ]));
-      await Promise.all(completedRuns.map((run) => db.update(ingestionRuns).set({ status: "succeeded", completedAt: now, metadata: summary, updatedAt: now }).where(eq(ingestionRuns.id, run.id))));
+      await Promise.all(completedRuns.map((run) => db.update(ingestionRuns).set({ status: "succeeded", completedAt: now, metadata: summary, updatedAt: now }).where(and(eq(ingestionRuns.id, run.id), eq(ingestionRuns.companyId, context.company.id)))));
     }
   }
   const sourceIds = evidenceRows.flatMap((source) => source.sourceId ? [{ id: source.sourceId, month: monthFromSource(source), evidenceStatus: source.status }] : []);
