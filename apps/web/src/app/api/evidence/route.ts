@@ -175,7 +175,7 @@ export async function POST(request: Request) {
   }).catch(async (error) => {
     const message = error instanceof Error ? error.message : "Source extraction failed";
     if (source?.id) {
-      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(eq(sources.id, source.id));
+      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: message, processedAt: new Date() }).where(and(eq(sources.id, source.id), eq(sources.companyId, context.company.id)));
       await getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "failed", error: message, completedAt: new Date(), metadata: "{}" });
     }
     throw error;
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
 
   await getDatabase().update(evidence).set({ reportingMonth: resolvedReportingMonth, accountHolder: statementMetadata?.accountHolder, accountIdentifier: statementMetadata?.accountIdentifier, statementPeriodStart: statementMetadata?.statementPeriodStart, statementPeriodEnd: statementMetadata?.statementPeriodEnd, openingBalance: statementMetadata?.openingBalance ? String(parseFinancialAmount(statementMetadata.openingBalance) ?? "") : undefined, endingBalance: statementMetadata?.endingBalance ? String(parseFinancialAmount(statementMetadata.endingBalance) ?? "") : undefined, extractedJson: JSON.stringify(extraction), updatedAt: new Date() }).where(and(eq(evidence.id, row!.id), eq(evidence.companyId, context.company.id)));
   if (source?.id) {
-    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ reportingMonth: resolvedReportingMonth, sourceSize, sourceRole, classification: sourceClassification, currencies: detectedCurrencies, pdfQuality, workbook: workbookStructure, statementMetadata }) }).where(eq(sources.id, source.id));
+    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ reportingMonth: resolvedReportingMonth, sourceSize, sourceRole, classification: sourceClassification, currencies: detectedCurrencies, pdfQuality, workbook: workbookStructure, statementMetadata }) }).where(and(eq(sources.id, source.id), eq(sources.companyId, context.company.id)));
     await getDatabase().insert(ingestionRuns).values([
       { companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "succeeded", metadata: JSON.stringify({ facts: extraction.facts.length, questions: extraction.questions.length, pdfQuality }) },
       { companyId: context.company.id, sourceId: source.id, stage: "review", status: "waiting", metadata: JSON.stringify({ evidenceStatus: "pending" }) },
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
   if (row?.id && resolvedReportingMonth) {
     const relatedSources = await getDatabase().select({ evidenceId: evidence.id, sourceId: evidence.sourceId }).from(evidence).where(and(eq(evidence.companyId, context.company.id), ne(evidence.id, row.id), eq(evidence.reportingMonth, resolvedReportingMonth), eq(evidence.status, "approved")));
     await Promise.all(relatedSources.flatMap((related) => related.sourceId ? [
-      getDatabase().update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date() }).where(eq(sources.id, related.sourceId)),
+      getDatabase().update(sources).set({ ingestionStatus: "review", ingestionError: null, processedAt: new Date() }).where(and(eq(sources.id, related.sourceId), eq(sources.companyId, context.company.id))),
       getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: related.sourceId, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ triggeredByEvidenceId: row.id, reportingMonth: resolvedReportingMonth }) }),
     ] : []));
     const reprocessEvidenceIds = relatedSources.flatMap((related) => related.evidenceId ? [related.evidenceId] : []);

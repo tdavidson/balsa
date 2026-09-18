@@ -2,6 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Post-implementation changes
+
+The following enhancements were added after initial implementation:
+
+- **As-of rule:** `max(latest closed period, last full calendar month)` — extended beyond the original "latest closed period" to handle open forecasts.
+- **Runway definition:** Full months funded before the cash-out month (revised from "months from as-of to cash-out").
+- **Formula version:** `forecast-run-2026-09-18.2` (advanced from `.1` for as-of and runway refinements).
+- **Consequence flags:** `methodChanged` and `rolledForward` to track methodology shifts and period rollover effects in delta records.
+- **Revision cause:** `period_rolled` cause added to capture month-end forecast refreshes; `subjectIds` field added for bulk operation attribution.
+- **Calculation trace:** Forecast-node tracing in the calculation trace dialog shows node IDs, formulas, and value lineage.
+- **Entity filtering:** "Consolidated runway" label added when a forecast runway is displayed under entity filters.
+- **Ledger reporting:** Effective as-of date reported in ledger reporting, inspect, and calculations routes.
+- **Follow-up plan:** Performance and concurrency enhancements documented at `docs/superpowers/plans/2026-09-18-forecast-performance-concurrency.md`.
+
 **Goal:** Derive the forecast (cash, burn, runway) from confirmed drivers on every financial-state revision. Store the difference between consecutive forecast runs as a consequence record that is attributed to its causes. Let the CFO preview that consequence before confirming an item or applying a decision.
 
 **Architecture:**
