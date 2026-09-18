@@ -8,7 +8,7 @@ import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph"
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
-import { effectiveAsOfPeriod } from "@/lib/forecast-read";
+import { effectiveAsOfPeriod, loadLatestForecast } from "@/lib/forecast-read";
 
 const validPeriod = (value: string | null): value is string => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 const parse = <T,>(value: string, fallback: T): T => { try { return JSON.parse(value) as T; } catch { return fallback; } };
@@ -30,12 +30,15 @@ export async function POST(request: Request) {
   // withDerivedForecast in journal-ledger.ts); a forecast as-of after `period` is clamped
   // instead of rejecting the request. A caller-supplied asOfPeriod with no forecast
   // anchoring still 400s on an out-of-range value, as before.
-  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod);
+  // Load the forecast once per request and reuse it for both the as-of resolution and
+  // the report below.
+  const forecast = view === "projected" || view === "scenario" ? await loadLatestForecast(context.company.id) : undefined;
+  const { asOfPeriod: forecastAsOf, forecastAnchored } = await effectiveAsOfPeriod(context.company.id, view, requestedAsOfPeriod, forecast);
   if (!forecastAnchored && forecastAsOf && forecastAsOf > period) return NextResponse.json({ error: "asOfPeriod must be a month on or before period" }, { status: 400 });
   const asOfPeriod = forecastAnchored && forecastAsOf! > period ? period : forecastAsOf;
   const selection = view === "actual" ? { view: "actual" as const } : { view: view as "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), ...(scenarioId ? { scenarioId } : {}) };
   const actual = view === "actual" ? await loadJournalReconciliation(context.company.id, period) : null;
-  const report = actual ?? await loadJournalReport(context.company.id, period, undefined, selection);
+  const report = actual ?? await loadJournalReport(context.company.id, period, undefined, selection, { ...(forecast !== undefined ? { forecast } : {}) });
   const allocationAnalysis = await loadJournalAllocationAnalysis(context.company.id, period);
   const graph = buildJournalCalculationGraph(actual ? { period, trialBalance: actual.trialBalance, statements: actual.statements, ledgerReconciliation: actual.report, accountBalances: actual.accountBalances, allocationAnalysis } : { period, trialBalance: report.trialBalance, statements: report.statements, view: view as "projected" | "scenario", ...(asOfPeriod ? { asOfPeriod } : {}), allocationAnalysis });
   const run = await persistJournalCalculationGraph({

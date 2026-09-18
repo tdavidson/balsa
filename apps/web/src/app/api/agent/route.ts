@@ -10,7 +10,7 @@ import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";
 import { relevantEvidenceContext } from "@/lib/evidence-context";
 import { loadJournalFinancialMonths, type JournalFinancialMonth } from "@/lib/journal-financial-views";
 import { loadJournalReport } from "@/lib/journal-ledger";
-import { loadLatestForecast, loadRecentConsequences } from "@/lib/forecast-read";
+import { loadLatestForecast, loadRecentConsequences, type LatestForecast } from "@/lib/forecast-read";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { describeEffect, effectFromFlat, flatEffectJsonSchema, flatEffectSchema } from "@/lib/decision-effects";
@@ -73,7 +73,7 @@ function parseToolInput(input: string): Record<string, unknown> {
   try { const parsed = JSON.parse(input) as unknown; return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {}; } catch { return { query: input }; }
 }
 
-async function runTool(tool: (typeof toolNames)[number], rawInput: string, context: { companyId: string; currency: string; financials: JournalFinancialMonth[]; asOfMonth: string; policies: unknown; items: unknown; entities: { id: string; name: string; type: string; category: Category | null }[]; evidenceDocuments: Parameters<typeof relevantEvidenceContext>[0]; consequences: Awaited<ReturnType<typeof loadRecentConsequences>> }) {
+async function runTool(tool: (typeof toolNames)[number], rawInput: string, context: { companyId: string; currency: string; financials: JournalFinancialMonth[]; asOfMonth: string; policies: unknown; items: unknown; entities: { id: string; name: string; type: string; category: Category | null }[]; evidenceDocuments: Parameters<typeof relevantEvidenceContext>[0]; consequences: Awaited<ReturnType<typeof loadRecentConsequences>>; forecast: LatestForecast | null }) {
   const input = parseToolInput(rawInput);
   const { financials } = context;
   const asOf = context.asOfMonth;
@@ -87,14 +87,14 @@ async function runTool(tool: (typeof toolNames)[number], rawInput: string, conte
       const entity = typeof input.entity === "string" && input.entity !== "consolidated" ? input.entity : undefined;
       const start = typeof input.start === "string" && isValidMonth(input.start) ? input.start : typeof input.month === "string" && isValidMonth(input.month) ? input.month : asOf;
       const end = typeof input.end === "string" && isValidMonth(input.end) ? input.end : typeof input.month === "string" && isValidMonth(input.month) ? input.month : start;
-      const statements = await loadJournalFinancialMonths({ companyId: context.companyId, start, end, currency: context.currency, ...(entity ? { entityId: entity } : {}), selection: { view: "projected", asOfPeriod: asOf }, asOfPeriod: asOf, view: "projected" });
+      const statements = await loadJournalFinancialMonths({ companyId: context.companyId, start, end, currency: context.currency, ...(entity ? { entityId: entity } : {}), selection: { view: "projected", asOfPeriod: asOf }, asOfPeriod: asOf, view: "projected", forecast: context.forecast });
       return { entities: context.entities, months: statements.map((month) => ({ month: month.month, basis: month.basis, verification: month.verification, incomeStatement: month.pnl, balanceSheet: month.balanceSheet, cashFlow: month.forecast.cashFlow })) };
     }
     case "trace_value": {
       const month = typeof input.month === "string" && isValidMonth(input.month) ? input.month : asOf;
       const category = isCategory(input.category) ? input.category : undefined;
       const label = typeof input.label === "string" ? input.label : typeof input.query === "string" ? input.query : undefined;
-      const report = await loadJournalReport(context.companyId, month, undefined, { view: "projected", asOfPeriod: asOf });
+      const report = await loadJournalReport(context.companyId, month, undefined, { view: "projected", asOfPeriod: asOf }, { forecast: context.forecast });
       const query = `${category ?? ""} ${label ?? ""}`.toLowerCase();
       return { month, lines: report.trialBalance.lines.filter((line) => !query || `${line.accountCode} ${line.accountName} ${line.statementLine ?? ""}`.toLowerCase().includes(query)).map((line) => ({ account: `${line.accountCode} · ${line.accountName}`, netMinor: line.netMinor, journalLineIds: line.lineIds, provenance: line.provenance })) };
     }
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
   const forecast = await loadLatestForecast(context.company.id);
   const asOfMonth = forecast?.run.asOfMonth ?? currentMonth;
   const [financials, itemRows, docs, activePolicies, priorDecisions, proposedDecisionRows, openReviews, evidenceDocuments, entityRows, recentConsequences] = await Promise.all([
-    loadJournalFinancialMonths({ companyId: context.company.id, start: `${currentMonth.slice(0, 4)}-01`, end: (() => { const [year, number] = currentMonth.split("-").map(Number); const date = new Date(Date.UTC(year!, number! + 10, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; })(), currency: context.company.baseCurrency, selection: { view: "projected", asOfPeriod: asOfMonth }, asOfPeriod: asOfMonth, view: "projected" }),
+    loadJournalFinancialMonths({ companyId: context.company.id, start: `${currentMonth.slice(0, 4)}-01`, end: (() => { const [year, number] = currentMonth.split("-").map(Number); const date = new Date(Date.UTC(year!, number! + 10, 1)); return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`; })(), currency: context.company.baseCurrency, selection: { view: "projected", asOfPeriod: asOfMonth }, asOfPeriod: asOfMonth, view: "projected", forecast }),
     db.select({ id: economicItems.id, type: economicItems.type, label: economicItems.label, counterparty: economicItems.counterparty, amount: economicItems.amount, direction: economicItems.direction, cadence: economicItems.cadence, effectiveFrom: economicItems.effectiveFrom, effectiveTo: economicItems.effectiveTo, category: economicItems.category, basis: economicItems.basis, status: economicItems.status, confidence: economicItems.confidence }).from(economicItems).where(eq(economicItems.companyId, context.company.id)).orderBy(desc(economicItems.createdAt)).limit(150),
     db.select({ slug: knowledgeDocuments.slug, content: knowledgeDocuments.content }).from(knowledgeDocuments).where(eq(knowledgeDocuments.companyId, context.company.id)),
     db.select({ name: policies.name, rule: policies.rule }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y"))),
@@ -195,7 +195,7 @@ New evidence uploaded with this turn: ${JSON.stringify(body.data.evidence)}`;
   const runIds: string[] = [];
   const firstRun = await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "agent", request: { message: body.data.message, history: body.data.history, evidence: body.data.evidence, reviewQuestionId: body.data.reviewQuestionId, month: body.data.month }, response: JSON.stringify(result) });
   if (firstRun) runIds.push(firstRun);
-  const toolContext = { companyId: context.company.id, currency: context.company.baseCurrency, financials, asOfMonth: asOf, policies: activePolicies, items: confirmedItems, entities: knownEntities, evidenceDocuments, consequences: recentConsequences };
+  const toolContext = { companyId: context.company.id, currency: context.company.baseCurrency, financials, asOfMonth: asOf, policies: activePolicies, items: confirmedItems, entities: knownEntities, evidenceDocuments, consequences: recentConsequences, forecast };
   const toolTranscript: Array<{ tool: string; input: string; result: unknown }> = [];
   for (let turn = 0; turn < 2 && result.toolCalls.length; turn += 1) {
     const call = result.toolCalls[0]!;

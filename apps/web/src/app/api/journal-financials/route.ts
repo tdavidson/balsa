@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   const entityId = url.searchParams.get("entity") ?? undefined;
   const view = scenarioId ? "scenario" : "projected";
   if (!validMonth(start) || !validMonth(end) || start > end || !validMonth(asOfPeriod) || asOfPeriod > end) return NextResponse.json({ error: "start, end, and asOfPeriod must be ordered YYYY-MM values" }, { status: 400 });
-  const months = await loadJournalFinancialMonths({ companyId: context.company.id, start, end, currency: context.company.baseCurrency, ...(entityId ? { entityId } : {}), selection: { view, asOfPeriod, ...(scenarioId ? { scenarioId } : {}) }, asOfPeriod, view });
+  const months = await loadJournalFinancialMonths({ companyId: context.company.id, start, end, currency: context.company.baseCurrency, ...(entityId ? { entityId } : {}), selection: { view, asOfPeriod, ...(scenarioId ? { scenarioId } : {}) }, asOfPeriod, view, forecast });
   const runway = forecast ? { ...forecast.run.runway, revision: forecast.revision, horizonEnd: forecast.run.horizon.end, stale: forecast.stale, exceptions: forecast.run.exceptions.length } : null;
   return NextResponse.json({ mode: "entry_graph", view, asOfPeriod, months, runway });
 }

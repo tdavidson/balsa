@@ -4,7 +4,7 @@ import { chartAccounts, getDatabase, journalBatches, journalEntries, journalLine
 import { buildJournalStatements, buildTrialBalance, selectJournalLinesForReporting, type PostedJournalLine } from "@nevermodel/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { entryBasisFromStored } from "@/lib/journal-basis";
-import { loadLatestForecast } from "@/lib/forecast-read";
+import { loadLatestForecast, type LatestForecast } from "@/lib/forecast-read";
 
 type Selection = Parameters<typeof buildJournalStatements>[3];
 
@@ -12,12 +12,16 @@ type Selection = Parameters<typeof buildJournalStatements>[3];
  * Projected and scenario views read the derived forecast: its projected lines
  * are overlaid in memory and the view is anchored at the forecast's as-of month,
  * so every reader shows the same forecast the consequences were computed from.
+ *
+ * `forecast` lets a caller that already loaded the forecast for this request
+ * reuse it: `undefined` (the default) loads it here as before; `null` means
+ * "no forecast exists" and skips the load.
  */
-async function withDerivedForecast(companyId: string, lines: PostedJournalLine[], selection?: Selection): Promise<{ lines: PostedJournalLine[]; selection?: Selection }> {
+async function withDerivedForecast(companyId: string, lines: PostedJournalLine[], selection?: Selection, forecast?: LatestForecast | null): Promise<{ lines: PostedJournalLine[]; selection?: Selection }> {
   if (selection?.view !== "projected" && selection?.view !== "scenario") return selection ? { lines, selection } : { lines };
-  const forecast = await loadLatestForecast(companyId);
-  if (!forecast) return { lines, selection };
-  return { lines: [...lines, ...forecast.run.projectedLines], selection: { ...selection, asOfPeriod: forecast.run.asOfMonth } };
+  const resolved = forecast !== undefined ? forecast : await loadLatestForecast(companyId);
+  if (!resolved) return { lines, selection };
+  return { lines: [...lines, ...resolved.run.projectedLines], selection: { ...selection, asOfPeriod: resolved.run.asOfMonth } };
 }
 
 /** Load immutable posted lines once for any read-only journal calculation. */
@@ -27,20 +31,20 @@ export async function loadPostedJournalLines(companyId: string, period: string, 
 }
 
 /** Read-only journal roll-up. Default selection is actual entries plus adjustments/eliminations. */
-export async function loadTrialBalance(companyId: string, period: string, entityId?: string, selection?: Selection) {
-  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection);
+export async function loadTrialBalance(companyId: string, period: string, entityId?: string, selection?: Selection, options: { forecast?: LatestForecast | null } = {}) {
+  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection, options.forecast);
   return buildTrialBalance(selectJournalLinesForReporting(view.lines, period, view.selection), period, entityId);
 }
 
 /** Journal-native statements are calculated only from selected posted entries. */
-export async function loadJournalStatements(companyId: string, period: string, entityId?: string, selection?: Selection) {
-  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection);
+export async function loadJournalStatements(companyId: string, period: string, entityId?: string, selection?: Selection, options: { forecast?: LatestForecast | null } = {}) {
+  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection, options.forecast);
   return buildJournalStatements(view.lines, period, entityId, view.selection);
 }
 
 /** One consistent trial balance + statement input for an entry-graph report. */
-export async function loadJournalReport(companyId: string, period: string, entityId?: string, selection?: Selection) {
-  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection);
+export async function loadJournalReport(companyId: string, period: string, entityId?: string, selection?: Selection, options: { forecast?: LatestForecast | null } = {}) {
+  const view = await withDerivedForecast(companyId, await loadPostedJournalLines(companyId, period), selection, options.forecast);
   const selected = selectJournalLinesForReporting(view.lines, period, view.selection);
   return { trialBalance: buildTrialBalance(selected, period, entityId), statements: buildJournalStatements(view.lines, period, entityId, view.selection) };
 }
