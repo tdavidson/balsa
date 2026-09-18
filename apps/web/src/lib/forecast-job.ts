@@ -8,6 +8,7 @@ export async function runForecastJob(companyId: string, financialStateRevision: 
   const input = await loadForecastInputs(companyId);
   const run = buildForecastRun(input);
   const persisted = await persistForecastRun({ companyId, financialStateRevision, run, input });
-  if (!persisted.reused) await recordForecastConsequence({ companyId, financialStateRevision, nextRunId: persisted.id, run });
+  // Unconditional: a retry after a failure between persist and record must still record. The (company, revision) unique index keeps it idempotent.
+  await recordForecastConsequence({ companyId, financialStateRevision, nextRunId: persisted.id, run });
   return persisted;
 }

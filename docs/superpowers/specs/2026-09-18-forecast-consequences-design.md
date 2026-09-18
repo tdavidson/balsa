@@ -168,7 +168,9 @@ diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConse
    and the company settings.
 3. Run `buildForecastRun`, then persist a `calculation_runs` row
    (`engineVersion = forecastFormulaVersion`, `scenarioId = null`) and its
-   `calculation_nodes`.
+   `calculation_nodes` in one transaction. A retry that finds the run already
+   persisted reuses it and still runs steps 4–5; the unique
+   `(company_id, revision)` index makes recording the consequence idempotent.
 4. Load the previous **completed** forecast run for the company, and run
    `diffForecastRuns` against it.
 5. If there is a previous run and a consequence, insert a `forecast_consequences` row. The first
