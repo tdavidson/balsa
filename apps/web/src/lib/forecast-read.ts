@@ -30,14 +30,16 @@ export async function loadLatestForecast(companyId: string, now = new Date()) {
   return { runId: row.id, revision: row.revision, run, stale };
 }
 
-export type ConsequenceCause = { revision: string; kind: string; subjectType: string; subjectId: string | null; actorUserId: string | null; via: string; createdAt: string; subjectLabel: string | null };
+export type ConsequenceCause = { revision: string; kind: string; subjectType: string; subjectId: string | null; subjectIds?: string[]; actorUserId: string | null; via: string; createdAt: string; subjectLabel: string | null; subjectLabels: string[] };
+type RawCause = Omit<ConsequenceCause, "subjectLabel" | "subjectLabels">;
 
-/** Recent consequences with a human label for each cause's subject. */
+/** Recent consequences with a human label for each cause's subject, including every subject of a bulk cause. */
 export async function loadRecentConsequences(companyId: string, limit = 10) {
   const db = getDatabase();
   const rows = await db.select().from(forecastConsequences).where(eq(forecastConsequences.companyId, companyId)).orderBy(desc(forecastConsequences.createdAt)).limit(Math.max(1, Math.min(limit, 50)));
-  const causes = rows.flatMap((row) => row.causes as Omit<ConsequenceCause, "subjectLabel">[]);
-  const ids = (type: string) => [...new Set(causes.filter((cause) => cause.subjectType === type && cause.subjectId).map((cause) => cause.subjectId!))];
+  const causes = rows.flatMap((row) => row.causes as RawCause[]);
+  const subjectIds = (cause: RawCause) => [...(cause.subjectId ? [cause.subjectId] : []), ...(cause.subjectIds ?? [])];
+  const ids = (type: string) => [...new Set(causes.filter((cause) => cause.subjectType === type).flatMap(subjectIds))];
   const [items, documents, answers] = await Promise.all([
     ids("economic_item").length ? db.select({ id: economicItems.id, label: economicItems.label }).from(economicItems).where(and(eq(economicItems.companyId, companyId), inArray(economicItems.id, ids("economic_item")))) : [],
     ids("evidence").length ? db.select({ id: evidence.id, label: evidence.sourceName }).from(evidence).where(and(eq(evidence.companyId, companyId), inArray(evidence.id, ids("evidence")))) : [],
@@ -46,6 +48,6 @@ export async function loadRecentConsequences(companyId: string, limit = 10) {
   const labels = new Map([...items, ...documents, ...answers].map((row) => [row.id, row.label]));
   return rows.map((row) => ({
     id: row.id, revision: row.revision, createdAt: row.createdAt.toISOString(), delta: row.delta as ForecastConsequence,
-    causes: (row.causes as Omit<ConsequenceCause, "subjectLabel">[]).map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null })),
+    causes: (row.causes as RawCause[]).map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null, subjectLabels: (cause.subjectIds ?? []).map((id) => labels.get(id)).filter((label): label is string => Boolean(label)) })),
   }));
 }

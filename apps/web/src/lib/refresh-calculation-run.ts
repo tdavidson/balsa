@@ -9,12 +9,12 @@ import type { RevisionCause } from "@/lib/revision-cause";
  * Advance the financial-state revision after a committed mutation, record why,
  * and queue the journal graphs plus one derived-forecast run for it.
  */
-export async function refreshCurrentCalculationRun(companyId: string, options: { journalPeriods?: string[]; cause: RevisionCause }) {
+export async function refreshCurrentCalculationRun(companyId: string, options: { journalPeriods?: string[]; cause: RevisionCause; now?: Date }) {
   const db = getDatabase();
   const revision = await db.transaction(async (tx) => {
     const [company] = await tx.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text`, updatedAt: new Date() }).where(eq(companies.id, companyId)).returning({ financialStateRevision: companies.financialStateRevision });
     if (!company) throw new Error("Company not found while refreshing calculation");
-    await tx.insert(financialStateRevisions).values({ companyId, revision: company.financialStateRevision, kind: options.cause.kind, subjectType: options.cause.subjectType, subjectId: options.cause.subjectId, actorUserId: options.cause.actorUserId, via: options.cause.via });
+    await tx.insert(financialStateRevisions).values({ companyId, revision: company.financialStateRevision, kind: options.cause.kind, subjectType: options.cause.subjectType, subjectId: options.cause.subjectId, actorUserId: options.cause.actorUserId, via: options.cause.via, ...(options.cause.subjectIds ? { subjectIds: options.cause.subjectIds } : {}) });
     const explicitPeriods = [...new Set(options.journalPeriods ?? [])].filter((period) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period));
     // A non-posting mutation (for example, evidence approval or entity setup)
     // can affect controls or presentation across existing ledger periods. In
@@ -28,7 +28,7 @@ export async function refreshCurrentCalculationRun(companyId: string, options: {
   });
   const results = await Promise.all(revision.journalJobs.map((job) => processCalculationOutboxJob(job.id)));
   // The forecast reads posted lines directly, not journal graphs; it runs last so one revision computes at a time.
-  const forecastResult = revision.forecastJobId ? await processCalculationOutboxJob(revision.forecastJobId) : null;
+  const forecastResult = revision.forecastJobId ? await processCalculationOutboxJob(revision.forecastJobId, options.now) : null;
   const failed = [...results, ...(forecastResult ? [forecastResult] : [])].find((result) => result.status === "failed");
   // The financial mutation has already committed. A failed calculation stays
   // durable in the outbox for retry; it must not falsely report that the CFO's

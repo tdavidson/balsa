@@ -235,6 +235,7 @@ export const financialStateRevisions = pgTable("financial_state_revisions", {
   kind: text("kind").notNull(),
   subjectType: text("subject_type").notNull(),
   subjectId: text("subject_id"),
+  subjectIds: jsonb("subject_ids"),
   actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
   via: text("via").notNull(),
   ...timestamps,

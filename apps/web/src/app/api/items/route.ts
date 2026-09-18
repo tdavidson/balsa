@@ -63,6 +63,6 @@ export async function PATCH(request: Request) {
       else await db.insert(knowledgeDocuments).values({ companyId: context.company.id, slug: "forecast", title: "Forecast", content });
     }
   }
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: body.data.status === "confirmed" ? "item_confirmed" : body.data.status === "rejected" ? "item_rejected" : "item_edited", subjectType: "economic_item", subjectId: rows.length === 1 ? rows[0]!.id : null, actorUserId: context.user.id, via: "ui" } });
+  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: body.data.status === "confirmed" ? "item_confirmed" : body.data.status === "rejected" ? "item_rejected" : "item_edited", subjectType: "economic_item", subjectId: rows.length === 1 ? rows[0]!.id : null, actorUserId: context.user.id, via: "ui", ...(rows.length > 1 ? { subjectIds: rows.map((row) => row.id) } : {}) } });
   return NextResponse.json({ items: rows, calculationRun });
 }

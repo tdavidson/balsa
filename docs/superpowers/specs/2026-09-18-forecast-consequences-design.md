@@ -59,9 +59,11 @@ type RevisionCause = {
     | "item_confirmed" | "item_rejected" | "item_edited" | "item_created"
     | "decision_applied" | "journal_posted" | "journal_reversed"
     | "period_closed" | "period_reopened" | "fx_changed" | "entity_changed"
-    | "allocation_changed" | "mapping_approved" | "plan_pinned" | "settings_changed";
+    | "allocation_changed" | "mapping_approved" | "plan_pinned" | "settings_changed"
+    | "period_rolled";
   subjectType: string;       // "evidence" | "economic_item" | "decision" | "journal_entry" | ...
   subjectId: string | null;
+  subjectIds?: string[];     // set instead of subjectId for a bulk action over several subjects of the same type
   actorUserId: string | null;
   via: "ui" | "agent" | "worker";
 };
@@ -70,11 +72,21 @@ type RevisionCause = {
 - `cause` is **required**, so leaving it out is a type error. All of the
   callers listed in the current-state mapping are updated.
 - New table `financial_state_revisions`: `(company_id, revision)` unique,
-  plus `kind`, `subject_type`, `subject_id`, `actor_user_id`, `via` and
-  `created_at`. The row is written in the same transaction that bumps the
-  revision.
+  plus `kind`, `subject_type`, `subject_id`, `subject_ids` (nullable jsonb,
+  for a bulk action such as confirming several items at once — `subject_id`
+  is then `null`), `actor_user_id`, `via` and `created_at`. The row is
+  written in the same transaction that bumps the revision.
 - `refreshCurrentCalculationRun` also queues one `period: "forecast"` outbox
   job for each revision.
+- Cause kind `period_rolled` (`subjectType: "company"`, `subjectId:
+  companyId`, `actorUserId: null`, `via: "worker"`) records a revision
+  produced only by the calendar moving forward, not by a CFO action. It is
+  written by `refreshRolledForecasts` (`apps/web/src/lib/forecast-rollover.ts`),
+  which the reconciliation cron route calls after its own work: for every
+  company whose latest forecast run's `asOfMonth` has fallen behind
+  `forecastAsOfMonth(companyId, now)`, and that already has at least one
+  forecast run, it calls `refreshCurrentCalculationRun` with this cause,
+  bounded by a per-invocation `limit` (default 20).
 
 ### Driver loading (shared)
 
@@ -157,6 +169,11 @@ diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConse
 - Driver changes: drivers that were added, removed, or changed (amount,
   cadence, or effective dates), keyed by `economicItemId`.
 - The exceptions count before and after.
+- `methodChanged` is `previous !== null && previous.formulaVersion !==
+  next.formulaVersion`. It also counts as a headline change on its own, so a
+  formula-version bump is reported even when it happens not to move any
+  other figure. Stored `forecast_consequences.delta` rows from before this
+  field existed lack it; readers must treat a missing value as `false`.
 
 ### Outbox job
 
@@ -263,7 +280,8 @@ tables.
   horizon moved, the line names the month with the largest change instead,
   for example "Mar 2027 ending cash −$5k". When the as-of month moved, the
   line starts with "Forecast rolled forward to <Mon YYYY>" followed by any
-  other changes.
+  other changes. When `methodChanged` is set, the line leads with "Forecast
+  method updated", ahead of even the rolled-forward text.
 - **Proposed treatments:** the same line appears next to "If applied:".
 - **Dashboard:**
   - The runway figure shows forward runway months and the cash-out month,
@@ -271,7 +289,12 @@ tables.
     badge when relevant.
   - A new "What changed" list shows the latest consequences. Each entry has
     a headline delta and its causes, named by the label of the item,
-    evidence, or decision.
+    evidence, or decision. A cause from a bulk action (`subjectIds`, several
+    subjects of one type — for example confirming a batch of interpreted
+    items at once) is named by up to three of their labels, for example
+    "Confirmed 3 items: Acme retainer, Rent, Payroll", or "... and N more"
+    past three. A cause from the calendar rolling forward (`period_rolled`)
+    reads "Month rolled forward".
 - **Calculation trace dialog:** works on forecast nodes with no changes.
 - **Accounting modal:** the "Forecast entries" tab becomes "Pin as plan".
   The Templates tab is unchanged.
@@ -304,6 +327,8 @@ tables.
   - added, removed and changed drivers
   - cash-out moving from `null` to a month and back
   - handles a previous run whose horizon differs
+  - `methodChanged` is set only when the formula version differs from the
+    previous run, and counts as a headline change on its own
 - Stored `forecast` and `plan` bases are read as `plan`. Plan lines never
   reach the actual or projected views.
 
@@ -315,6 +340,13 @@ tables.
 - Preview parity: the preview delta equals the consequence recorded after
   confirming the same item, and after applying the same decision.
 - Pinning bumps the revision exactly once.
+- `describeCause` names a bulk-confirm cause by its subject labels (up to
+  three, then "and N more"), and a `period_rolled` cause as "Month rolled
+  forward".
+- `refreshRolledForecasts` (DB-backed): a company whose stored run has fallen
+  behind the calendar gets a new revision with cause `period_rolled` and an
+  advanced `asOfMonth`; a repeat call with the same `now` refreshes nothing;
+  a company with no forecast run yet is never a candidate.
 
 **accounting-evals**: a new eval, "confirming a contract extends runway and
 the consequence is attributed to its source evidence."

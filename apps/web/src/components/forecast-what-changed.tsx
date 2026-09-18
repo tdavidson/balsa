@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { ForecastConsequence } from "@nevermodel/finance-engine";
 import { describeCause, describeConsequence } from "@/lib/consequence-copy";
 
-type Row = { id: string; createdAt: string; delta: ForecastConsequence; causes: { kind: string; subjectLabel: string | null }[] };
+type Row = { id: string; createdAt: string; delta: ForecastConsequence; causes: { kind: string; subjectLabel: string | null; subjectLabels?: string[] }[] };
 
 /** The latest forecast consequences, each with what caused it. `refreshKey` changes when a new forecast revision lands. */
 export function ForecastWhatChanged({ refreshKey }: { refreshKey: string }) {

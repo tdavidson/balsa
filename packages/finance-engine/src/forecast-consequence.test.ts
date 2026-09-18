@@ -84,6 +84,14 @@ describe("diffForecastRuns", () => {
     expect(diffForecastRuns(null, buildForecastRun(input([payroll])))!.rolledForward).toBe(false);
   });
 
+  it("flags a method change when the formula version moved", () => {
+    const before = buildForecastRun(input([payroll]));
+    const differentVersion = { ...buildForecastRun(input([payroll])), formulaVersion: `${before.formulaVersion}-next` };
+    expect(diffForecastRuns(before, differentVersion)!.methodChanged).toBe(true);
+    expect(diffForecastRuns(before, buildForecastRun(input([{ ...payroll, amountMinor: "30000" }])))!.methodChanged).toBe(false);
+    expect(diffForecastRuns(null, buildForecastRun(input([payroll])))!.methodChanged).toBe(false);
+  });
+
   it("treats a missing previous run as all-null before values", () => {
     const consequence = diffForecastRuns(null, buildForecastRun(input([payroll])))!;
     expect(consequence.asOfMonth.before).toBeNull();
