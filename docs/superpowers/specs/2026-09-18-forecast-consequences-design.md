@@ -320,7 +320,8 @@ tables.
     subjects of one type — for example confirming a batch of interpreted
     items at once) is named by up to three of their labels, for example
     "Confirmed 3 items: Acme retainer, Rent, Payroll", or "... and N more"
-    past three. A cause from the calendar rolling forward (`period_rolled`)
+    past three. The count is the number of `subjectIds`, since a subject
+    deleted since has no label and labels can be fewer than ids. A cause from the calendar rolling forward (`period_rolled`)
     reads "Month rolled forward".
 - **Calculation trace dialog:** lists forecast nodes (`ending_cash`,
   `net_burn`, `trailing_burn_3m`, `cash_over_trailing_burn`, `cash_out_month`,
@@ -377,7 +378,7 @@ tables.
   confirming the same item, and after applying the same decision.
 - Pinning bumps the revision exactly once.
 - `describeCause` names a bulk-confirm cause by its subject labels (up to
-  three, then "and N more"), and a `period_rolled` cause as "Month rolled
+  three, then "and N more"), counting `subjectIds` when labels are fewer, and a `period_rolled` cause as "Month rolled
   forward".
 - `refreshRolledForecasts` (DB-backed): a company whose stored run has fallen
   behind the calendar gets a new revision with cause `period_rolled` and an
