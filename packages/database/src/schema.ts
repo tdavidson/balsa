@@ -89,6 +89,8 @@ export const companies = pgTable("companies", {
   fiscalYearEnd: text("fiscal_year_end"),
   /** Monotonic revision of included financial state; calculation runs name the revision they reproduce. */
   financialStateRevision: text("financial_state_revision").default("0").notNull(),
+  /** CFO-set cash floor for the forecast's cash-out month, in base-currency minor units. */
+  minimumCashMinor: text("minimum_cash_minor").default("0").notNull(),
   ...timestamps,
 });
 
@@ -224,6 +226,31 @@ export const calculationOutbox = pgTable("calculation_outbox", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [index("calculation_outbox_company_index").on(table.companyId, table.createdAt), uniqueIndex("calculation_outbox_revision_unique").on(table.companyId, table.financialStateRevision, table.engineVersion, table.period)]);
+
+/** Why the financial-state revision advanced: exactly one row per revision. */
+export const financialStateRevisions = pgTable("financial_state_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  revision: text("revision").notNull(),
+  kind: text("kind").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: text("subject_id"),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  via: text("via").notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("financial_state_revisions_company_revision_unique").on(table.companyId, table.revision)]);
+
+/** The forward effect of committed changes: the difference between consecutive forecast runs. */
+export const forecastConsequences = pgTable("forecast_consequences", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  revision: text("revision").notNull(),
+  previousRunId: uuid("previous_run_id").references(() => calculationRuns.id, { onDelete: "set null" }),
+  nextRunId: uuid("next_run_id").notNull().references(() => calculationRuns.id, { onDelete: "cascade" }),
+  causes: jsonb("causes").notNull(),
+  delta: jsonb("delta").notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("forecast_consequences_company_revision_unique").on(table.companyId, table.revision), index("forecast_consequences_company_index").on(table.companyId, table.createdAt)]);
 
 /** Compact, source-linked log of a real-company test discrepancy. */
 export const testingDiscrepancies = pgTable("testing_discrepancies", {

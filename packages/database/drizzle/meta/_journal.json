@@ -505,6 +505,13 @@
       "when": 1789300000034,
       "tag": "0071_multi_user",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1789300000035,
+      "tag": "0072_forecast_consequences",
+      "breakpoints": true
     }
   ]
 }
