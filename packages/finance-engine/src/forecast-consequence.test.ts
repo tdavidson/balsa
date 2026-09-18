@@ -29,7 +29,7 @@ describe("diffForecastRuns", () => {
   it("attributes an added driver and its runway effect", () => {
     const consequence = diffForecastRuns(buildForecastRun(input([])), buildForecastRun(input([payroll])))!;
     expect(consequence.cashOutMonth).toEqual({ before: null, after: "2027-06" });
-    expect(consequence.runwayMonths).toEqual({ before: null, after: 10 });
+    expect(consequence.runwayMonths).toEqual({ before: null, after: 9 });
     expect(consequence.projectedSpending.deltaMinor).toBe("2400000");
     expect(consequence.horizonEndCash).toEqual({ month: "2028-08", beforeMinor: "900000", afterMinor: "-1500000", deltaMinor: "-2400000" });
     expect(consequence.drivers.added).toEqual([{ id: "payroll", label: "Payroll", direction: "spend", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" }]);

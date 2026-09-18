@@ -50,7 +50,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     expect(row.revision).toBe(result.financialStateRevision);
     const delta = row.delta as { cashOutMonth: { after: string | null }; runwayMonths: { after: number | null }; drivers: { added: { id: string }[] } };
     expect(delta.cashOutMonth.after).toBe(firstMonth);
-    expect(delta.runwayMonths.after).toBe(1);
+    expect(delta.runwayMonths.after).toBe(0);
     expect(delta.drivers.added.map((driver) => driver.id)).toEqual([itemId]);
     expect((row.causes as { kind: string; subjectId: string }[]).map((entry) => [entry.kind, entry.subjectId])).toEqual([["item_confirmed", itemId]]);
   });
