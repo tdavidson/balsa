@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { evidence, getDatabase, ingestionRuns } from "@finance/database";
 import { hasScheduledJobAuthorization } from "@/lib/cron-auth";
+import { refreshRolledForecasts } from "@/lib/forecast-rollover";
 
 export const maxDuration = 60;
 
@@ -43,5 +44,8 @@ export async function GET(request: Request) {
     if (!response.ok) await db.update(ingestionRuns).set({ status: "waiting", error: `Worker returned ${response.status}`, updatedAt: new Date() }).where(and(eq(ingestionRuns.companyId, companyId), eq(ingestionRuns.stage, "reconciliation"), eq(ingestionRuns.status, "running")));
     return { companyId, status: response.status, ok: response.ok };
   }));
-  return NextResponse.json({ queuedCompanies: claimedCompanies.length, results, queuedExtractions: extractionJobs.length, extractionResults });
+  // Companies whose forecast has fallen behind the calendar (no new mutation
+  // triggered a refresh) get one here, attributed to the month rolling forward.
+  const rolledForecasts = await refreshRolledForecasts();
+  return NextResponse.json({ queuedCompanies: claimedCompanies.length, results, queuedExtractions: extractionJobs.length, extractionResults, rolledForecasts });
 }

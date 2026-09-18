@@ -19,7 +19,7 @@ export async function recoverStaleCalculationJobs(maxAgeMs = 10 * 60_000, now = 
  * safe for a web request and a background worker to race without producing two
  * runs for the same company revision.
  */
-export async function processCalculationOutboxJob(jobId: string): Promise<CalculationJobResult> {
+export async function processCalculationOutboxJob(jobId: string, now = new Date()): Promise<CalculationJobResult> {
   const db = getDatabase();
   const [job] = await db.update(calculationOutbox).set({ status: "processing", error: null, updatedAt: new Date() }).where(and(eq(calculationOutbox.id, jobId), or(eq(calculationOutbox.status, "queued"), eq(calculationOutbox.status, "failed")))).returning();
   if (!job) return { id: jobId, status: "not_claimed" };
@@ -30,7 +30,7 @@ export async function processCalculationOutboxJob(jobId: string): Promise<Calcul
       return { id: job.id, status: "superseded" };
     }
     const run = job.engineVersion === forecastFormulaVersion && job.period === "forecast"
-      ? await runForecastJob(job.companyId, job.financialStateRevision)
+      ? await runForecastJob(job.companyId, job.financialStateRevision, now)
       : job.engineVersion === journalCalculationFormulaVersion && /^\d{4}-(0[1-9]|1[0-2])$/.test(job.period)
         ? await (async () => {
           const reconciliation = await loadJournalReconciliation(job.companyId, job.period);

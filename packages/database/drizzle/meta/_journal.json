@@ -512,6 +512,13 @@
       "when": 1789300000035,
       "tag": "0072_forecast_consequences",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1789300000036,
+      "tag": "0073_bulk_confirm_attribution",
+      "breakpoints": true
     }
   ]
 }

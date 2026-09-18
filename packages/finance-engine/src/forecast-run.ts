@@ -4,7 +4,7 @@ import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
 import { buildJournalStatements } from "./statements";
 
-export const forecastFormulaVersion = "forecast-run-2026-09-18.1";
+export const forecastFormulaVersion = "forecast-run-2026-09-18.2";
 
 export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory">;
 export type ForecastRunInput = { actualLines: PostedJournalLine[]; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string };

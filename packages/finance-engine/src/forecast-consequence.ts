@@ -6,6 +6,8 @@ export type ForecastConsequence = {
   asOfMonth: { before: string | null; after: string };
   /** The as-of month moved. Only months forecast by both runs are compared, so the roll itself is not a cash change. */
   rolledForward: boolean;
+  /** The forecast formula version changed since the previous run. Older stored rows lack this field; readers must treat a missing value as false. */
+  methodChanged: boolean;
   cash: { month: string; beforeMinor: string | null; afterMinor: string | null; deltaMinor: string }[];
   horizonEndCash: { month: string; beforeMinor: string | null; afterMinor: string; deltaMinor: string };
   cashOutMonth: { before: string | null; after: string | null };
@@ -28,6 +30,7 @@ export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun
   const afterCash = new Map(forecastMonths(next).map((month) => [month.month, month.endingCashMinor]));
   // When the as-of month moves, the horizons are offset: one-sided months would read as the roll's own cash change.
   const rolledForward = previous !== null && previous.asOfMonth !== next.asOfMonth;
+  const methodChanged = previous !== null && previous.formulaVersion !== next.formulaVersion;
   const common = rolledForward ? new Set([...afterCash.keys()].filter((month) => beforeCash.has(month))) : null;
   const months = common ? [...common].sort() : [...new Set([...beforeCash.keys(), ...afterCash.keys()])].sort();
   const cash = months.map((month) => {
@@ -51,6 +54,7 @@ export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun
   const consequence: ForecastConsequence = {
     asOfMonth: { before: previous?.asOfMonth ?? null, after: next.asOfMonth },
     rolledForward,
+    methodChanged,
     cash,
     horizonEndCash: { month: endMonth, beforeMinor: endBefore, afterMinor: endAfter, deltaMinor: endDelta },
     cashOutMonth: { before: previous?.runway.cashOutMonth ?? null, after: next.runway.cashOutMonth },
@@ -60,7 +64,7 @@ export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun
     drivers,
     exceptions: { before: previous?.exceptions.length ?? 0, after: next.exceptions.length },
   };
-  const moved = cash.length > 0 || consequence.cashOutMonth.before !== consequence.cashOutMonth.after || consequence.runwayMonths.before !== consequence.runwayMonths.after
+  const moved = methodChanged || cash.length > 0 || consequence.cashOutMonth.before !== consequence.cashOutMonth.after || consequence.runwayMonths.before !== consequence.runwayMonths.after
     || consequence.projectedReceipts.deltaMinor !== "0" || consequence.projectedSpending.deltaMinor !== "0" || consequence.exceptions.before !== consequence.exceptions.after;
   return moved ? consequence : null;
 }

@@ -56,7 +56,7 @@ export async function recordForecastConsequence(input: { companyId: string; fina
   )).orderBy(asc(sql`${financialStateRevisions.revision}::bigint`));
   const [row] = await db.insert(forecastConsequences).values({
     companyId: input.companyId, revision: input.financialStateRevision, previousRunId: previous.id, nextRunId: input.nextRunId, delta,
-    causes: causes.map((cause) => ({ revision: cause.revision, kind: cause.kind, subjectType: cause.subjectType, subjectId: cause.subjectId, actorUserId: cause.actorUserId, via: cause.via, createdAt: cause.createdAt.toISOString() })),
+    causes: causes.map((cause) => ({ revision: cause.revision, kind: cause.kind, subjectType: cause.subjectType, subjectId: cause.subjectId, actorUserId: cause.actorUserId, via: cause.via, createdAt: cause.createdAt.toISOString(), ...(cause.subjectIds ? { subjectIds: cause.subjectIds as string[] } : {}) })),
   }).onConflictDoNothing().returning({ id: forecastConsequences.id });
   return row ?? null;
 }

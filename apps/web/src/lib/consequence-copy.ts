@@ -26,6 +26,8 @@ export function describeConsequence(consequence: ForecastConsequence | null, exc
       if (largest) parts.push(`${monthName(largest.month)} ending cash ${signedMoney(largest.deltaMinor)}`);
     }
     if (consequence.rolledForward) parts.unshift(`Forecast rolled forward to ${monthName(consequence.asOfMonth.after)}`);
+    // Missing on older stored rows; readers treat that as false.
+    if (consequence.methodChanged) parts.unshift("Forecast method updated");
   }
   const head = parts.length ? parts.join(" · ") : "No forecast effect";
   return exceptionsAfter > 0 ? `${head} · ${exceptionsAfter} driver${exceptionsAfter === 1 ? "" : "s"} excluded` : head;
@@ -39,7 +41,19 @@ const verbs: Record<string, [string, string]> = {
   allocation_changed: ["Changed", "an allocation"], mapping_approved: ["Approved", "a mapping"], plan_pinned: ["Pinned", "a plan"], settings_changed: ["Changed", "forecast settings"],
 };
 
-export function describeCause(cause: { kind: string; subjectLabel: string | null }): string {
+/** A revision caused by the calendar moving forward, not by a CFO action. */
+const rolloverLabel = "Month rolled forward";
+
+export function describeCause(cause: { kind: string; subjectLabel: string | null; subjectLabels?: string[] }): string {
+  if (cause.kind === "period_rolled") return rolloverLabel;
   const [verb, noun] = verbs[cause.kind] ?? ["Changed", "the books"];
-  return `${verb} ${cause.subjectLabel ?? noun}`;
+  const labels = cause.subjectLabels;
+  if (labels && labels.length > 1) {
+    const plural = `${noun.replace(/^(a|an)\s+/, "")}s`;
+    const shown = labels.slice(0, 3);
+    const remainder = labels.length - shown.length;
+    return `${verb} ${labels.length} ${plural}: ${shown.join(", ")}${remainder > 0 ? ` and ${remainder} more` : ""}`;
+  }
+  const subjectLabel = cause.subjectLabel ?? (labels?.length === 1 ? (labels[0] ?? null) : null);
+  return `${verb} ${subjectLabel ?? noun}`;
 }
