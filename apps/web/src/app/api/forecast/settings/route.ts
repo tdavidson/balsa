@@ -20,6 +20,9 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { minimumCash?: unknown };
   const minor = typeof body.minimumCash === "number" && body.minimumCash >= 0 ? amountToMinor(body.minimumCash.toFixed(2)) : "";
   if (!minor) return NextResponse.json({ error: "Minimum cash must be zero or a positive amount" }, { status: 400 });
+  const [current] = await getDatabase().select({ minimumCashMinor: companies.minimumCashMinor }).from(companies).where(eq(companies.id, context.company.id)).limit(1);
+  // An unchanged floor is not a revision: no consequence, no refresh.
+  if (current?.minimumCashMinor === minor) return NextResponse.json({ minimumCash: Number(minor) / 100, calculationRun: null });
   await getDatabase().update(companies).set({ minimumCashMinor: minor, updatedAt: new Date() }).where(eq(companies.id, context.company.id));
   const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "settings_changed", subjectType: "company", subjectId: context.company.id, actorUserId: context.user.id, via: "ui" } });
   return NextResponse.json({ minimumCash: Number(minor) / 100, calculationRun });
