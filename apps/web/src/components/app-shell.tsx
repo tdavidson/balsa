@@ -456,6 +456,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [accountingOpen, setAccountingOpen] = useState(false);
   const [calculationTraceOpen, setCalculationTraceOpen] = useState(false);
   const [calculationTraceEngine, setCalculationTraceEngine] = useState<"journal" | "forecast">("journal");
+  const calculationTraceEngineRef = useRef<"journal" | "forecast">("journal");
+  const calculationTraceRequest = useRef(0);
   const [calculationRun, setCalculationRun] = useState<CalculationRunView | null>(null);
   const [calculationRunHistory, setCalculationRunHistory] = useState<CalculationRunView[]>([]);
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -636,13 +638,17 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     const query = new URLSearchParams();
     if (engine === "forecast") query.set("engine", "forecast");
     if (runId) query.set("runId", runId); else if (engine === "journal" && selectedMonth) query.set("period", selectedMonth);
+    // Only the latest request may fill the dialog: a slower response for the other engine
+    // (or an earlier run) arriving after a toggle must not overwrite the current view.
+    const request = ++calculationTraceRequest.current;
     fetch(`/api/calculations${query.size ? `?${query.toString()}` : ""}`).then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (request !== calculationTraceRequest.current || engine !== calculationTraceEngineRef.current) return;
       setCalculationRun(payload?.run ?? null);
       setCalculationRunHistory(payload?.runs ?? []);
       setCalculationNodes(payload?.nodes ?? []);
     }).catch(() => undefined);
   };
-  const openCalculationTrace = (engine: "journal" | "forecast") => { setCalculationTraceEngine(engine); setCalculationTraceOpen(true); };
+  const openCalculationTrace = (engine: "journal" | "forecast") => { calculationTraceEngineRef.current = engine; setCalculationTraceEngine(engine); setCalculationTraceOpen(true); };
   const recalculateBaseCase = async () => {
     setIsRecalculating(true);
     try {

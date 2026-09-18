@@ -36,18 +36,9 @@ describe.skipIf(!process.env.DATABASE_URL)("journal financial months forecast re
     expect(forecast).not.toBeNull();
 
     const spy = vi.spyOn(forecastRead, "loadLatestForecast");
-    const baseline = forecastRead.__loadLatestForecastCallCount.current;
     const months = await loadJournalFinancialMonths({ companyId, start: "2026-01", end: "2026-12", currency: "USD", selection: { view: "projected", asOfPeriod: forecast!.run.asOfMonth }, asOfPeriod: forecast!.run.asOfMonth, view: "projected" });
     expect(months).toHaveLength(12);
-
-    if (spy.mock.calls.length > 0) {
-      // Spying on the ESM export intercepted the call from journal-financial-views.ts.
-      expect(spy).toHaveBeenCalledTimes(1);
-    } else {
-      // Spying did not intercept a call from another module in this app's module graph;
-      // fall back to the exported test-only counter, which the source increments directly.
-      expect(forecastRead.__loadLatestForecastCallCount.current - baseline).toBe(1);
-    }
+    expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 });

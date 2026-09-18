@@ -44,16 +44,22 @@ const verbs: Record<string, [string, string]> = {
 /** A revision caused by the calendar moving forward, not by a CFO action. */
 const rolloverLabel = "Month rolled forward";
 
-export function describeCause(cause: { kind: string; subjectLabel: string | null; subjectLabels?: string[] }): string {
+/**
+ * A bulk cause is counted by its subject ids when it has them: a label resolves
+ * only for a subject that still exists, so labels can be fewer than ids. Up to
+ * three resolved labels are listed, then "and N more" for the rest of the count.
+ */
+export function describeCause(cause: { kind: string; subjectLabel: string | null; subjectIds?: string[]; subjectLabels?: string[] }): string {
   if (cause.kind === "period_rolled") return rolloverLabel;
   const [verb, noun] = verbs[cause.kind] ?? ["Changed", "the books"];
-  const labels = cause.subjectLabels;
-  if (labels && labels.length > 1) {
+  const labels = cause.subjectLabels ?? [];
+  const count = cause.subjectIds?.length ?? labels.length;
+  if (count > 1) {
     const plural = `${noun.replace(/^(a|an)\s+/, "")}s`;
     const shown = labels.slice(0, 3);
-    const remainder = labels.length - shown.length;
-    return `${verb} ${labels.length} ${plural}: ${shown.join(", ")}${remainder > 0 ? ` and ${remainder} more` : ""}`;
+    const remainder = count - shown.length;
+    return `${verb} ${count} ${plural}${shown.length ? `: ${shown.join(", ")}${remainder > 0 ? ` and ${remainder} more` : ""}` : ""}`;
   }
-  const subjectLabel = cause.subjectLabel ?? (labels?.length === 1 ? (labels[0] ?? null) : null);
+  const subjectLabel = cause.subjectLabel ?? (labels.length === 1 ? (labels[0] ?? null) : null);
   return `${verb} ${subjectLabel ?? noun}`;
 }

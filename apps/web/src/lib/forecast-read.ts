@@ -7,18 +7,10 @@ import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
 const parsedRuns = new Map<string, ForecastRun>();
 
 /**
- * Test-only call counter for `loadLatestForecast`, incremented only under Vitest.
- * A fallback for tests that assert call counts when spying on the ESM export does
- * not intercept calls from other modules in this app's module graph.
- */
-export const __loadLatestForecastCallCount = { current: 0 };
-
-/**
  * The latest persisted forecast run. `stale` means a newer revision's forecast has not completed yet,
  * or the calendar has moved past the run's as-of month (the as-of the next run would use is later).
  */
 export async function loadLatestForecast(companyId: string, now = new Date()) {
-  if (process.env.VITEST) __loadLatestForecastCallCount.current += 1;
   const db = getDatabase();
   const [[row], [company], [closure]] = await Promise.all([
     db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, asOfMonth: calculationRuns.asOfMonth }).from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%"))).orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1),

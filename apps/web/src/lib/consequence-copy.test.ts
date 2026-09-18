@@ -54,6 +54,14 @@ describe("consequence copy", () => {
     // A single label carried in subjectLabels behaves like an ordinary single-subject cause.
     expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectLabels: ["Acme retainer"] })).toBe("Confirmed Acme retainer");
   });
+  it("counts a bulk cause by its subject ids when some labels did not resolve", () => {
+    // Labels can be fewer than ids (a subject deleted since); the count is the ids.
+    expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectIds: ["a", "b", "c", "d", "e"], subjectLabels: ["Acme retainer", "Rent"] })).toBe("Confirmed 5 items: Acme retainer, Rent and 3 more");
+    expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectIds: ["a", "b", "c", "d"], subjectLabels: ["Acme retainer", "Rent", "Payroll", "Office"] })).toBe("Confirmed 4 items: Acme retainer, Rent, Payroll and 1 more");
+    expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectIds: ["a", "b", "c"], subjectLabels: [] })).toBe("Confirmed 3 items");
+    expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectIds: ["a", "b"], subjectLabels: ["Rent"] })).toBe("Confirmed 2 items: Rent and 1 more");
+    expect(describeCause({ kind: "item_confirmed", subjectLabel: null, subjectIds: ["a"], subjectLabels: ["Rent"] })).toBe("Confirmed Rent");
+  });
   it("labels a month rollover", () => {
     expect(describeCause({ kind: "period_rolled", subjectLabel: null })).toBe("Month rolled forward");
   });
