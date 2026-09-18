@@ -46,6 +46,8 @@ export async function GET(request: Request) {
   }));
   // Companies whose forecast has fallen behind the calendar (no new mutation
   // triggered a refresh) get one here, attributed to the month rolling forward.
-  const rolledForecasts = await refreshRolledForecasts();
+  // Per-company failures come back in `rolledForecasts.failed`; a failure of the
+  // scan itself is reported too, so the reconciliation results above still return 200.
+  const rolledForecasts = await refreshRolledForecasts().catch((error: unknown) => ({ refreshed: [], retried: [], failed: [], deferred: 0, error: error instanceof Error ? error.message.slice(0, 2_000) : "Forecast rollover failed" }));
   return NextResponse.json({ queuedCompanies: claimedCompanies.length, results, queuedExtractions: extractionJobs.length, extractionResults, rolledForecasts });
 }

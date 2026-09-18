@@ -86,7 +86,24 @@ type RevisionCause = {
   company whose latest forecast run's `asOfMonth` has fallen behind
   `forecastAsOfMonth(companyId, now)`, and that already has at least one
   forecast run, it calls `refreshCurrentCalculationRun` with this cause,
-  bounded by a per-invocation `limit` (default 20).
+  bounded by a per-invocation `limit` (default 20) and a wall-time
+  `budgetMs` (default 30 000): once either is reached it starts no further
+  companies and reports the rest as `deferred`.
+  - It bumps only when the latest run is at the company's head revision.
+    When a newer revision exists, that revision's forecast job never
+    completed, so it re-runs that job (the newest `period: "forecast"` job at
+    the head revision that is queued, failed, or processing past the
+    10-minute stale cutoff) with `processCalculationOutboxJob` and reports the
+    company as `retried`; it bumps only if no such job exists, and leaves the
+    company alone while a live worker is processing it. A failing forecast
+    therefore cannot add a `period_rolled` revision on every tick.
+  - The calendar roll changes no posted entry, so it does not rebuild journal
+    graphs: it passes `rebuildJournalGraphs: false` and only the forecast job
+    is queued for the new revision.
+  - Each company runs in its own try/catch. A throw, or a forecast job that
+    ends failed, is reported as `{ companyId, error }` in `failed` and the tick
+    continues. The cron route includes `{ refreshed, retried, failed,
+    deferred }` in its JSON and still returns 200.
 
 ### Driver loading (shared)
 
@@ -365,7 +382,12 @@ tables.
 - `refreshRolledForecasts` (DB-backed): a company whose stored run has fallen
   behind the calendar gets a new revision with cause `period_rolled` and an
   advanced `asOfMonth`; a repeat call with the same `now` refreshes nothing;
-  a company with no forecast run yet is never a candidate.
+  a company with no forecast run yet is never a candidate; the roll queues no
+  journal outbox jobs; when the head revision's forecast job has failed, two
+  ticks add no `period_rolled` revision and re-run that job, and a tick after
+  the failure clears completes it; `budgetMs: 0` defers every candidate; a
+  company that throws is reported in `failed` while another company still
+  refreshes.
 - `normalizeCalculationProvenance`/`driverIdsFromProvenance`: a journal
   node's provenance array passes through unchanged; a forecast node's
   `{ driverIds }` object normalizes into source entries with ids resolved

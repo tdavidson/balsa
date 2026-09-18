@@ -8,8 +8,12 @@ import type { RevisionCause } from "@/lib/revision-cause";
 /**
  * Advance the financial-state revision after a committed mutation, record why,
  * and queue the journal graphs plus one derived-forecast run for it.
+ *
+ * `rebuildJournalGraphs: false` queues only the forecast job. The calendar
+ * rolling forward (`period_rolled`) changes no posted entry, so it has no
+ * journal graph to rebuild.
  */
-export async function refreshCurrentCalculationRun(companyId: string, options: { journalPeriods?: string[]; cause: RevisionCause; now?: Date }) {
+export async function refreshCurrentCalculationRun(companyId: string, options: { journalPeriods?: string[]; cause: RevisionCause; now?: Date; rebuildJournalGraphs?: boolean }) {
   const db = getDatabase();
   const revision = await db.transaction(async (tx) => {
     const [company] = await tx.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text`, updatedAt: new Date() }).where(eq(companies.id, companyId)).returning({ financialStateRevision: companies.financialStateRevision });
@@ -19,7 +23,7 @@ export async function refreshCurrentCalculationRun(companyId: string, options: {
     // A non-posting mutation (for example, evidence approval or entity setup)
     // can affect controls or presentation across existing ledger periods. In
     // single-company mode, rebuilding all posted periods is the safe choice.
-    const journalPeriods = explicitPeriods.length ? explicitPeriods : [...new Set((await tx.select({ period: journalEntries.period }).from(journalEntries).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.status, "posted")))).map((entry) => entry.period))];
+    const journalPeriods = options.rebuildJournalGraphs === false ? [] : explicitPeriods.length ? explicitPeriods : [...new Set((await tx.select({ period: journalEntries.period }).from(journalEntries).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.status, "posted")))).map((entry) => entry.period))];
     const journalJobs = journalPeriods.length
       ? await tx.insert(calculationOutbox).values(journalPeriods.map((period) => ({ companyId, financialStateRevision: company.financialStateRevision, engineVersion: journalCalculationFormulaVersion, period, status: "queued" }))).onConflictDoNothing().returning({ id: calculationOutbox.id, period: calculationOutbox.period })
       : [];
