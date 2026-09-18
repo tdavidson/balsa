@@ -15,7 +15,9 @@ export async function GET(request: Request) {
   const start = url.searchParams.get("start") ?? `${current.slice(0, 4)}-01`;
   const end = url.searchParams.get("end") ?? addMonths(current, 11);
   const forecast = await loadLatestForecast(context.company.id);
-  const asOfPeriod = url.searchParams.get("asOfPeriod") ?? forecast?.run.asOfMonth ?? current;
+  // Projected/scenario views are anchored at the derived forecast's as-of month (see withDerivedForecast
+  // in journal-ledger.ts); a requested asOfPeriod only applies before any forecast run exists.
+  const asOfPeriod = forecast?.run.asOfMonth ?? url.searchParams.get("asOfPeriod") ?? current;
   const scenarioId = url.searchParams.get("scenarioId") ?? undefined;
   const entityId = url.searchParams.get("entity") ?? undefined;
   const view = scenarioId ? "scenario" : "projected";
