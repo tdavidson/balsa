@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { buildProjectedEntries } from "@nevermodel/finance-engine";
 import { getDatabase, journalBatches, journalEntries, journalLines, scenarios } from "@finance/database";
 import { loadForecastDrivers } from "@/lib/forecast-inputs";
-import { postApprovedJournal } from "@/lib/journal-posting";
+import { postApprovedJournal, type JournalPostingRequest } from "@/lib/journal-posting";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 /**
@@ -23,14 +23,19 @@ export async function pinForecastAsPlan(companyId: string, input: { start: strin
     // A projection has one logical driver/month identity. A changed amount or
     // template creates a new immutable version; the earlier version is
     // explicitly reversed rather than edited or allowed to remain in reports.
-    const existing = await db.select({ entryId: journalEntries.id, batchKey: journalBatches.idempotencyKey, scenarioId: journalEntries.scenarioId }).from(journalEntries).innerJoin(journalBatches, eq(journalEntries.batchId, journalBatches.id)).innerJoin(journalLines, eq(journalLines.entryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.period, entry.period), inArray(journalEntries.basis, ["forecast", "plan"]), inArray(journalBatches.source, ["forecast_projection", "forecast_plan_pin"]), eq(journalLines.sourceLocation, `forecast-driver:${entry.sourceDriverId}`)));
+    const existing = await db.select({ entryId: journalEntries.id, batchKey: journalBatches.idempotencyKey, scenarioId: journalEntries.scenarioId, basis: journalEntries.basis }).from(journalEntries).innerJoin(journalBatches, eq(journalEntries.batchId, journalBatches.id)).innerJoin(journalLines, eq(journalLines.entryId, journalEntries.id)).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.period, entry.period), inArray(journalEntries.basis, ["forecast", "plan", "scenario"]), inArray(journalBatches.source, ["forecast_projection", "forecast_plan_pin"]), eq(journalLines.sourceLocation, `forecast-driver:${entry.sourceDriverId}`)));
     const priorEntryIds = [...new Set(existing.filter((row) => row.batchKey !== entry.idempotencyKey && (entry.scenarioId ? row.scenarioId === entry.scenarioId : !row.scenarioId)).map((row) => row.entryId))];
+    // A reversal must keep the original entry's own basis (and scenario), not
+    // the new pin's basis: postApprovedJournal requires a reversal to match
+    // the entry it reverses, so a legacy forecast/scenario projection reverses
+    // as itself while the new pin below is always posted as basis "plan".
+    const priorBasisByEntryId = new Map(existing.map((row) => [row.entryId, row.basis as JournalPostingRequest["basis"]]));
     if (priorEntryIds.length) {
       const priorLines = await db.select({ id: journalLines.id, entryId: journalLines.entryId, accountId: journalLines.accountId, entityId: journalLines.entityId, currency: journalLines.currency, debitMinor: journalLines.debitMinor, creditMinor: journalLines.creditMinor, sourceId: journalLines.sourceId, sourceRowId: journalLines.sourceRowId, evidenceId: journalLines.evidenceId, factId: journalLines.factId, decisionId: journalLines.decisionId, policyId: journalLines.policyId, approvalEventId: journalLines.approvalEventId, sourceLocation: journalLines.sourceLocation, memo: journalLines.memo }).from(journalLines).where(and(eq(journalLines.companyId, companyId), inArray(journalLines.entryId, priorEntryIds)));
       for (const priorEntryId of priorEntryIds) {
         const lines = priorLines.filter((line) => line.entryId === priorEntryId);
         if (!lines.length) continue;
-        const reversal = await postApprovedJournal(companyId, { idempotencyKey: `projection-reversal:${priorEntryId}`, label: `Reverse obsolete ${entry.memo}`, source: "forecast_projection_reversal", postingDate: entry.postingDate, period: entry.period, memo: `Reverse obsolete ${entry.memo}`, basis: "plan", deferRefresh: true, ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}), ...(entry.scenarioId ? { scenarioId: entry.scenarioId } : {}), reversalOfEntryId: priorEntryId, ...(template.decisionId ? { decisionId: template.decisionId } : {}), ...(template.policyId ? { policyId: template.policyId } : {}), lines: lines.map((line, index) => ({ accountId: line.accountId, ...(line.entityId ? { entityId: line.entityId } : {}), currency: line.currency, debitMinor: line.creditMinor, creditMinor: line.debitMinor, externalKey: `projection-reversal:${priorEntryId}:${index}`, sourceLocation: line.sourceLocation ?? `forecast-driver:${entry.sourceDriverId}`, ...(template.decisionId ? { decisionId: template.decisionId } : {}), ...(template.policyId ? { policyId: template.policyId } : {}) })) });
+        const reversal = await postApprovedJournal(companyId, { idempotencyKey: `projection-reversal:${priorEntryId}`, label: `Reverse obsolete ${entry.memo}`, source: "forecast_projection_reversal", postingDate: entry.postingDate, period: entry.period, memo: `Reverse obsolete ${entry.memo}`, basis: priorBasisByEntryId.get(priorEntryId)!, deferRefresh: true, ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}), ...(entry.scenarioId ? { scenarioId: entry.scenarioId } : {}), reversalOfEntryId: priorEntryId, ...(template.decisionId ? { decisionId: template.decisionId } : {}), ...(template.policyId ? { policyId: template.policyId } : {}), lines: lines.map((line, index) => ({ accountId: line.accountId, ...(line.entityId ? { entityId: line.entityId } : {}), currency: line.currency, debitMinor: line.creditMinor, creditMinor: line.debitMinor, externalKey: `projection-reversal:${priorEntryId}:${index}`, sourceLocation: line.sourceLocation ?? `forecast-driver:${entry.sourceDriverId}`, ...(template.decisionId ? { decisionId: template.decisionId } : {}), ...(template.policyId ? { policyId: template.policyId } : {}) })) });
         if (!reversal.idempotent) reversed += 1;
       }
     }
