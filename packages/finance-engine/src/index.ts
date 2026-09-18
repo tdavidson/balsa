@@ -18,3 +18,4 @@ export * from "./allocation-analysis";
 export * from "./stable-json";
 export * from "./cash";
 export * from "./forecast-run";
+export * from "./forecast-consequence";
