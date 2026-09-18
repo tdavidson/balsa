@@ -10,7 +10,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 // Real Postgres: what is under test is revision attribution across the outbox, which a fake would not prove.
 describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { calculationNodes, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
+  const { calculationNodes, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastConsequences, forecastEntryTemplates, getDatabase } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { forecastAsOfMonth, loadForecastInputs } = await import("./forecast-inputs");
   const { persistForecastRun } = await import("./forecast-persistence");
@@ -84,5 +84,38 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
     expect((await latestConsequence())?.revision).toBe(revision);
     await runForecastJob(companyId, revision);
     expect((await db.select().from(forecastConsequences).where(and(eq(forecastConsequences.companyId, companyId), eq(forecastConsequences.revision, revision)))).length).toBe(1);
+  });
+
+  it("persists nothing for a revision that has already moved", async () => {
+    const [company] = await db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId));
+    const stale = String(BigInt(company!.revision) - 1n);
+    expect(await runForecastJob(companyId, stale)).toEqual({ superseded: true });
+  });
+
+  it("serializes concurrent jobs so an effect is counted once", async () => {
+    // 4000, not 3000: the retry test above already left the item at 3000, and an unchanged forecast records no consequence.
+    await db.update(economicItems).set({ amount: "4000" }).where(eq(economicItems.id, itemId));
+    const [bumped] = await db.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text` }).where(eq(companies.id, companyId)).returning({ revision: companies.financialStateRevision });
+    await db.insert(financialStateRevisions).values({ companyId, revision: bumped!.revision, kind: "item_edited", subjectType: "economic_item", subjectId: itemId, via: "worker" });
+    const previousRevision = String(BigInt(bumped!.revision) - 1n);
+    const results = await Promise.all([runForecastJob(companyId, previousRevision), runForecastJob(companyId, bumped!.revision)]);
+    expect(results.filter((result) => "superseded" in result)).toHaveLength(1);
+    const rows = await db.select().from(forecastConsequences).where(and(eq(forecastConsequences.companyId, companyId), eq(forecastConsequences.revision, bumped!.revision)));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("rolls back a run whose revision moves while the job is computing", async () => {
+    await db.update(economicItems).set({ amount: "5000" }).where(eq(economicItems.id, itemId));
+    const [bumped] = await db.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text` }).where(eq(companies.id, companyId)).returning({ revision: companies.financialStateRevision });
+    const revision = bumped!.revision;
+    await db.insert(financialStateRevisions).values({ companyId, revision, kind: "item_edited", subjectType: "economic_item", subjectId: itemId, via: "worker" });
+    // A mutation landing mid-job, simulated through the job's own transaction.
+    const result = await runForecastJob(companyId, revision, { afterCompute: async (tx) => { await tx.update(companies).set({ financialStateRevision: sql`(financial_state_revision::bigint + 1)::text` }).where(eq(companies.id, companyId)); } });
+    expect(result).toEqual({ superseded: true });
+    expect(await db.select().from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), eq(calculationRuns.financialStateRevision, revision)))).toHaveLength(0);
+    expect(await db.select().from(forecastConsequences).where(and(eq(forecastConsequences.companyId, companyId), eq(forecastConsequences.revision, revision)))).toHaveLength(0);
+    // The rollback also undid the simulated bump, so the job now completes and carries this revision's cause.
+    expect(await runForecastJob(companyId, revision)).toMatchObject({ reused: false });
+    expect((await latestConsequence())?.revision).toBe(revision);
   });
 });
