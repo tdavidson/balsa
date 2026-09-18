@@ -46,9 +46,42 @@ describe("diffForecastRuns", () => {
   });
 
   it("handles a previous run with a different horizon", () => {
-    const consequence = diffForecastRuns(buildForecastRun(input([payroll], "2026-07")), buildForecastRun(input([payroll])))!;
+    // Capital lands before both as-of months, so rolling forward with the same drivers changes no common month.
+    const early = capital.map((line) => ({ ...line, period: "2026-06" }));
+    const rolled = (asOfMonth: string, drivers: ForecastRunInput["drivers"]) => buildForecastRun({ ...input(drivers, asOfMonth), actualLines: early });
+    const consequence = diffForecastRuns(rolled("2026-07", [payroll]), rolled("2026-08", [payroll]))!;
     expect(consequence.asOfMonth).toEqual({ before: "2026-07", after: "2026-08" });
-    expect(consequence.cash.some((row) => row.beforeMinor === null)).toBe(true);
+    expect(consequence.rolledForward).toBe(true);
+    expect(consequence.cash.some((row) => row.beforeMinor === null || row.afterMinor === null)).toBe(false);
+    expect(consequence.cash).toEqual([]);
+    expect(consequence.horizonEndCash).toEqual({ month: "2028-07", beforeMinor: "-1400000", afterMinor: "-1400000", deltaMinor: "0" });
+    expect(consequence.projectedSpending.deltaMinor).toBe("0");
+    expect(consequence.projectedReceipts.deltaMinor).toBe("0");
+    expect(consequence.cashOutMonth).toEqual({ before: "2027-06", after: "2027-06" });
+    expect(consequence.runwayMonths).toEqual({ before: 10, after: 9 });
+
+    const changed = diffForecastRuns(rolled("2026-07", [payroll]), rolled("2026-08", [{ ...payroll, amountMinor: "50000" }]))!;
+    expect(changed.rolledForward).toBe(true);
+    expect(changed.cash.every((row) => row.month >= "2026-09" && row.month <= "2028-07" && row.beforeMinor !== null && row.afterMinor !== null)).toBe(true);
+    expect(changed.horizonEndCash).toMatchObject({ month: "2028-07", deltaMinor: "1150000" });
+    expect(changed.projectedSpending.deltaMinor).toBe("-1150000");
+  });
+
+  it("does not compare horizons that share no forecast month", () => {
+    const early = capital.map((line) => ({ ...line, period: "2026-06" }));
+    const short = (asOfMonth: string, minimumCashMinor: string) => buildForecastRun({ ...input([payroll], asOfMonth), actualLines: early, horizonMonths: 1, minimumCashMinor });
+    // A higher floor moves cash-out into the new horizon, so there is a consequence to inspect.
+    const consequence = diffForecastRuns(short("2026-07", "0"), short("2026-09", "850000"))!;
+    expect(consequence.rolledForward).toBe(true);
+    expect(consequence.cash).toEqual([]);
+    expect(consequence.horizonEndCash).toEqual({ month: "2026-10", beforeMinor: null, afterMinor: "800000", deltaMinor: "0" });
+    expect(consequence.projectedSpending).toEqual({ beforeMinor: "0", afterMinor: "0", deltaMinor: "0" });
+    expect(consequence.cashOutMonth).toEqual({ before: null, after: "2026-10" });
+  });
+
+  it("is not rolled forward when the as-of month is unchanged or there is no previous run", () => {
+    expect(diffForecastRuns(buildForecastRun(input([])), buildForecastRun(input([payroll])))!.rolledForward).toBe(false);
+    expect(diffForecastRuns(null, buildForecastRun(input([payroll])))!.rolledForward).toBe(false);
   });
 
   it("treats a missing previous run as all-null before values", () => {
