@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SourceLinks } from "@/components/source-links";
 import { describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 
-type PreviewRequest = { kind: "confirm_item"; itemId: string } | { kind: "confirm_items"; itemIds: string[] } | { kind: "apply_decision"; decisionId: string };
+type PreviewRequest = { kind: "confirm_item"; itemId: string; edits?: { amountFormula?: string | null } } | { kind: "confirm_items"; itemIds: string[] } | { kind: "apply_decision"; decisionId: string };
 
 /**
  * "Forecast: …" under a pending approval, computed by the read-only preview endpoint.
@@ -33,7 +33,7 @@ export function ForecastConsequenceLine({ request, revision, onOpenEvidence }: {
   if (!text) return null;
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-pencil">
-      <span>Forecast: {text}</span>
+      <span>{request.kind === "confirm_item" && request.edits?.amountFormula ? "Formula-driven forecast" : "Forecast"}: {text}</span>
       <SourceLinks sources={sources} onOpenEvidence={onOpenEvidence} />
     </div>
   );

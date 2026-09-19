@@ -20,3 +20,4 @@ export * from "./cash";
 export * from "./forecast-run";
 export * from "./forecast-consequence";
 export * from "./forecast-actuals";
+export * from "./forecast-model";

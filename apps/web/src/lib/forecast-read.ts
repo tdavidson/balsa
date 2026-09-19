@@ -1,6 +1,6 @@
 import "server-only";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
-import { calculationRuns, companies, decisions, economicItems, evidence, forecastConsequences, getDatabase, journalPeriodClosures } from "@finance/database";
+import { calculationRuns, companies, decisions, economicItems, evidence, forecastConsequences, forecastDimensions, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
 import type { ForecastConsequence, ForecastRun } from "@nevermodel/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
@@ -72,12 +72,14 @@ export async function loadRecentConsequences(companyId: string, limit = 10) {
   const subjectIds = (cause: RawCause) => [...(cause.subjectId ? [cause.subjectId] : []), ...(cause.subjectIds ?? [])];
   const ids = (type: string) => [...new Set(causes.filter((cause) => cause.subjectType === type).flatMap(subjectIds))];
   const evidenceIds = [...new Set([...ids("evidence"), ...rows.flatMap((row) => driverEvidenceIds(row.delta as ForecastConsequence))])];
-  const [items, documents, answers] = await Promise.all([
+  const [items, documents, answers, variables, dimensions] = await Promise.all([
     ids("economic_item").length ? db.select({ id: economicItems.id, label: economicItems.label }).from(economicItems).where(and(eq(economicItems.companyId, companyId), inArray(economicItems.id, ids("economic_item")))) : [],
     evidenceIds.length ? db.select({ id: evidence.id, label: evidence.sourceName }).from(evidence).where(and(eq(evidence.companyId, companyId), inArray(evidence.id, evidenceIds))) : [],
     ids("decision").length ? db.select({ id: decisions.id, label: decisions.question }).from(decisions).where(and(eq(decisions.companyId, companyId), inArray(decisions.id, ids("decision")))) : [],
+    ids("forecast_variable").length ? db.select({ id: forecastVariables.id, label: forecastVariables.name }).from(forecastVariables).where(and(eq(forecastVariables.companyId, companyId), inArray(forecastVariables.id, ids("forecast_variable")))) : [],
+    ids("forecast_dimension").length ? db.select({ id: forecastDimensions.id, label: forecastDimensions.name }).from(forecastDimensions).where(and(eq(forecastDimensions.companyId, companyId), inArray(forecastDimensions.id, ids("forecast_dimension")))) : [],
   ]);
-  const labels = new Map([...items, ...documents, ...answers].map((row) => [row.id, row.label]));
+  const labels = new Map([...items, ...documents, ...answers, ...variables, ...dimensions].map((row) => [row.id, row.label]));
   const sourceNames = new Map(documents.map((row) => [row.id, row.label]));
   return rows.map((row) => {
     const delta = row.delta as ForecastConsequence;
@@ -86,7 +88,7 @@ export async function loadRecentConsequences(companyId: string, limit = 10) {
       .map((evidenceId) => ({ evidenceId, sourceName: sourceNames.get(evidenceId) ?? null }));
     return {
       id: row.id, revision: row.revision, createdAt: row.createdAt.toISOString(), delta, sources,
-      causes: (row.causes as RawCause[]).map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null, subjectLabels: (cause.subjectIds ?? []).map((id) => labels.get(id)).filter((label): label is string => Boolean(label)) })),
+      causes: [...(row.causes as RawCause[])].reverse().map((cause) => ({ ...cause, subjectLabel: cause.subjectId ? labels.get(cause.subjectId) ?? null : null, subjectLabels: (cause.subjectIds ?? []).map((id) => labels.get(id)).filter((label): label is string => Boolean(label)) })),
     };
   });
 }

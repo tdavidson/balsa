@@ -65,6 +65,12 @@ describe("consequence copy", () => {
   it("labels a month rollover", () => {
     expect(describeCause({ kind: "period_rolled", subjectLabel: null })).toBe("Month rolled forward");
   });
+  it("names model and formula changes", () => {
+    expect(describeCause({ kind: "model_changed", subjectLabel: "payroll" })).toBe("Changed the model: payroll");
+    expect(describeCause({ kind: "model_changed", subjectLabel: null })).toBe("Changed the model");
+    expect(describeCause({ kind: "item_formula_changed", subjectLabel: "Payroll" })).toBe("Set a formula on Payroll");
+    expect(describeCause({ kind: "item_formula_changed", subjectLabel: null })).toBe("Set a formula on an item");
+  });
   it("describes sources", () => {
     expect(describeSources([])).toBeNull();
     expect(describeSources([{ evidenceId: "e1", sourceName: "Acme MSA.pdf" }])).toBe("from Acme MSA.pdf");

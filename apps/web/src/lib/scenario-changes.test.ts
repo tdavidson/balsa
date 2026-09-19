@@ -4,7 +4,7 @@ import { buildForecastRun, type ForecastDriver } from "@nevermodel/finance-engin
 import { fixtureBaseInput, fixturePayroll } from "@/test/forecast-fixture";
 import { projectDecisionEffectOnDrivers } from "./decision-driver-effects";
 import {
-  applyScenarioChanges, describeScenarioChange, effectToScenarioChange, parseScenarioChange, parseScenarioChanges, parseStoredChanges,
+  applyScenarioChanges as applyScenarioInput, describeScenarioChange, effectToScenarioChange, parseScenarioChange, parseScenarioChanges, parseStoredChanges,
   runSimulation, scenarioChangeFromFlat, scenarioChangeToEffect, type ScenarioChange,
 } from "./scenario-changes";
 
@@ -28,6 +28,7 @@ const cash = (drivers: ForecastDriver[]) => {
   const run = buildForecastRun(fixtureBaseInput(drivers));
   return { months: run.months.map((month) => ({ month: month.month, endingCashMinor: month.endingCashMinor, receiptsMinor: month.receiptsMinor, spendingMinor: month.spendingMinor })), runway: run.runway };
 };
+const applyScenarioChanges = (drivers: ForecastDriver[], changes: ScenarioChange[], scenarioId: string) => applyScenarioInput(fixtureBaseInput(drivers), changes, scenarioId).drivers;
 
 describe("applyScenarioChanges", () => {
   it("adds a driver with a scenario id, the scenario, and no decision", () => {
@@ -57,6 +58,28 @@ describe("applyScenarioChanges", () => {
 
   it("leaves the drivers alone when a change's item is not in the forecast", () => {
     expect(applyScenarioChanges([payroll], [{ kind: "change_amount", itemId: "gone", amount: 10, effectiveFrom: "2027-01" }, { kind: "end_item", itemId: "gone", effectiveTo: "2027-01" }], "s1")).toEqual([payroll]);
+  });
+
+  it("applies model changes in order, switches modes, and preserves the base input", () => {
+    const base = { ...fixtureBaseInput(), model: { dimensions: [{ name: "team", items: ["Eng", "Sales"] }], variables: [{ name: "headcount", kind: "number" as const, dims: ["team"], inputs: [{ coords: { team: "Eng" }, from: "2026-09", value: "3" }] }] } };
+    const changed = applyScenarioInput(base, [
+      { kind: "set_input", variable: "headcount", coords: { team: "Eng" }, from: "2026-09", value: "4" },
+      { kind: "set_input", variable: "headcount", coords: { team: "Eng" }, from: "2026-09", value: "5" },
+      { kind: "set_formula", variable: "headcount", formula: "2 + 3" },
+      { kind: "set_input", variable: "headcount", coords: { team: "Sales" }, from: "2026-10", value: "2" },
+    ], "s1");
+    expect(base.model.variables[0]!.inputs).toEqual([{ coords: { team: "Eng" }, from: "2026-09", value: "3" }]);
+    expect(changed.model?.variables[0]).toEqual({ name: "headcount", kind: "number", dims: ["team"], inputs: [{ coords: { team: "Sales" }, from: "2026-10", value: "2" }] });
+  });
+
+  it("rejects unknown variables and invalid coordinates, but validates only the final model", () => {
+    const base = { ...fixtureBaseInput(), model: { dimensions: [], variables: [
+      { name: "x", kind: "number" as const, dims: [], formula: "y", inputs: [] },
+      { name: "y", kind: "number" as const, dims: [], inputs: [{ coords: {}, from: "2026-09", value: "1" }] },
+    ] } };
+    expect(() => applyScenarioInput(base, [{ kind: "set_formula", variable: "y", formula: "x" }, { kind: "set_input", variable: "x", coords: {}, from: "2026-09", value: "2" }], "s1")).not.toThrow();
+    expect(() => applyScenarioInput(base, [{ kind: "set_input", variable: "missing", coords: {}, from: "2026-09", value: "2" }], "s1")).toThrow(/unknown variable/);
+    expect(() => applyScenarioInput(base, [{ kind: "set_input", variable: "y", coords: { team: "Eng" }, from: "2026-09", value: "2" }], "s1")).toThrow(/invalid coordinates/);
   });
 });
 
@@ -125,6 +148,8 @@ describe("parsing", () => {
     expect(parseStoredChanges(null)).toEqual([]);
     expect(scenarioChangeFromFlat({ kind: "add_driver", label: "Grant", direction: "receipt", amount: 500, cadence: "monthly", effectiveFrom: "2026-09", effectiveTo: null, category: null, itemId: null }))
       .toEqual({ kind: "add_driver", label: "Grant", direction: "receipt", amount: 500, cadence: "monthly", effectiveFrom: "2026-09" });
+    expect(scenarioChangeFromFlat({ kind: "set_input", variable: "headcount", coords: { team: "Eng" }, from: "2026-09", value: "5", formula: null })).toEqual({ kind: "set_input", variable: "headcount", coords: { team: "Eng" }, from: "2026-09", value: "5" });
+    expect(describeScenarioChange({ kind: "set_formula", variable: "tax", formula: "payroll * 0.08" })).toBe("Sets tax formula");
     expect(scenarioChangeFromFlat("add a grant")).toBeNull();
   });
 });

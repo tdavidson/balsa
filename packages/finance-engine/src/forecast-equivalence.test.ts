@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildForecastRun, type ForecastAccount } from "./forecast-run";
-import { buildForecastRunReference } from "./forecast-run.reference";
+import { buildForecastRunReference, buildProjectedEntriesReference } from "./forecast-run.reference";
 import { summarizeActualCash } from "./forecast-actuals";
 import * as statements from "./statements";
 import { stableJson } from "./stable-json";
 import { addMonths } from "./periods";
-import type { ForecastDriver, ForecastEntryTemplate } from "./forecast-projections";
+import { buildProjectedEntries, type ForecastDriver, type ForecastEntryTemplate } from "./forecast-projections";
+import type { ForecastModel } from "./forecast-model";
 import type { EntryBasis, PostedJournalLine } from "./ledger";
 
 function random(seed: number) { let state = seed || 1; return () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return ((state >>> 0) % 1_000_000) / 1_000_000; }; }
@@ -90,6 +91,29 @@ describe("forecast engine equivalence with the slice-1 reference", () => {
     }
   });
 
+  it("stays byte-identical with an empty or unused model and no formula drivers", () => {
+    const unused: ForecastModel = { dimensions: [{ name: "team", items: ["Eng"] }], variables: [{ name: "headcount", kind: "number", dims: ["team"], inputs: [{ coords: { team: "Eng" }, from: "2026-08", value: "3" }] }] };
+    for (let seed = 1; seed <= 100; seed += 1) {
+      const asOfMonth = addMonths("2026-08", (seed % 5) - 2);
+      const actualLines = ledgerFor(seed, asOfMonth);
+      const shared = { drivers: driversFor(seed, asOfMonth), templates, accounts, currency: "USD", asOfMonth, horizonMonths: 1 + (seed % 24), minimumCashMinor: seed % 3 === 0 ? "250000" : "0" };
+      const reference = stableJson(buildForecastRunReference({ ...shared, actualLines }));
+      for (const model of [{ dimensions: [], variables: [] }, unused]) {
+        const derived = buildForecastRun({ ...shared, actuals: summarizeActualCash(actualLines, "USD", asOfMonth), model });
+        expect(stableJson(derived), `seed ${seed}`).toBe(reference);
+        expect("modelSummary" in derived).toBe(false);
+      }
+    }
+  });
+
+  it("projects fixed-amount drivers exactly as the slice-1 projection", () => {
+    for (let seed = 1; seed <= 250; seed += 1) {
+      const asOfMonth = addMonths("2026-08", (seed % 5) - 2);
+      const drivers = driversFor(seed, asOfMonth);
+      const horizon = { start: addMonths(asOfMonth, 1), end: addMonths(asOfMonth, 1 + (seed % 24)) };
+      expect(stableJson(buildProjectedEntries(drivers, templates, horizon)), `seed ${seed}`).toBe(stableJson(buildProjectedEntriesReference(drivers, templates, horizon)));
+    }
+  });
   it("never builds journal statements", () => {
     const spy = vi.spyOn(statements, "buildJournalStatements");
     const asOfMonth = "2026-08";

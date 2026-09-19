@@ -6,7 +6,7 @@ import { PreviewConflict, previewForecastChange, type ForecastPreviewChange } fr
 
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const body = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("confirm_item"), itemId: z.string().uuid(), edits: z.object({ amount: z.number().positive().optional(), cadence: z.enum(["once", "monthly", "quarterly", "annual"]).optional(), effectiveFrom: month.optional(), effectiveTo: month.nullable().optional(), category: z.enum(categories).optional() }).optional() }),
+  z.object({ kind: z.literal("confirm_item"), itemId: z.string().uuid(), edits: z.object({ amount: z.number().positive().optional(), amountFormula: z.string().trim().min(1).max(2000).nullable().optional(), cadence: z.enum(["once", "monthly", "quarterly", "annual"]).optional(), effectiveFrom: month.optional(), effectiveTo: month.nullable().optional(), category: z.enum(categories).optional() }).optional() }),
   z.object({ kind: z.literal("confirm_items"), itemIds: z.array(z.string().uuid()).min(1).max(200) }),
   z.object({ kind: z.literal("apply_decision"), decisionId: z.string().uuid() }),
 ]);
@@ -23,6 +23,7 @@ function toChange(data: z.infer<typeof body>): ForecastPreviewChange {
       ? {
           edits: {
             ...(edits.amount !== undefined ? { amount: edits.amount } : {}),
+            ...(edits.amountFormula !== undefined ? { amountFormula: edits.amountFormula } : {}),
             ...(edits.cadence !== undefined ? { cadence: edits.cadence } : {}),
             ...(edits.effectiveFrom !== undefined ? { effectiveFrom: edits.effectiveFrom } : {}),
             ...(edits.effectiveTo !== undefined ? { effectiveTo: edits.effectiveTo } : {}),

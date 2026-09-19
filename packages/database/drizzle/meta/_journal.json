@@ -526,6 +526,13 @@
       "when": 1789300000037,
       "tag": "0074_forecast_scenarios",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1789300000038,
+      "tag": "0075_forecast_model",
+      "breakpoints": true
     }
   ]
 }

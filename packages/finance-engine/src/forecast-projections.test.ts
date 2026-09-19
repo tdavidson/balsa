@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProjectedEntries } from "./forecast-projections";
+import { buildProjectedEntries, type ForecastDriver } from "./forecast-projections";
 
 describe("buildProjectedEntries", () => {
   it("expands one approved driver into balanced monthly forecast entries", () => {
@@ -15,5 +15,32 @@ describe("buildProjectedEntries", () => {
     const changed = buildProjectedEntries([{ ...driver, amountMinor: "200" }], [template], { start: "2026-09", end: "2026-09" }).entries[0]!;
     expect(changed.projectionKey).toBe(original.projectionKey);
     expect(changed.idempotencyKey).not.toBe(original.idempotencyKey);
+  });
+});
+describe("formula drivers", () => {
+  const template = { id: "spend", itemType: "obligation" as const, direction: "spend" as const, debitAccountId: "payroll", creditAccountId: "cash" };
+  const formulaDriver = (amountByMonth: Record<string, string>, cadence: ForecastDriver["cadence"] = "monthly"): ForecastDriver => ({ id: "f", label: "Payroll", itemType: "obligation", direction: "spend", amountMinor: "", amountFormula: "sum(payroll)", amountByMonth, cadence, effectiveFrom: "2026-09" });
+
+  it("posts each month's formula amount and skips zero or missing months", () => {
+    const output = buildProjectedEntries([formulaDriver({ "2026-09": "100", "2026-10": "0", "2026-11": "250" })], [template], { start: "2026-09", end: "2026-12" });
+    expect(output.exceptions).toEqual([]);
+    expect(output.entries.map((entry) => [entry.period, entry.lines[0]!.debitMinor, entry.lines[1]!.creditMinor])).toEqual([["2026-09", "100", "100"], ["2026-11", "250", "250"]]);
+    expect(output.entries[0]!.idempotencyKey).toBe("projection:f:base:2026-09:spend:payroll:cash:100");
+  });
+
+  it("lets the cadence choose the months", () => {
+    const output = buildProjectedEntries([formulaDriver({ "2026-09": "1", "2026-10": "2", "2026-11": "3", "2026-12": "4" }, "quarterly")], [template], { start: "2026-09", end: "2026-12" });
+    expect(output.entries.map((entry) => [entry.period, entry.lines[0]!.debitMinor])).toEqual([["2026-09", "1"], ["2026-12", "4"]]);
+  });
+
+  it("turns a negative or invalid month into an exception with no entries", () => {
+    expect(buildProjectedEntries([formulaDriver({ "2026-09": "100", "2026-10": "-5" })], [template], { start: "2026-09", end: "2026-10" })).toEqual({ entries: [], exceptions: [{ driverId: "f", reason: "Formula amount for 2026-10 is negative." }] });
+    expect(buildProjectedEntries([formulaDriver({ "2026-09": "error" })], [template], { start: "2026-09", end: "2026-10" })).toEqual({ entries: [], exceptions: [{ driverId: "f", reason: "Formula amount for 2026-09 is invalid." }] });
+  });
+
+  it("refuses a formula driver that was never resolved", () => {
+    const { amountByMonth: _unused, ...unresolved } = formulaDriver({});
+    void _unused;
+    expect(buildProjectedEntries([unresolved], [template], { start: "2026-09", end: "2026-10" }).exceptions).toEqual([{ driverId: "f", reason: "Formula driver was not resolved against the forecast model." }]);
   });
 });

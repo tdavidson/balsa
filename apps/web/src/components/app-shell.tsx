@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, FlaskConical, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { CompanyRole } from "@finance/auth";
@@ -19,7 +19,12 @@ import { UsageModal } from "@/components/usage-modal";
 import { AccountingModal } from "@/components/accounting-modal";
 import { FinancialInspector } from "@/components/financial-inspector";
 import { ForecastConsequenceLine } from "@/components/forecast-consequence-line";
+import { ItemFormulaField } from "@/components/item-formula-field";
+import type { ModelCommitResult } from "@/components/forecast-model-panel";
 import { ForecastWhatChanged } from "@/components/forecast-what-changed";
+import { ScenarioEditorDialog, type ScenarioItemOption } from "@/components/scenario-editor-dialog";
+import { ScenarioVsBaseLine } from "@/components/scenario-vs-base-line";
+import type { ScenarioForecastView, ScenarioSummary } from "@/lib/scenario-changes";
 
 // Next inlines NEXT_PUBLIC_ variables at build time, so this is a build-time constant.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
@@ -311,6 +316,19 @@ function composerCallToAction(now: Date, context: { needsInputCount: number; has
 
 const actionButton = "grid size-7 place-items-center rounded-md border border-rule text-ink-2 transition-colors hover:bg-rule hover:text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background [&_svg]:size-3.5";
 
+/** The scenario switcher's value for the base forecast. Scenario ids are uuids, so they never collide with it. */
+const baseScenario = "base";
+
+function shiftMonth(month: string, count: number) {
+  const [year, number] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, number! - 1 + count, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function runwayLabel(months: number | null, horizonMonths: number) {
+  return months === null ? `> ${horizonMonths} mo` : `${months} mo`;
+}
+
 function Figure({ label, value, note, pencil, negative, onClick }: { label: string; value: string; note: string; pencil?: boolean; negative?: boolean; onClick?: () => void }) {
   const content = (
     <>
@@ -381,7 +399,7 @@ type ChatEvidence = {
 };
 type ReviewQuestion = { id: string; reviewKey?: string | null; evidenceId?: string | null; question: string; answer?: string | null; status: string };
 type AgentDecision = { id: string; question: string; answer: string; status: "proposed" | "applied" | "rejected"; effectSummary?: string | null };
-type ProposedItem = { id: string; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null; evidenceId?: string | null };
+type ProposedItem = { id: string; scenarioId?: string | null; type: "agreement" | "obligation"; label: string; counterparty?: string | null; counterpartyName?: string | null; direction: "receipt" | "spend"; amount: number | null; amountFormula?: string | null; cadence?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null; category?: string | null; basis: string; accountingTreatment: string; confidence?: number | null; rationale?: string | null; status: "draft" | "confirmed" | "rejected"; sourceName?: string | null; evidenceId?: string | null };
 type BalanceSheetView = { month: string; hasOpening: boolean; balances: Record<string, number>; cashByAccount: { accountId: string | null; name: string; balance: number }[]; assets: number; liabilities: number; equity: number; check: number; balanced: boolean };
 type CashFlowView = { month: string; netIncome: number; eliminations: number; changes: Record<string, number>; operatingIndirect: number; operating: number; investing: number; financing: number; transfers: number; adjustments: number; netChange: number; openingCash?: number; endingCash?: number; ties: boolean };
 type EntityStructureView = { legalEntities: { id: string; name: string; consolidated: boolean }[]; accounts: { id: string; name: string; ownerEntityId: string | null }[] };
@@ -489,11 +507,21 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [reviewQuestions, setReviewQuestions] = useState<ReviewQuestion[]>([]);
   const [agentDecisions, setAgentDecisions] = useState<AgentDecision[]>([]);
   const [proposedItems, setProposedItems] = useState<ProposedItem[]>([]);
+  const [itemFormulaBaselines, setItemFormulaBaselines] = useState<Record<string, string | null>>({});
+  const [savingItemFormulaId, setSavingItemFormulaId] = useState<string | null>(null);
   const [entityStructure, setEntityStructure] = useState<EntityStructureView>({ legalEntities: [], accounts: [] });
   const [selectedEntity, setSelectedEntity] = useState<string>("consolidated");
   const entityQuery = selectedEntity === "consolidated" ? "" : `?entity=${selectedEntity}`;
   const [forecast, setForecast] = useState<ForecastMonth[]>([]);
   const [runway, setRunway] = useState<(ForecastRunway & { revision: string; horizonEnd: string; stale: boolean; exceptions: number }) | null>(null);
+  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(baseScenario);
+  const [scenarioForecast, setScenarioForecast] = useState<ScenarioForecastView | null>(null);
+  const [scenarioRefreshKey, setScenarioRefreshKey] = useState(0);
+  const [scenarioEditorMode, setScenarioEditorMode] = useState<"new" | "edit" | null>(null);
+  const [promotingScenario, setPromotingScenario] = useState(false);
+  const [promotedScenarioIds, setPromotedScenarioIds] = useState<Set<string>>(() => new Set());
+  const scenarioListRequest = useRef(0);
   const [calculationBasis, setCalculationBasis] = useState<"persisted" | "live_preview">("live_preview");
   const [reconciliation, setReconciliation] = useState<ReconciliationMonth[]>([]);
   const [reconciliationLedger, setReconciliationLedger] = useState<ReconciliationLedgerSummary | null>(null);
@@ -600,6 +628,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   }, new Map()).values()];
   const coveredMonths = [...new Set(evidence.map((item) => item.reportingMonth ?? item.statementPeriodEnd?.slice(0, 7)).filter((month): month is string => Boolean(month)))].sort();
   const draftItems = proposedItems.filter((item) => item.status === "draft");
+  const confirmedItems = proposedItems.filter((item) => item.status === "confirmed" && !item.scenarioId);
   // Draft items sharing an evidence id are grouped so a document with several interpreted items
   // gets one header; a draft with no evidence is always its own (headerless) group.
   const draftGroups = draftItems.reduce<{ evidenceId: string | null; sourceName: string | null; items: ProposedItem[] }[]>((groups, item) => {
@@ -764,6 +793,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     fetch("/api/decisions").then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.decisions) setAgentDecisions(payload.decisions); }).catch(() => undefined);
     refreshProposedItems().catch(() => undefined);
     refreshEntities().catch(() => undefined);
+    refreshScenarios().catch(() => undefined);
   }, []);
 
   // Re-read the statements when the entity view changes (the initial load is handled below).
@@ -781,14 +811,25 @@ export function AppShell({ company, companies, role, staleSelection, user, model
 
   async function refreshProposedItems() {
     const response = await fetch("/api/items");
-    if (response.ok) { const payload = await readJson(response); if (payload.items) setProposedItems(payload.items); }
+    if (response.ok) { const payload = await readJson(response); if (payload.items) { setProposedItems(payload.items); setItemFormulaBaselines(Object.fromEntries((payload.items as ProposedItem[]).map((item) => [item.id, item.amountFormula ?? null]))); } }
   }
 
-  async function reviewProposedItems(ids: string[], status: "confirmed" | "rejected") {
-    const response = await fetch("/api/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, status }) });
+  async function reviewProposedItems(ids: string[], status: "confirmed" | "rejected", changes?: { amountFormula: string | null }) {
+    const response = await fetch("/api/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, status, ...(changes ? { changes } : {}) }) });
     if (!response.ok) { setNotice("Unable to update the proposed items."); return; }
     setProposedItems((current) => current.map((item) => ids.includes(item.id) ? { ...item, status } : item));
     await refreshFinancialState();
+  }
+
+  async function saveItemFormula(item: ProposedItem) {
+    setSavingItemFormulaId(item.id); setNotice(null);
+    try {
+      const response = await fetch("/api/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [item.id], changes: { amountFormula: item.amountFormula ?? null } }) });
+      const payload = await readJson(response);
+      if (!response.ok) { setNotice(payload.issues?.map((issue: { message: string }) => issue.message).join(" · ") ?? payload.errors?.map((issue: { message?: string } | string) => typeof issue === "string" ? issue : issue.message).join(" · ") ?? payload.error ?? "Unable to save the item formula."); return; }
+      if (payload.item) { const saved = payload.item.amountFormula ?? null; setProposedItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, amountFormula: saved } : entry)); setItemFormulaBaselines((current) => ({ ...current, [item.id]: saved })); }
+      if (payload.calculationRun) await handleForecastChanged(payload.calculationRun);
+    } catch { setNotice("Unable to save the item formula."); } finally { setSavingItemFormulaId(null); }
   }
 
   async function updateAgentDecision(id: string, status: AgentDecision["status"]) {
@@ -799,6 +840,96 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       if (payload.mutation?.applied) setNotice(`Applied: ${payload.mutation.applied}`);
       await refreshFinancialState();
     } else setNotice(payload.error ?? "Unable to update this decision.");
+  }
+
+  // A selected scenario's forecast is computed on demand. It is refetched when the base revision moves (the
+  // base changed under it) or after an edit. It is never cleared synchronously: `scenarioView` ignores a stale one.
+  useEffect(() => {
+    if (selectedScenarioId === baseScenario) return;
+    let cancelled = false;
+    fetch(`/api/scenarios/${selectedScenarioId}/forecast`)
+      .then(async (response) => {
+        const payload = await readJson(response);
+        if (cancelled) return;
+        if (response.ok) setScenarioForecast(payload as ScenarioForecastView);
+        else { setNotice(payload.error ?? "Unable to load the scenario."); setSelectedScenarioId(baseScenario); }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setNotice("Unable to load the scenario. Please try again.");
+        setSelectedScenarioId(baseScenario);
+      });
+    return () => { cancelled = true; };
+  }, [selectedScenarioId, runway?.revision, scenarioRefreshKey]);
+
+  async function refreshScenarios(quiet = false) {
+    const request = ++scenarioListRequest.current;
+    try {
+      const response = await fetch("/api/scenarios");
+      const payload = await readJson(response);
+      if (request !== scenarioListRequest.current) return;
+      if (!response.ok) {
+        if (!quiet) setNotice(payload.error ?? "Unable to load scenarios.");
+        return;
+      }
+      setScenarios(payload.scenarios ?? []);
+    } catch {
+      if (request !== scenarioListRequest.current) return;
+      if (!quiet) setNotice("Unable to load scenarios. Please try again.");
+    }
+  }
+
+  async function scenarioSaved(scenarioId: string) {
+    setScenarioEditorMode(null);
+    setSelectedScenarioId(scenarioId);
+    setScenarioRefreshKey((key) => key + 1);
+    await refreshScenarios(true);
+  }
+
+  async function scenarioDeleted() {
+    setScenarioEditorMode(null);
+    setSelectedScenarioId(baseScenario);
+    await refreshScenarios(true);
+  }
+
+  async function promoteSelectedScenario() {
+    if (selectedScenarioId === baseScenario) return;
+    const scenarioId = selectedScenarioId;
+    if (promotedScenarioIds.has(scenarioId) && !window.confirm("This scenario was already promoted during this session. Promote it again and create duplicate proposals?")) return;
+    setPromotingScenario(true);
+    try {
+      const response = await fetch(`/api/scenarios/${scenarioId}/promote`, { method: "POST" });
+      const payload = await readJson(response);
+      if (!response.ok) { setNotice(payload.error ?? "Unable to promote this scenario."); return; }
+      const count: number = payload.decisionIds?.length ?? 0;
+      if (count > 0) setPromotedScenarioIds((current) => new Set(current).add(scenarioId));
+      setNotice(count ? `Added ${count} proposal${count === 1 ? "" : "s"} from the scenario. Apply them one by one under Proposed treatments.` : "This scenario has no changes to propose.");
+      // Promotion is complete when its POST succeeds. Refreshing the proposal list is a best-effort UI follow-up.
+      fetch("/api/decisions")
+        .then(async (decisionsResponse) => {
+          if (!decisionsResponse.ok) return;
+          const decisionsPayload = await readJson(decisionsResponse);
+          if (decisionsPayload.decisions) setAgentDecisions(decisionsPayload.decisions);
+        })
+        .catch(() => undefined);
+    } catch {
+      setNotice("Unable to promote this scenario. Please try again.");
+    } finally {
+      setPromotingScenario(false);
+    }
+  }
+
+  async function tryDecisionAsScenario(decisionId: string) {
+    try {
+      const response = await fetch("/api/scenarios/from-decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decisionId }) });
+      const payload = await readJson(response);
+      if (!response.ok) { setNotice(payload.error ?? "Unable to try this decision as a scenario."); return; }
+      setSelectedScenarioId(payload.scenario.id);
+      setNotice(`Showing scenario "${payload.scenario.name}" against the base forecast.`);
+      await refreshScenarios(true);
+    } catch {
+      setNotice("Unable to try this decision as a scenario. Please try again.");
+    }
   }
 
   useEffect(() => {
@@ -869,6 +1000,13 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       }
     }
     await refreshReconciliation();
+  }
+
+  async function handleForecastChanged(result: ModelCommitResult) {
+    if (result.status === "failed") setNotice("The model change was saved, but forecast recalculation failed. It remains queued for retry.");
+    setCalculationRun((current) => current ? { ...current, financialStateRevision: result.financialStateRevision, verificationStatus: result.forecastStatus } : current);
+    await Promise.all([refreshFinancialState(), refreshProposedItems(), refreshScenarios(true)]);
+    if (selectedScenarioId !== baseScenario) setScenarioRefreshKey((key) => key + 1);
   }
 
   async function reprocessEvidence(item: EvidenceItem) {
@@ -1324,12 +1462,26 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const isClosed = currentForecast?.status === "closed";
   const showActuals = isClosed || currentForecast?.status === "history";
   const assumedNote = currentForecast && (currentForecast.assumedReceipts || currentForecast.assumedSpending) ? ` · assumed ${money((currentForecast.assumedReceipts ?? 0) - (currentForecast.assumedSpending ?? 0))} net` : "";
+  // Only a forecast for the scenario currently selected is shown; a stale one (from a previous selection) is ignored.
+  const scenarioView = scenarioForecast && selectedScenarioId !== baseScenario && scenarioForecast.scenario.id === selectedScenarioId ? scenarioForecast : null;
+  const forecastAsOfMonth = runway ? shiftMonth(runway.horizonEnd, -runway.horizonMonths) : null;
+  const scenarioItemOptions: ScenarioItemOption[] = proposedItems.filter((item) => item.status === "confirmed" && !item.scenarioId).map((item) => ({ id: item.id, label: item.label, direction: item.direction, amount: item.amount }));
+  // Scenario net per displayed period, summed over forecast months in range, on the same cadence keys as the base bars.
+  const scenarioNetByPeriod = new Map<string, number>();
+  if (scenarioView && customRangeIsValid) {
+    for (const month of scenarioView.months) {
+      if (month.month < periodStartMonth || month.month > periodEndMonth) continue;
+      const key = cadenceKey(month.month, statementCadence);
+      scenarioNetByPeriod.set(key, (scenarioNetByPeriod.get(key) ?? 0) + Number(BigInt(month.receiptsMinor) - BigInt(month.spendingMinor)) / 100);
+    }
+  }
   const bars = displayedForecastRows.map((month) => {
     const actual = month.actualReceipts !== 0 || month.actualSpending !== 0;
     const net = actual ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
-    return { month: month.month, endMonth: month.endMonth, actual, net };
+    const scenarioNet = actual ? null : scenarioNetByPeriod.get(month.month) ?? null;
+    return { month: month.month, endMonth: month.endMonth, actual, net, scenarioNet };
   });
-  const maxAbs = Math.max(1, ...bars.map((bar) => Math.abs(bar.net)));
+  const maxAbs = Math.max(1, ...bars.map((bar) => Math.abs(bar.net)), ...bars.map((bar) => Math.abs(bar.scenarioNet ?? 0)));
   const zeroY = 95;
 
   return (
@@ -1651,10 +1803,11 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                             </div>
                             {item.rationale && <div className="mt-0.5 truncate text-[13px] text-pencil">{item.rationale}</div>}
                             {item.sourceName && <div className="text-[12px] text-pencil">From {item.sourceName}</div>}
-                            <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id }} revision={runway?.revision} onOpenEvidence={openEvidence} />
+                            <div className="mt-3 max-w-xl"><ItemFormulaField label={`Formula for ${item.label}`} value={item.amountFormula ?? null} savedValue={itemFormulaBaselines[item.id] ?? null} onChange={(amountFormula) => setProposedItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, amountFormula } : entry))} /></div>
+                            <ForecastConsequenceLine request={{ kind: "confirm_item", itemId: item.id, edits: { amountFormula: item.amountFormula ?? null } }} revision={runway?.revision} onOpenEvidence={openEvidence} />
                           </div>
                           <span className="flex gap-1">
-                            <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed")}><Check /></button>
+                            <button className={actionButton} type="button" aria-label="Confirm interpreted item" title="Confirm" onClick={() => reviewProposedItems([item.id], "confirmed", { amountFormula: item.amountFormula ?? null })}><Check /></button>
                             <button className={actionButton} type="button" aria-label="Reject interpreted item" title="Reject" onClick={() => reviewProposedItems([item.id], "rejected")}><Trash2 /></button>
                           </span>
                         </div>
@@ -1662,6 +1815,18 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                     </div>
                   ))}
                 </div>
+              )}
+              {confirmedItems.length > 0 && (
+                <details className="border-b border-rule py-2.5">
+                  <summary className="cursor-pointer text-[12px] uppercase tracking-[0.12em] text-ink-2">Confirmed forecast items · edit formulas</summary>
+                  <div className="mt-3 grid gap-4">
+                    {confirmedItems.map((item) => <div className="rounded-md border border-rule p-3" key={`confirmed-formula-${item.id}`}>
+                      <div className="mb-2 text-[13px]"><span className="font-medium">{item.label}</span><span className="text-ink-2"> · fallback {item.direction === "spend" ? "−" : "+"}{money(item.amount ?? 0)} {item.cadence ?? "once"}</span></div>
+                      <ItemFormulaField label={`Formula for ${item.label}`} value={item.amountFormula ?? null} savedValue={itemFormulaBaselines[item.id] ?? null} disabled={savingItemFormulaId === item.id} onChange={(amountFormula) => setProposedItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, amountFormula } : entry))} />
+                      <Button className="mt-2" size="sm" disabled={savingItemFormulaId === item.id} onClick={() => saveItemFormula(item)}>{savingItemFormulaId === item.id ? "Saving…" : "Save formula"}</Button>
+                    </div>)}
+                  </div>
+                </details>
               )}
               {proposed.length > 0 && (
                 <div>
@@ -1678,6 +1843,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                         <button className={actionButton} type="button" aria-label="Apply proposed decision" title="Apply" onClick={() => updateAgentDecision(decision.id, "applied")}><Check /></button>
                         <button className={actionButton} type="button" aria-label="Reject proposed decision" title="Reject" onClick={() => updateAgentDecision(decision.id, "rejected")}><Trash2 /></button>
                         <button className={actionButton} type="button" aria-label="Discuss proposed decision in chat" title="Discuss in chat" onClick={() => discussDecision(decision)}><MessageSquareText /></button>
+                        {decision.effectSummary && <button className={actionButton} type="button" aria-label="Try proposed decision as a scenario" title="Try as scenario" onClick={() => { tryDecisionAsScenario(decision.id).catch(() => undefined); }}><FlaskConical /></button>}
                       </span>
                     </div>
                   ))}
@@ -1742,6 +1908,22 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                     {entityStructure.legalEntities.map((entity) => <SelectItem key={entity.id} value={entity.id}>{entity.name}{entity.consolidated ? "" : " (standalone)"}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              )}
+              {forecast.length > 0 && (
+                <>
+                  <Select value={selectedScenarioId} onValueChange={setSelectedScenarioId}>
+                    <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Scenario">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="border-rule">
+                      <SelectItem value={baseScenario}>Base forecast</SelectItem>
+                      {scenarios.map((scenario) => <SelectItem key={scenario.id} value={scenario.id}>{scenario.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {selectedScenarioId !== baseScenario && <button type="button" className={quietButton} disabled={!scenarioView} onClick={() => setScenarioEditorMode("edit")}>Edit</button>}
+                  {selectedScenarioId !== baseScenario && <button type="button" className={quietButton} disabled={promotingScenario} onClick={() => { promoteSelectedScenario().catch(() => setNotice("Unable to promote this scenario. Please try again.")); }}>{promotingScenario ? "Promoting…" : promotedScenarioIds.has(selectedScenarioId) ? "Promote again" : "Promote to proposals"}</button>}
+                  <button type="button" className={quietButton} onClick={() => setScenarioEditorMode("new")}><Plus className="size-3.5" />New scenario</button>
+                </>
               )}
               {forecast.length > 0 && (
                 <>
@@ -1833,15 +2015,26 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               pencil={Boolean(currentForecast) && !showActuals}
               negative={Boolean(currentForecast && (showActuals ? currentForecast.actualReceipts - currentForecast.actualSpending : currentForecast.receipts - currentForecast.spending) < 0)}
             />
-            <Figure
-              label={selectedEntity === "consolidated" ? "Runway" : "Consolidated runway"}
-              value={runway ? (runway.runwayMonths === null ? `> ${runway.horizonMonths} mo` : `${runway.runwayMonths} mo`) : "—"}
-              note={runway ? `${runway.cashOutMonth ? `Cash-out ${monthLabel(runway.cashOutMonth)}` : "No cash-out in horizon"}${BigInt(runway.trailingBurn3mMinor) > 0n ? ` · burn ${money(Number(runway.trailingBurn3mMinor) / 100)}/mo` : ""}${runway.cashOverTrailingBurn && Number(runway.cashOverTrailingBurn) !== 0 ? ` · ${runway.cashOverTrailingBurn}× burn` : ""}${runway.stale ? " · updating" : ""}${selectedEntity === "consolidated" ? "" : " · all entities"}` : "Forecast not calculated yet"}
-              pencil
-              negative={Boolean(runway?.runwayMonths !== null && runway?.runwayMonths !== undefined && runway.runwayMonths < 6)}
-              {...(runway ? { onClick: () => openCalculationTrace("forecast") } : {})}
-            />
+            {scenarioView ? (
+              <Figure
+                label={`Runway · ${scenarioView.scenario.name}`}
+                value={runwayLabel(scenarioView.runway.runwayMonths, scenarioView.runway.horizonMonths)}
+                note={`vs base ${runwayLabel(scenarioView.consequence ? scenarioView.consequence.runwayMonths.before : scenarioView.runway.runwayMonths, scenarioView.runway.horizonMonths)}${scenarioView.runway.cashOutMonth ? ` · cash-out ${monthLabel(scenarioView.runway.cashOutMonth)}` : " · no cash-out in horizon"}`}
+                pencil
+                negative={scenarioView.runway.runwayMonths !== null && scenarioView.runway.runwayMonths < 6}
+              />
+            ) : (
+              <Figure
+                label={selectedEntity === "consolidated" ? "Runway" : "Consolidated runway"}
+                value={runway ? (runway.runwayMonths === null ? `> ${runway.horizonMonths} mo` : `${runway.runwayMonths} mo`) : "—"}
+                note={runway ? `${runway.cashOutMonth ? `Cash-out ${monthLabel(runway.cashOutMonth)}` : "No cash-out in horizon"}${BigInt(runway.trailingBurn3mMinor) > 0n ? ` · burn ${money(Number(runway.trailingBurn3mMinor) / 100)}/mo` : ""}${runway.cashOverTrailingBurn && Number(runway.cashOverTrailingBurn) !== 0 ? ` · ${runway.cashOverTrailingBurn}× burn` : ""}${runway.stale ? " · updating" : ""}${selectedEntity === "consolidated" ? "" : " · all entities"}` : "Forecast not calculated yet"}
+                pencil
+                negative={Boolean(runway?.runwayMonths !== null && runway?.runwayMonths !== undefined && runway.runwayMonths < 6)}
+                {...(runway ? { onClick: () => openCalculationTrace("forecast") } : {})}
+              />
+            )}
           </div>
+          {scenarioView && <ScenarioVsBaseLine forecast={scenarioView} onOpenEvidence={openEvidence} />}
           {runway && <ForecastWhatChanged refreshKey={runway.revision} onOpenEvidence={openEvidence} />}
 
           {bars.length ? (
@@ -1849,21 +2042,26 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <div className="flex gap-4 text-[13px] text-ink-2">
                 <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-ink align-[-1px]" />Actual</span>
                 <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-pencil-2 align-[-1px]" />Forecast</span>
+                {scenarioView && <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] border-[1.5px] border-ink align-[-1px]" />{scenarioView.scenario.name}</span>}
               </div>
-              <svg viewBox="0 0 720 170" preserveAspectRatio="none" className="block aspect-[720/170] h-auto w-full" role="img" aria-label={`Net cash flow by ${statementCadence}. Closed periods in ink, forecast periods in pencil.`}>
+              <svg viewBox="0 0 720 170" preserveAspectRatio="none" className="block aspect-[720/170] h-auto w-full" role="img" aria-label={`Net cash flow by ${statementCadence}. Closed periods in ink, forecast periods in pencil.${scenarioView ? ` Outlined bars: ${scenarioView.scenario.name}.` : ""}`}>
                 <line x1="0" y1={zeroY} x2="720" y2={zeroY} className="stroke-rule" strokeWidth="1" />
                 {bars.map((bar, index) => {
                   const slot = 720 / bars.length;
-                  const width = Math.min(28, slot * 0.5);
-                  const x = index * slot + (slot - width) / 2;
+                  const overlay = scenarioView !== null;
+                  const width = overlay ? Math.min(20, slot * 0.34) : Math.min(28, slot * 0.5);
+                  const center = index * slot + slot / 2;
+                  const x = overlay ? center - width - 1 : center - width / 2;
                   const height = Math.max(2, (Math.abs(bar.net) / maxAbs) * 65);
                   const negative = bar.net < 0;
                   const selected = bar.endMonth === selectedMonth;
+                  const scenarioHeight = bar.scenarioNet === null ? 0 : Math.max(2, (Math.abs(bar.scenarioNet) / maxAbs) * 65);
                   return (
                     <g key={bar.month} className="cursor-pointer" onClick={() => { setSelectedMonth(bar.endMonth); setRangeEnd(lastDayOfMonth(bar.endMonth)); }}>
-                      <title>{`${cadenceLabel(bar.month, statementCadence)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}`}</title>
+                      <title>{`${cadenceLabel(bar.month, statementCadence)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}${scenarioView && bar.scenarioNet !== null ? ` · ${money(bar.scenarioNet)} in ${scenarioView.scenario.name}` : ""}`}</title>
                       <rect x={x} y={negative ? zeroY : zeroY - height} width={width} height={height} className={cn(negative ? "fill-red-ink" : bar.actual ? "fill-ink" : "fill-pencil-2")} opacity={negative && !bar.actual ? 0.35 : 1} />
-                      <text x={x + width / 2} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{statementCadence === "monthly" ? monthLabel(bar.month, shortMonthFormatter) : cadenceLabel(bar.month, statementCadence)}</text>
+                      {bar.scenarioNet !== null && <rect x={center + 1} y={bar.scenarioNet < 0 ? zeroY : zeroY - scenarioHeight} width={width} height={scenarioHeight} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className={cn(bar.scenarioNet < 0 ? "stroke-red-ink" : "stroke-ink")} />}
+                      <text x={center} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{statementCadence === "monthly" ? monthLabel(bar.month, shortMonthFormatter) : cadenceLabel(bar.month, statementCadence)}</text>
                     </g>
                   );
                 })}
@@ -1948,7 +2146,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       </main>
 
       <UsageModal open={usageOpen} onOpenChange={setUsageOpen} companyName={company.name} />
-      <AccountingModal open={accountingOpen} onOpenChange={setAccountingOpen} initialPeriod={selectedMonth} />
+      <AccountingModal open={accountingOpen} onOpenChange={setAccountingOpen} initialPeriod={selectedMonth} onForecastChanged={handleForecastChanged} />
 
       <Dialog open={calculationTraceOpen} onOpenChange={setCalculationTraceOpen}>
         <DialogContent className="max-h-[84vh] gap-0 overflow-hidden rounded-xl border-rule bg-[#f7f7f8] p-0 dark:bg-[#1b1c20] sm:max-w-[900px]">
@@ -2072,6 +2270,18 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           </div>
         </DialogContent>
       </Dialog>
+
+      {scenarioEditorMode && (
+        <ScenarioEditorDialog
+          open
+          onOpenChange={(open) => { if (!open) setScenarioEditorMode(null); }}
+          scenario={scenarioEditorMode === "edit" ? scenarioView?.scenario ?? null : null}
+          items={scenarioItemOptions}
+          asOfMonth={forecastAsOfMonth}
+          onSaved={(scenarioId) => { scenarioSaved(scenarioId).catch(() => undefined); }}
+          onDeleted={() => { scenarioDeleted().catch(() => undefined); }}
+        />
+      )}
 
       <Dialog open={Boolean(editingItem)} onOpenChange={(open) => { if (!open) setEditingItem(null); }}>
         <DialogContent className="rounded-xl border-rule sm:max-w-[840px]">
