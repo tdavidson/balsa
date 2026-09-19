@@ -16,6 +16,11 @@ describe("forecast driver mapping", () => {
     expect(driver).toEqual({ id: "i1", label: "Retainer", itemType: "agreement", direction: "receipt", category: "management_fee", amountMinor: "125050", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev1", counterpartyEntityId: "cp1" });
     expect(economicItemToDriver({ ...item, cadence: null }).cadence).toBe("once");
   });
+  it("carries a non-empty amount formula", () => {
+    expect(economicItemToDriver({ ...item, amountFormula: "sum(payroll)" }).amountFormula).toBe("sum(payroll)");
+    expect(economicItemToDriver({ ...item, amountFormula: null })).not.toHaveProperty("amountFormula");
+    expect(economicItemToDriver(item)).not.toHaveProperty("amountFormula");
+  });
   it("maps templates and chart accounts", () => {
     expect(templateRowToTemplate({ id: "t", itemType: "obligation", direction: "spend", category: null, debitAccountId: "d", creditAccountId: "c", decisionId: null, policyId: "p" })).toEqual({ id: "t", itemType: "obligation", direction: "spend", debitAccountId: "d", creditAccountId: "c", policyId: "p" });
     expect(chartAccountToForecastAccount({ id: "a", code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementSection: null, statementLine: "Cash", balanceTiming: "current", cashFlowCategory: null, workingCapitalCategory: null })).toEqual({ accountId: "a", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash", balanceTiming: "current" });

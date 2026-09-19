@@ -11,11 +11,11 @@ export function amountToMinor(value: string | null | undefined): string {
   return `${whole}${fraction.padEnd(2, "0")}`.replace(/^0+(?=\d)/, "");
 }
 
-export type EconomicItemDriverRow = { id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
+export type EconomicItemDriverRow = { id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; amountFormula?: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
 export function economicItemToDriver(item: EconomicItemDriverRow): ForecastDriver {
   return {
     id: item.id, label: item.label, itemType: item.type === "obligation" ? "obligation" : "agreement", direction: item.direction,
-    ...(item.category ? { category: item.category } : {}), amountMinor: amountToMinor(item.amount), cadence: cadences.find((cadence) => cadence === item.cadence) ?? "once", effectiveFrom: item.effectiveFrom ?? "",
+    ...(item.category ? { category: item.category } : {}), amountMinor: amountToMinor(item.amount), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), cadence: cadences.find((cadence) => cadence === item.cadence) ?? "once", effectiveFrom: item.effectiveFrom ?? "",
     ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}), ...(item.decisionId ? { decisionId: item.decisionId } : {}),
     ...(item.evidenceId ? { evidenceId: item.evidenceId } : {}), ...(item.factId ? { factId: item.factId } : {}), ...(item.counterpartyEntityId ? { counterpartyEntityId: item.counterpartyEntityId } : {}),
   };

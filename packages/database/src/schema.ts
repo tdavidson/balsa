@@ -645,6 +645,27 @@ export const forecastEntryTemplates = pgTable("forecast_entry_templates", {
   decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }), policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
 }, (table) => [index("forecast_entry_templates_company_index").on(table.companyId, table.active)]);
 
+/** A named list of items that forecast model variables break down by (for example team: Eng, Sales). */
+export const forecastDimensions = pgTable("forecast_dimensions", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), items: jsonb("items").$type<string[]>().default([]).notNull(), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
+}, (table) => [index("forecast_dimensions_company_index").on(table.companyId, table.active), uniqueIndex("forecast_dimensions_active_name_unique").on(table.companyId, table.name).where(sql`active = 'Y'`)]);
+
+/** A forecast model variable: dated step inputs or a formula (never both), over zero or more dimensions. */
+export const forecastVariables = pgTable("forecast_variables", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), kind: text("kind").$type<"money" | "number">().notNull(), dims: jsonb("dims").$type<string[]>().default([]).notNull(),
+  formula: text("formula"), inputs: jsonb("inputs").$type<{ coords: Record<string, string>; from: string; value: string }[]>().default([]).notNull(),
+  decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
+}, (table) => [index("forecast_variables_company_index").on(table.companyId, table.active), uniqueIndex("forecast_variables_active_name_unique").on(table.companyId, table.name).where(sql`active = 'Y'`)]);
+
+/** Durable marker proving a decision's structured effect was applied once. */
+export const decisionEffectApplications = pgTable("decision_effect_applications", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  decisionId: uuid("decision_id").notNull().references(() => decisions.id, { onDelete: "cascade" }),
+  effectKind: text("effect_kind").notNull(), result: jsonb("result").$type<Record<string, unknown>>().notNull(), appliedAt: timestamp("applied_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.companyId, table.decisionId] }), index("decision_effect_applications_company_index").on(table.companyId, table.appliedAt)]);
+
 export const economicItems = pgTable(
   "economic_items",
   {
@@ -658,6 +679,8 @@ export const economicItems = pgTable(
     label: text("label").notNull(),
     counterparty: text("counterparty"),
     amount: text("amount"),
+    /** A driver formula over the forecast model, in major units. When set, `amount` is the display fallback only. */
+    amountFormula: text("amount_formula"),
     cadence: text("cadence"),
     accountingTreatment: text("accounting_treatment").default("cash").notNull(),
     recognitionStart: text("recognition_start"),

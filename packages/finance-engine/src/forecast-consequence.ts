@@ -1,7 +1,7 @@
 import type { ForecastDriver } from "./forecast-projections";
 import type { ForecastRun } from "./forecast-run";
 
-export type ForecastDriverRef = Pick<ForecastDriver, "id" | "label" | "direction" | "category" | "amountMinor" | "cadence" | "effectiveFrom" | "effectiveTo" | "evidenceId" | "decisionId">;
+export type ForecastDriverRef = Pick<ForecastDriver, "id" | "label" | "direction" | "category" | "amountMinor" | "amountFormula" | "cadence" | "effectiveFrom" | "effectiveTo" | "evidenceId" | "decisionId">;
 export type ForecastConsequence = {
   asOfMonth: { before: string | null; after: string };
   /** The as-of month moved. Only months forecast by both runs are compared, so the roll itself is not a cash change. */
@@ -18,11 +18,29 @@ export type ForecastConsequence = {
   exceptions: { before: number; after: number };
 };
 
-const comparedFields = ["label", "direction", "category", "amountMinor", "cadence", "effectiveFrom", "effectiveTo"] as const;
+const comparedFields = ["label", "direction", "category", "amountMinor", "amountFormula", "cadence", "effectiveFrom", "effectiveTo"] as const;
 const forecastMonths = (run: ForecastRun | null) => (run?.months ?? []).filter((month) => month.basis === "forecast");
 const total = (run: ForecastRun | null, field: "receiptsMinor" | "spendingMinor", only: Set<string> | null) => forecastMonths(run).filter((month) => !only || only.has(month.month)).reduce((sum, month) => sum + BigInt(month[field]), 0n);
 const pair = (before: bigint, after: bigint) => ({ beforeMinor: before.toString(), afterMinor: after.toString(), deltaMinor: (after - before).toString() });
-const ref = (driver: ForecastDriver): ForecastDriverRef => ({ id: driver.id, label: driver.label, direction: driver.direction, amountMinor: driver.amountMinor, cadence: driver.cadence, effectiveFrom: driver.effectiveFrom, ...(driver.category ? { category: driver.category } : {}), ...(driver.effectiveTo ? { effectiveTo: driver.effectiveTo } : {}), ...(driver.evidenceId ? { evidenceId: driver.evidenceId } : {}), ...(driver.decisionId ? { decisionId: driver.decisionId } : {}) });
+const ref = (driver: ForecastDriver): ForecastDriverRef => ({ id: driver.id, label: driver.label, direction: driver.direction, amountMinor: driver.amountMinor, cadence: driver.cadence, effectiveFrom: driver.effectiveFrom, ...(driver.category ? { category: driver.category } : {}), ...(driver.amountFormula !== undefined ? { amountFormula: driver.amountFormula } : {}), ...(driver.effectiveTo ? { effectiveTo: driver.effectiveTo } : {}), ...(driver.evidenceId ? { evidenceId: driver.evidenceId } : {}), ...(driver.decisionId ? { decisionId: driver.decisionId } : {}) });
+const monthNumber = (month: string) => { const [year, number] = month.split("-").map(Number); return year! * 12 + number! - 1; };
+const cadenceStep: Record<ForecastDriver["cadence"], number> = { once: 0, monthly: 1, quarterly: 3, annual: 12 };
+/** Forecast months in this run where the driver's effective window and cadence schedule it. */
+const scheduledFormulaMonths = (run: ForecastRun, driver: ForecastDriver) => {
+  const step = cadenceStep[driver.cadence];
+  return new Set(forecastMonths(run).flatMap(({ month }) => {
+    const offset = monthNumber(month) - monthNumber(driver.effectiveFrom);
+    const scheduled = offset >= 0 && (step === 0 ? offset === 0 : offset % step === 0) && (!driver.effectiveTo || month <= driver.effectiveTo);
+    return scheduled ? [month] : [];
+  }));
+};
+/** A formula amount moved in a common forecast month scheduled by both driver versions. */
+const formulaAmountsMoved = (beforeRun: ForecastRun, afterRun: ForecastRun, before: ForecastDriver, after: ForecastDriver) => {
+  const prior = before.amountByMonth ?? {}; const next = after.amountByMonth ?? {};
+  const priorMonths = scheduledFormulaMonths(beforeRun, before);
+  const nextMonths = scheduledFormulaMonths(afterRun, after);
+  return [...nextMonths].some((month) => priorMonths.has(month) && prior[month] !== next[month]);
+};
 
 /** The forward consequence of moving from one forecast run to the next, or null when no headline figure moved. */
 export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun): ForecastConsequence | null {
@@ -47,8 +65,8 @@ export function diffForecastRuns(previous: ForecastRun | null, next: ForecastRun
     removed: (previous?.drivers ?? []).filter((driver) => !afterDrivers.has(driver.id)).map(ref),
     changed: next.drivers.flatMap((driver) => {
       const prior = beforeDrivers.get(driver.id);
-      const fields = prior ? comparedFields.filter((field) => prior[field] !== driver[field]) : [];
-      return prior && fields.length ? [{ before: ref(prior), after: ref(driver), fields: [...fields] }] : [];
+      const fields: string[] = prior ? [...comparedFields.filter((field) => prior[field] !== driver[field]), ...(formulaAmountsMoved(previous!, next, prior, driver) ? ["amountByMonth"] : [])] : [];
+      return prior && fields.length ? [{ before: ref(prior), after: ref(driver), fields }] : [];
     }),
   };
   const consequence: ForecastConsequence = {

@@ -1,6 +1,6 @@
 import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
@@ -9,7 +9,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 
 describe.skipIf(!process.env.DATABASE_URL)("pin forecast as plan", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { chartAccounts, closeDatabase, companies, economicItems, forecastEntryTemplates, getDatabase, journalEntries, policies } = await import("@finance/database");
+  const { chartAccounts, closeDatabase, companies, economicItems, forecastEntryTemplates, forecastVariables, getDatabase, journalEntries, journalLines, policies } = await import("@finance/database");
   const { pinForecastAsPlan } = await import("./forecast-plan-pin");
   const { postApprovedJournal } = await import("./journal-posting");
   const db = getDatabase();
@@ -74,6 +74,49 @@ describe.skipIf(!process.env.DATABASE_URL)("pin forecast as plan", async () => {
       expect(reversalEntry?.reversalOfEntryId).toBe(legacy.entryId);
     } finally {
       await db.delete(companies).where(eq(companies.id, legacyCompanyId));
+    }
+  });
+
+  it("reverses a pinned formula identity that disappears when its amount becomes zero", async () => {
+    const [formulaCompany] = await db.insert(companies).values({ name: `Plan pin formula ${Date.now()}` }).returning({ id: companies.id });
+    const formulaCompanyId = formulaCompany!.id;
+    try {
+      const [cash, payroll] = await db.insert(chartAccounts).values([
+        { companyId: formulaCompanyId, code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
+        { companyId: formulaCompanyId, code: "6000", name: "Payroll", accountType: "expense", normalBalance: "debit" },
+      ]).returning({ id: chartAccounts.id });
+      const [policy] = await db.insert(policies).values({ companyId: formulaCompanyId, name: "Formula payroll", rule: "Formula payroll is expensed monthly." }).returning({ id: policies.id });
+      await db.insert(forecastEntryTemplates).values({ companyId: formulaCompanyId, name: "Payroll", itemType: "obligation", direction: "spend", debitAccountId: payroll!.id, creditAccountId: cash!.id, policyId: policy!.id });
+      const [variable] = await db.insert(forecastVariables).values({ companyId: formulaCompanyId, name: "payroll", kind: "money", dims: [], inputs: [{ coords: {}, from: "2026-12", value: "1000" }] }).returning({ id: forecastVariables.id });
+      const [item] = await db.insert(economicItems).values({ companyId: formulaCompanyId, type: "obligation", direction: "spend", label: "Payroll", amountFormula: "payroll", cadence: "monthly", effectiveFrom: "2027-01", status: "confirmed" }).returning({ id: economicItems.id });
+
+      const first = await pinForecastAsPlan(formulaCompanyId, { start: "2027-01", end: "2027-01", actorUserId: null, baseCurrency: "USD" });
+      expect(first).toMatchObject({ posted: 1, reversed: 0, exceptions: [] });
+      const [original] = await db.select({ id: journalEntries.id }).from(journalEntries).innerJoin(journalLines, eq(journalLines.entryId, journalEntries.id)).where(and(eq(journalEntries.companyId, formulaCompanyId), eq(journalLines.sourceLocation, `forecast-driver:${item!.id}`), eq(journalEntries.basis, "plan"), eq(journalEntries.period, "2027-01"))).limit(1);
+      expect(original).toBeDefined();
+
+      await db.update(forecastVariables).set({ inputs: [{ coords: {}, from: "2026-12", value: "0" }] }).where(and(eq(forecastVariables.id, variable!.id), eq(forecastVariables.companyId, formulaCompanyId)));
+      const second = await pinForecastAsPlan(formulaCompanyId, { start: "2027-01", end: "2027-01", actorUserId: null, baseCurrency: "USD" });
+      expect(second).toMatchObject({ posted: 0, reversed: 1, exceptions: [] });
+      const reversals = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.companyId, formulaCompanyId), eq(journalEntries.reversalOfEntryId, original!.id)));
+      expect(reversals).toHaveLength(1);
+      const contribution = await db.select({ debitMinor: journalLines.debitMinor, creditMinor: journalLines.creditMinor }).from(journalLines).where(and(eq(journalLines.companyId, formulaCompanyId), eq(journalLines.accountId, payroll!.id), inArray(journalLines.entryId, [original!.id, reversals[0]!.id])));
+      expect(contribution.reduce((total, line) => total + BigInt(line.debitMinor) - BigInt(line.creditMinor), 0n)).toBe(0n);
+
+      const third = await pinForecastAsPlan(formulaCompanyId, { start: "2027-01", end: "2027-01", actorUserId: null, baseCurrency: "USD" });
+      expect(third).toMatchObject({ posted: 0, reversed: 0, exceptions: [] });
+      expect(await db.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.companyId, formulaCompanyId), eq(journalEntries.reversalOfEntryId, original!.id)))).toHaveLength(1);
+
+      await db.update(forecastVariables).set({ inputs: [{ coords: {}, from: "2026-12", value: "1000" }] }).where(and(eq(forecastVariables.id, variable!.id), eq(forecastVariables.companyId, formulaCompanyId)));
+      const restored = await pinForecastAsPlan(formulaCompanyId, { start: "2027-01", end: "2027-01", actorUserId: null, baseCurrency: "USD" });
+      expect(restored).toMatchObject({ posted: 1, idempotent: 0, reversed: 0, exceptions: [] });
+      const activeContribution = await db.select({ debitMinor: journalLines.debitMinor, creditMinor: journalLines.creditMinor }).from(journalLines).innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId)).where(and(eq(journalLines.companyId, formulaCompanyId), eq(journalLines.accountId, payroll!.id), eq(journalEntries.period, "2027-01")));
+      expect(activeContribution.reduce((total, line) => total + BigInt(line.debitMinor) - BigInt(line.creditMinor), 0n)).toBe(100000n);
+
+      const retry = await pinForecastAsPlan(formulaCompanyId, { start: "2027-01", end: "2027-01", actorUserId: null, baseCurrency: "USD" });
+      expect(retry).toMatchObject({ posted: 1, idempotent: 1, reversed: 0, exceptions: [] });
+    } finally {
+      await db.delete(companies).where(eq(companies.id, formulaCompanyId));
     }
   });
 });

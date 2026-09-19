@@ -1,6 +1,15 @@
-import { addMonths, type ForecastDriver } from "@nevermodel/finance-engine";
+import { addMonths, type ForecastDriver, type ForecastRunInput } from "@nevermodel/finance-engine";
 import type { DecisionEffect } from "@/lib/decision-effects";
 import { amountToMinor } from "@/lib/forecast-drivers";
+import { emptyModel, withDimension, withVariable } from "@/lib/forecast-model-rows";
+
+/** Pure, immutable projection shared by previews and scenario compatibility callers. */
+export function projectDecisionEffect(input: ForecastRunInput, effect: DecisionEffect, decisionId: string): ForecastRunInput {
+  if (effect.kind === "set_dimension") return { ...input, model: withDimension(input.model ?? emptyModel(), effect.dimension) };
+  if (effect.kind === "set_variable") return { ...input, model: withVariable(input.model ?? emptyModel(), effect.variable) };
+  if (effect.kind === "set_item_formula") return { ...input, drivers: input.drivers.map((driver) => driver.id === effect.itemId ? { ...driver, amountFormula: effect.amountFormula, decisionId } : driver) };
+  return { ...input, drivers: projectDecisionEffectOnDrivers(input.drivers, effect, decisionId) };
+}
 
 /**
  * What applying a decision would do to the base forecast's drivers, in memory.
@@ -21,5 +30,7 @@ export function projectDecisionEffectOnDrivers(drivers: ForecastDriver[], effect
     void _previousEnd;
     return [...drivers.map((driver) => (driver.id === original.id ? { ...driver, effectiveTo: addMonths(effect.effectiveFrom, -1) } : driver)), { ...copy, id: `decision:${decisionId}`, amountMinor: amountToMinor(String(effect.amount)), effectiveFrom: effect.effectiveFrom, decisionId }];
   }
-  return drivers.map((driver) => (driver.counterpartyEntityId === effect.entityId ? { ...driver, category: effect.category } : driver));
+  if (effect.kind === "set_category") return drivers.map((driver) => (driver.counterpartyEntityId === effect.entityId ? { ...driver, category: effect.category } : driver));
+  if (effect.kind === "set_item_formula") return drivers.map((driver) => driver.id === effect.itemId ? { ...driver, amountFormula: effect.amountFormula, decisionId } : driver);
+  return drivers;
 }

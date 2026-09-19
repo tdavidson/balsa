@@ -4,12 +4,12 @@ import { decisions, economicItems, evidence, getDatabase } from "@finance/databa
 import { buildForecastRun, diffForecastRuns } from "@nevermodel/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { parseStoredEffect } from "@/lib/decision-effects";
-import { projectDecisionEffectOnDrivers } from "@/lib/decision-driver-effects";
+import { projectDecisionEffect } from "@/lib/decision-driver-effects";
 import { loadForecastBase } from "@/lib/forecast-base";
 import { amountToMinor, economicItemToDriver } from "@/lib/forecast-drivers";
 
 export type ForecastPreviewChange =
-  | { kind: "confirm_item"; itemId: string; edits?: { amount?: number; cadence?: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom?: string; effectiveTo?: string | null; category?: string } }
+  | { kind: "confirm_item"; itemId: string; edits?: { amount?: number; amountFormula?: string | null; cadence?: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom?: string; effectiveTo?: string | null; category?: string } }
   | { kind: "confirm_items"; itemIds: string[] }
   | { kind: "apply_decision"; decisionId: string };
 
@@ -26,6 +26,7 @@ export async function previewForecastChange(companyId: string, change: ForecastP
   let drivers = inputs.drivers;
   let sources: ConsequenceSource[] = [];
   let note: string | undefined;
+  let projectedInputs = inputs;
   if (change.kind === "confirm_item") {
     const [item] = await db.select().from(economicItems).where(and(eq(economicItems.id, change.itemId), eq(economicItems.companyId, companyId))).limit(1);
     if (!item) throw new PreviewConflict("Item not found");
@@ -36,7 +37,7 @@ export async function previewForecastChange(companyId: string, change: ForecastP
       if (source) sources = [{ evidenceId: item.evidenceId, sourceName: source.sourceName }];
     }
     const edits = change.edits ?? {};
-    const driver = economicItemToDriver({ ...item, ...(edits.cadence ? { cadence: edits.cadence } : {}), ...(edits.effectiveFrom ? { effectiveFrom: edits.effectiveFrom } : {}), ...(edits.effectiveTo !== undefined ? { effectiveTo: edits.effectiveTo } : {}), ...(edits.category ? { category: edits.category } : {}) });
+    const driver = economicItemToDriver({ ...item, ...(edits.amountFormula !== undefined ? { amountFormula: edits.amountFormula } : {}), ...(edits.cadence ? { cadence: edits.cadence } : {}), ...(edits.effectiveFrom ? { effectiveFrom: edits.effectiveFrom } : {}), ...(edits.effectiveTo !== undefined ? { effectiveTo: edits.effectiveTo } : {}), ...(edits.category ? { category: edits.category } : {}) });
     drivers = [...drivers, edits.amount !== undefined ? { ...driver, amountMinor: amountToMinor(String(edits.amount)) } : driver];
   } else if (change.kind === "confirm_items") {
     const items = await db.select().from(economicItems).where(and(eq(economicItems.companyId, companyId), inArray(economicItems.id, change.itemIds)));
@@ -59,9 +60,10 @@ export async function previewForecastChange(companyId: string, change: ForecastP
     if (decision.status !== "proposed") throw new PreviewConflict("Only a proposed decision can be previewed");
     const effect = parseStoredEffect(decision.effect);
     if (!effect) return { consequence: null, exceptionsAfter: 0, note: "This decision has no forecast effect.", sources };
-    drivers = projectDecisionEffectOnDrivers(drivers, effect, change.decisionId);
+    projectedInputs = projectDecisionEffect({ ...inputs, drivers }, effect, change.decisionId);
+    drivers = projectedInputs.drivers;
   }
   const asIs = buildForecastRun(inputs);
-  const withChange = buildForecastRun({ ...inputs, drivers });
+  const withChange = buildForecastRun({ ...projectedInputs, drivers });
   return { consequence: diffForecastRuns(asIs, withChange), exceptionsAfter: withChange.exceptions.length, sources, ...(note !== undefined ? { note } : {}) };
 }

@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { entities, type Database } from "@finance/database";
+import { entities } from "@finance/database";
 import type { ModelProvider } from "@finance/model-providers";
 import { categories, isCategory, type Category } from "@nevermodel/finance-engine";
 import { legacyCategory } from "./categories";
+import type { DbExecutor } from "@/lib/db-executor";
 
 /**
  * The interpretation step between approved evidence and Company State.
@@ -123,7 +124,7 @@ export function matchEntityAlias<T extends { name: string; attributes: string; t
 }
 
 /** Find or create the entity for a counterparty name, remembering the alias and category. */
-export async function resolveCounterparty(db: Database, companyId: string, input: { name: string; alias?: string; category?: Category | null; direction?: "receipt" | "spend"; candidates: KnownEntity[] }): Promise<KnownEntity> {
+export async function resolveCounterparty(db: DbExecutor, companyId: string, input: { name: string; alias?: string; category?: Category | null; direction?: "receipt" | "spend"; candidates: KnownEntity[] }): Promise<KnownEntity> {
   const name = input.name.trim();
   const existing = matchEntityAlias(name, input.candidates) ?? (input.alias ? matchEntityAlias(input.alias, input.candidates) : undefined);
   if (existing) {

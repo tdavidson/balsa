@@ -110,4 +110,43 @@ describe("diffForecastRuns", () => {
     expect(consequence.drivers.changed[0]?.before).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "salary", amountMinor: "100000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
     expect(consequence.drivers.changed[0]?.after).toEqual({ id: "payroll", label: "Payroll", direction: "spend", category: "contractor", amountMinor: "150000", cadence: "monthly", effectiveFrom: "2026-09", evidenceId: "ev-1" });
   });
+
+  it("compares formula amounts only over months both runs project, and names formula changes", () => {
+    const before = forecast(input([payroll]));
+    const after = forecast({ ...input([payroll]), minimumCashMinor: "200000" });
+    const formula = (amountByMonth: Record<string, string>, amountFormula = "sum(payroll)") => [{ ...payroll, amountFormula, amountByMonth }];
+    const rolled = diffForecastRuns({ ...before, drivers: formula({ "2026-08": "1", "2026-09": "5" }) }, { ...after, drivers: formula({ "2026-09": "5", "2026-10": "7" }) })!;
+    expect(rolled.drivers.changed[0]!.fields).toEqual(["amountByMonth"]);
+    const moved = diffForecastRuns({ ...before, drivers: formula({ "2026-09": "5" }) }, { ...after, drivers: formula({ "2026-09": "6" }) })!;
+    expect(moved.drivers.changed[0]!.fields).toEqual(["amountByMonth"]);
+    const reformulated = diffForecastRuns({ ...before, drivers: formula({ "2026-09": "5" }) }, { ...after, drivers: formula({ "2026-09": "5" }, "sum(payroll) * 2") })!;
+    expect(reformulated.drivers.changed[0]!.fields).toEqual(["amountFormula"]);
+    expect(reformulated.drivers.changed[0]!.after.amountFormula).toBe("sum(payroll) * 2");
+  });
+
+  it("ignores formula changes in intervening quarterly months", () => {
+    const before = forecast(input([payroll]));
+    const after = forecast({ ...input([payroll]), minimumCashMinor: "200000" });
+    const quarterly = (october: string) => [{ ...payroll, amountFormula: "sum(payroll)", amountByMonth: { "2026-09": "5", "2026-10": october, "2026-12": "7" }, cadence: "quarterly" as const }];
+    const consequence = diffForecastRuns({ ...before, drivers: quarterly("10") }, { ...after, drivers: quarterly("20") })!;
+    expect(consequence.drivers.changed).toEqual([]);
+  });
+
+  it("ignores formula changes confined to the as-of actual month", () => {
+    const before = forecast(input([payroll]));
+    const after = forecast({ ...input([payroll]), minimumCashMinor: "200000" });
+    const formula = (august: string) => [{ ...payroll, amountFormula: "sum(payroll)", amountByMonth: { "2026-08": august, "2026-09": "5" } }];
+    const consequence = diffForecastRuns({ ...before, drivers: formula("1") }, { ...after, drivers: formula("2") })!;
+    expect(consequence.drivers.changed).toEqual([]);
+  });
+
+  it("detects zero or error formula amounts becoming positive in a common scheduled month", () => {
+    const before = forecast(input([payroll]));
+    const after = forecast({ ...input([payroll]), minimumCashMinor: "200000" });
+    const formula = (september: string) => [{ ...payroll, amountFormula: "sum(payroll)", amountByMonth: { "2026-09": september } }];
+    const fromZero = diffForecastRuns({ ...before, drivers: formula("0") }, { ...after, drivers: formula("5") })!;
+    expect(fromZero.drivers.changed[0]!.fields).toEqual(["amountByMonth"]);
+    const fromError = diffForecastRuns({ ...before, drivers: formula("error") }, { ...after, drivers: formula("5") })!;
+    expect(fromError.drivers.changed[0]!.fields).toEqual(["amountByMonth"]);
+  });
 });

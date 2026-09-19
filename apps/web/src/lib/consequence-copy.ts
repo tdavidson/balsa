@@ -42,6 +42,7 @@ const verbs: Record<string, [string, string]> = {
   decision_applied: ["Applied", "a decision"], journal_posted: ["Posted", "a journal entry"], journal_reversed: ["Reversed", "a journal entry"],
   period_closed: ["Closed", "a period"], period_reopened: ["Reopened", "a period"], fx_changed: ["Changed", "FX rates"], entity_changed: ["Changed", "an entity"],
   allocation_changed: ["Changed", "an allocation"], mapping_approved: ["Approved", "a mapping"], plan_pinned: ["Pinned", "a plan"], settings_changed: ["Changed", "forecast settings"],
+  model_changed: ["Changed", "the model"], item_formula_changed: ["Set a formula on", "an item"],
 };
 
 /** A revision caused by the calendar moving forward, not by a CFO action. */
@@ -54,6 +55,9 @@ const rolloverLabel = "Month rolled forward";
  */
 export function describeCause(cause: { kind: string; subjectLabel: string | null; subjectIds?: string[]; subjectLabels?: string[] }): string {
   if (cause.kind === "period_rolled") return rolloverLabel;
+  const single = cause.subjectLabel ?? cause.subjectLabels?.[0] ?? null;
+  if (cause.kind === "model_changed") return single ? `Changed the model: ${single}` : "Changed the model";
+  if (cause.kind === "item_formula_changed") return `Set a formula on ${single ?? "an item"}`;
   const [verb, noun] = verbs[cause.kind] ?? ["Changed", "the books"];
   const labels = cause.subjectLabels ?? [];
   const count = cause.subjectIds?.length ?? labels.length;
