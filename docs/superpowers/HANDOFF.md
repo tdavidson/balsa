@@ -1,8 +1,9 @@
 # Handoff: forecast consequences, scenarios, driver formulas
 
 Last updated: 2026-09-18. Work stopped at a usage limit. Everything below is
-committed on branch `feature/forecast-consequences` (48 commits ahead of
-`main` at 7b4d6be). Nothing has been merged or pushed.
+committed. `main` was fast-forwarded locally to the feature branch (b656078),
+so `main` and `feature/forecast-consequences` point at the same commit.
+Nothing has been pushed. Continue the remaining work on a branch off `main`.
 
 ## The goal
 
@@ -60,7 +61,7 @@ All paths are under `docs/superpowers/`.
   - calculation trace for forecast figures
   - scenario switcher and editor
   - Model panel
-- [ ] Merge `feature/forecast-consequences` into `main`. The user said merge later; ask first.
+- [x] Fast-forwarded into `main` locally (2026-09-18, at the user's request). Pushing to `origin` is still up to the user.
 
 ## Deferred items (not blocking)
 
