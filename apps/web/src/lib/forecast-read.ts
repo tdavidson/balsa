@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { calculationRuns, companies, decisions, economicItems, evidence, forecastConsequences, forecastDimensions, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import type { ForecastConsequence, ForecastRun } from "@nevermodel/finance-engine";
+import { forecastFormulaVersion, type ForecastConsequence, type ForecastRun } from "@nevermodel/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
 
@@ -14,7 +14,7 @@ const parsedRuns = new Map<string, ForecastRun>();
 export async function loadLatestForecast(companyId: string, now = new Date()) {
   const db = getDatabase();
   const [[row], [company], [closure]] = await Promise.all([
-    db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, asOfMonth: calculationRuns.asOfMonth }).from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%"))).orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1),
+    db.select({ id: calculationRuns.id, revision: calculationRuns.financialStateRevision, asOfMonth: calculationRuns.asOfMonth, engineVersion: calculationRuns.engineVersion }).from(calculationRuns).where(and(eq(calculationRuns.companyId, companyId), like(calculationRuns.engineVersion, "forecast-run-%"))).orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1),
     db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)).limit(1),
     db.select({ period: journalPeriodClosures.period }).from(journalPeriodClosures).where(eq(journalPeriodClosures.companyId, companyId)).orderBy(desc(journalPeriodClosures.period)).limit(1),
   ]);
@@ -27,7 +27,7 @@ export async function loadLatestForecast(companyId: string, now = new Date()) {
     parsedRuns.set(row.id, run);
     if (parsedRuns.size > 20) parsedRuns.delete(parsedRuns.keys().next().value!);
   }
-  const stale = company?.revision !== row.revision || row.asOfMonth < forecastAsOfFromClosure(closure?.period ?? null, now);
+  const stale = company?.revision !== row.revision || row.engineVersion !== forecastFormulaVersion || row.asOfMonth < forecastAsOfFromClosure(closure?.period ?? null, now);
   return { runId: row.id, revision: row.revision, run, stale };
 }
 

@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { ConversationTurn } from "@/app/api/conversations/route";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -105,8 +104,6 @@ function suggestedWorkbookSheetRole(name: string, sampleLabels: string[]): Workb
   if (/dashboard|cover|summary|output|presentation|board/.test(content)) return "presentation";
   return "reference_only";
 }
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
 /** A choice remembered per browser. Server renders the fallback; the client reads storage on hydration. */
 const storageListeners = new Set<() => void>();
@@ -560,7 +557,6 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const requestAbortController = useRef<AbortController | null>(null);
   const turns = threads[activeThreadId] ?? [];
-  const setTurns = (next: ConversationTurn[] | ((current: ConversationTurn[]) => ConversationTurn[])) => setThreads((current) => ({ ...current, [activeThreadId]: typeof next === "function" ? next(current[activeThreadId] ?? []) : next }));
 
   // Grow the composer with its content, up to a cap, and shrink back when cleared.
   useEffect(() => {
@@ -597,7 +593,6 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     const changes = Object.fromEntries(Object.keys(total.changes).map((key) => [key, (total.changes[key] ?? 0) + (row.cashFlow!.changes[key] ?? 0)]));
     return { ...total, netIncome: total.netIncome + row.cashFlow.netIncome, eliminations: total.eliminations + row.cashFlow.eliminations, changes, operatingIndirect: total.operatingIndirect + row.cashFlow.operatingIndirect, operating: total.operating + row.cashFlow.operating, investing: total.investing + row.cashFlow.investing, financing: total.financing + row.cashFlow.financing, transfers: total.transfers + row.cashFlow.transfers, adjustments: total.adjustments + row.cashFlow.adjustments, netChange: total.netChange + row.cashFlow.netChange, ...(row.cashFlow.endingCash !== undefined ? { endingCash: row.cashFlow.endingCash } : {}), ties: total.ties && row.cashFlow.ties };
   }, undefined) : undefined;
-  const ledgerLabel = (ledger: string) => ledger.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
   const currentPnl = periodPnlRows.length ? { month: periodPnlRows[0]!.month, allocatedOut: periodPnlRows.reduce((sum, row) => sum + (row.allocatedOut ?? 0), 0), uncategorized: periodPnlRows.reduce((sum, row) => sum + (row.uncategorized ?? 0), 0), revenue: periodPnlRows.reduce((sum, row) => sum + row.revenue, 0), expenses: periodPnlRows.reduce((sum, row) => sum + row.expenses, 0), operatingIncome: periodPnlRows.reduce((sum, row) => sum + row.operatingIncome, 0), byCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.byCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), revenueByCategory: periodPnlRows.reduce<Record<string, number>>((totals, row) => { for (const [category, amount] of Object.entries(row.revenueByCategory)) totals[category] = (totals[category] ?? 0) + amount; return totals; }, {}), trace: periodPnlRows.flatMap((row) => row.trace ?? []) } : undefined;
   const displayedForecastRows = aggregateForecastRows(periodForecastRows, statementCadence);
   const displayedPnlRows = aggregatePnlRows(periodPnlRows, statementCadence);

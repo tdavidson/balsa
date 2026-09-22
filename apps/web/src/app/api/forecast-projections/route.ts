@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { buildProjectedEntries } from "@nevermodel/finance-engine";
+import { buildForecastRun, buildProjectedEntries } from "@nevermodel/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
-import { loadForecastDrivers, loadForecastModel, resolveDriversForWindow } from "@/lib/forecast-inputs";
+import { loadForecastDrivers, loadForecastInputs, loadForecastModel, resolveDriversForWindow } from "@/lib/forecast-inputs";
 
 const validMonth = (value: string | null) => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 
@@ -14,5 +14,12 @@ export async function GET(request: Request) {
   const { drivers: loaded, templates } = await loadForecastDrivers(context.company.id, scenarioId ? { scenarioId } : {});
   const formulas = resolveDriversForWindow(loaded, await loadForecastModel(context.company.id), { start: start!, end: end! });
   const projection = buildProjectedEntries(formulas.drivers, templates, { start: start!, end: end! }, scenarioId);
-  return NextResponse.json({ horizon: { start, end }, scenarioId: scenarioId ?? null, entries: projection.entries, exceptions: [...formulas.exceptions, ...projection.exceptions] });
+  let inferredEntries: Record<string, unknown>[] = [];
+  if (!scenarioId) {
+    const run = buildForecastRun(await loadForecastInputs(context.company.id));
+    const grouped = new Map<string, typeof run.projectedLines>();
+    for (const line of run.projectedLines.filter((line) => line.entrySource === "forecasted_close" && line.period >= start! && line.period <= end!)) grouped.set(line.entryId ?? line.id, [...(grouped.get(line.entryId ?? line.id) ?? []), line]);
+    inferredEntries = [...grouped.entries()].map(([id, lines]) => ({ idempotencyKey: id, projectionKey: id, period: lines[0]!.period, postingDate: lines[0]!.postingDate, memo: lines[0]!.memo ?? "Forecasted close", basis: "forecast", source: "history", lines: lines.map((line) => ({ accountId: line.accountId, debitMinor: line.debitMinor, creditMinor: line.creditMinor })) }));
+  }
+  return NextResponse.json({ horizon: { start, end }, scenarioId: scenarioId ?? null, entries: [...projection.entries, ...inferredEntries], exceptions: [...formulas.exceptions, ...projection.exceptions] });
 }

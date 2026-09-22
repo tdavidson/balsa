@@ -15,7 +15,7 @@ const payload = (draft: Draft) => { const { statementSection, statementLine, bal
 export function ChartAccountsPanel() {
   const [accounts, setAccounts] = useState<Account[]>([]); const [draft, setDraft] = useState<Draft>(blank); const [editing, setEditing] = useState<Account | null>(null); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
   const load = async () => { const response = await fetch("/api/chart-accounts"); if (response.ok) setAccounts((await response.json()).accounts ?? []); };
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, []);
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const save = async () => { setSaving(true); setError(null); try { const response = await fetch(editing ? `/api/chart-accounts/${editing.id}` : "/api/chart-accounts", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload(draft)) }); const result = await response.json(); if (!response.ok) { setError(result.error ?? "Unable to save account."); return; } setDraft(blank); setEditing(null); await load(); } finally { setSaving(false); } };
   const remove = async (account: Account) => { setError(null); const response = await fetch(`/api/chart-accounts/${account.id}`, { method: "DELETE" }); const result = await response.json(); if (!response.ok) { setError(result.error ?? "Unable to remove account."); return; } if (result.deactivated) setError(`${account.code} is referenced, so it was deactivated instead of deleted.`); await load(); };

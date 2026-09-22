@@ -43,7 +43,7 @@ export function JournalCoveragePanel({ period }: { period: string }) {
     }
   }, [period]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
   if (loading && !coverage) return <p className="text-sm text-muted-foreground">Loading source coverage…</p>;
   if (!coverage) return <p className="text-sm text-muted-foreground">Source coverage is unavailable for this period.</p>;

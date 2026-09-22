@@ -1,22 +1,30 @@
 import { cashFlowTotals, isCashBalanceRow, resolveCashGroups, wholeMinor, type ActualCashSummary } from "./forecast-actuals";
 import { buildProjectedEntries, type ForecastDriver, type ForecastEntryTemplate } from "./forecast-projections";
+import type { ForecastedCloseMatch } from "./forecasted-closes";
 import { monthRange, resolveFormulaDrivers, type ForecastModel, type ForecastModelSummary } from "./forecast-model";
 import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
 
-export const forecastFormulaVersion = "forecast-run-2026-09-18.2";
+export const forecastFormulaVersion = "forecast-run-2026-09-21.3";
 
 export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory">;
-export type ForecastRunInput = { actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string; /** Dimensions and variables that formula drivers read; omitted when the company has none. */ model?: ForecastModel };
+export type ForecastOpenMonth = { month: string; throughDate: string; actualLines: PostedJournalLine[]; forecastedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[] };
+export type ForecastRunInput = { actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string; /** The open month combines posted month-to-date actuals with unresolved, inferred closes. */ openMonth?: ForecastOpenMonth; /** Dimensions and variables that formula drivers read; omitted when the company has none. */ model?: ForecastModel };
 export type ForecastNodeKind = "ending_cash" | "net_burn" | "trailing_burn_3m" | "cash_over_trailing_burn" | "cash_out_month" | "runway_months";
 export type ForecastNode = { id: string; kind: ForecastNodeKind; month: string; label: string; formula: string; formulaVersion: string; value: string | null; inputNodeIds: string[]; driverIds: string[] };
 export type ForecastMonth = { month: string; basis: "actual" | "forecast"; openingCashMinor: string; endingCashMinor: string; receiptsMinor: string; spendingMinor: string; driverIds: string[] };
 export type ForecastRunway = { cashOutMonth: string | null; runwayMonths: number | null; trailingBurn3mMinor: string; cashOverTrailingBurn: string | null; minimumCashMinor: string; horizonMonths: number };
-export type ForecastRun = { formulaVersion: string; asOfMonth: string; horizon: { start: string; end: string }; currency: string; months: ForecastMonth[]; nodes: ForecastNode[]; projectedLines: PostedJournalLine[]; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[]; runway: ForecastRunway; verificationStatus: "verified" | "exception"; /** The model variables formula drivers used, with monthly totals; only when a driver has a formula. */ modelSummary?: ForecastModelSummary };
+export type ForecastRun = { formulaVersion: string; asOfMonth: string; horizon: { start: string; end: string }; currency: string; months: ForecastMonth[]; nodes: ForecastNode[]; projectedLines: PostedJournalLine[]; forecastedCloseMatches?: ForecastedCloseMatch[]; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[]; runway: ForecastRunway; verificationStatus: "verified" | "exception"; /** The model variables formula drivers used, with monthly totals; only when a driver has a formula. */ modelSummary?: ForecastModelSummary };
 
 const monthsBetween = (from: string, to: string) => { const [fromYear, fromMonth] = from.split("-").map(Number); const [toYear, toMonth] = to.split("-").map(Number); return (toYear! - fromYear!) * 12 + (toMonth! - fromMonth!); };
 const tenths = (value: bigint) => { const negative = value < 0n; const magnitude = negative ? -value : value; return `${negative ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`; };
 const node = (kind: ForecastNodeKind, month: string, label: string, formula: string, value: string | null, inputNodeIds: string[], driverIds: string[]): ForecastNode => ({ id: `${kind}:${month}`, kind, month, label, formula, formulaVersion: forecastFormulaVersion, value, inputNodeIds, driverIds });
+const postingShape = (lines: PostedJournalLine[]) => lines.map((line) => `${line.accountId}:${BigInt(line.debitMinor) > 0n ? "debit" : "credit"}`).sort().join("|");
+const entryShapes = (lines: PostedJournalLine[]) => {
+  const entries = new Map<string, PostedJournalLine[]>();
+  for (const line of lines) entries.set(line.entryId ?? line.id, [...(entries.get(line.entryId ?? line.id) ?? []), line]);
+  return new Set([...entries.values()].map(postingShape));
+};
 
 /**
  * Derive the live forecast from the posted-actuals cash summary and confirmed
@@ -31,6 +39,7 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   if (input.actuals.asOfMonth !== input.asOfMonth) throw new Error(`Actuals summary is as of ${input.actuals.asOfMonth}, not the forecast as-of ${input.asOfMonth}.`);
   if (input.actuals.currency !== input.currency) throw new Error(`Actuals summary is in ${input.actuals.currency}, not the forecast currency ${input.currency}.`);
   const horizon = { start: addMonths(input.asOfMonth, 1), end: addMonths(input.asOfMonth, input.horizonMonths) };
+  if (input.openMonth && input.openMonth.month !== horizon.start) throw new Error(`Open forecast month must be ${horizon.start}.`);
   const sortedDrivers = [...input.drivers].sort((left, right) => left.id.localeCompare(right.id));
   // Formula drivers take monthly amounts from the model over [as-of, horizon end]; the as-of month is
   // the base for prev. A run without a formula driver takes exactly the fixed-amount path.
@@ -51,7 +60,7 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   }
   const driverById = new Map(drivers.map((driver) => [driver.id, driver]));
   const entries = projection.entries.filter((entry) => !excluded.has(entry.sourceDriverId));
-  const projectedLines: PostedJournalLine[] = entries.flatMap((entry) => {
+  const driverProjectedLines: PostedJournalLine[] = entries.flatMap((entry) => {
     const driver = driverById.get(entry.sourceDriverId)!;
     return entry.lines.map((line, index) => ({
       ...accountById.get(line.accountId)!,
@@ -60,6 +69,13 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
       provenance: { sourceLocation: `forecast-driver:${driver.id}`, ...(driver.factId ? { factId: driver.factId } : {}), ...(driver.decisionId ? { decisionId: driver.decisionId } : {}) },
     }));
   });
+  // An approved driver wins over a historical inference for the same posting
+  // shape. This prevents an inferred recurring close from doubling a known plan.
+  const driverShapes = entryShapes(driverProjectedLines.filter((line) => line.period === input.openMonth?.month));
+  const inferredByEntry = new Map<string, PostedJournalLine[]>();
+  for (const line of input.openMonth?.forecastedLines ?? []) inferredByEntry.set(line.entryId ?? line.id, [...(inferredByEntry.get(line.entryId ?? line.id) ?? []), line]);
+  const inferredLines = [...inferredByEntry.values()].filter((lines) => !driverShapes.has(postingShape(lines))).flat();
+  const projectedLines = [...driverProjectedLines, ...inferredLines];
   const driversByMonth = new Map<string, string[]>();
   for (const entry of entries) driversByMonth.set(entry.period, [...new Set([...(driversByMonth.get(entry.period) ?? []), entry.sourceDriverId])].sort());
 
@@ -75,8 +91,10 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   for (let month = addMonths(input.asOfMonth, -2); month <= horizon.end; month = addMonths(month, 1)) {
     const actual = actualMonths.find((candidate) => candidate.month === month);
     const monthLines = projectedByMonth.get(month) ?? [];
-    const ending = actual ? BigInt(actual.endingCashMinor) : opening + monthLines.reduce((sum, line) => sum + (isCashBalanceRow(line, groups) ? wholeMinor(line.debitMinor) - wholeMinor(line.creditMinor) : 0n), 0n);
-    const flow = actual ? { receipts: BigInt(actual.receiptsMinor), spending: BigInt(actual.spendingMinor) } : cashFlowTotals(monthLines);
+    const openActualLines = input.openMonth?.month === month ? input.openMonth.actualLines : [];
+    const combinedLines = [...openActualLines, ...monthLines];
+    const ending = actual ? BigInt(actual.endingCashMinor) : opening + combinedLines.reduce((sum, line) => sum + (isCashBalanceRow(line, groups) ? wholeMinor(line.debitMinor) - wholeMinor(line.creditMinor) : 0n), 0n);
+    const flow = actual ? { receipts: BigInt(actual.receiptsMinor), spending: BigInt(actual.spendingMinor) } : cashFlowTotals(combinedLines);
     const driverIds = driversByMonth.get(month) ?? [];
     months.push({ month, basis: month <= input.asOfMonth ? "actual" : "forecast", openingCashMinor: opening.toString(), endingCashMinor: ending.toString(), receiptsMinor: flow.receipts.toString(), spendingMinor: flow.spending.toString(), driverIds });
     nodes.push(node("ending_cash", month, "Ending cash", "sum(cash asset balances)", ending.toString(), [], driverIds));
@@ -99,7 +117,7 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   nodes.push(node("runway_months", input.asOfMonth, "Runway", "full months funded before the cash-out month", runwayMonths === null ? null : String(runwayMonths), [`cash_out_month:${input.asOfMonth}`], []));
 
   return {
-    formulaVersion: forecastFormulaVersion, asOfMonth: input.asOfMonth, horizon, currency: input.currency, months, nodes, projectedLines, drivers, exceptions, ...(resolution ? { modelSummary: resolution.summary } : {}),
+    formulaVersion: forecastFormulaVersion, asOfMonth: input.asOfMonth, horizon, currency: input.currency, months, nodes, projectedLines, ...(input.openMonth ? { forecastedCloseMatches: input.openMonth.matches } : {}), drivers, exceptions, ...(resolution ? { modelSummary: resolution.summary } : {}),
     runway: { cashOutMonth, runwayMonths, trailingBurn3mMinor: trailingBurn.toString(), cashOverTrailingBurn: ratio, minimumCashMinor: input.minimumCashMinor, horizonMonths: input.horizonMonths },
     verificationStatus: exceptions.length ? "exception" : "verified",
   };

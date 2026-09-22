@@ -7,7 +7,6 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 const currency = z.string().regex(/^[A-Z]{3}$/);
-const rateType = z.enum(["spot", "average", "closing", "historical"]);
 const create = z.object({ name: z.string().trim().min(1).max(160), presentationCurrency: currency, incomeRateType: z.enum(["spot", "average"]), monetaryRateType: z.enum(["spot", "closing"]), equityRateType: z.enum(["spot", "historical"]), ctaAccountId: z.string().uuid(), fxGainLossAccountId: z.string().uuid(), sourceId: z.string().uuid().optional(), evidenceId: z.string().uuid().optional(), factId: z.string().uuid().optional() }).refine((value) => value.sourceId || value.evidenceId || value.factId, { message: "An FX policy requires source, evidence, or fact lineage." });
 const update = z.object({ id: z.string().uuid(), status: z.enum(["approved", "rejected"]), approvalEventId: z.string().uuid().optional() });
 
