@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { chartAccounts, entities, getDatabase, intercompanyAccountMappings } from "@finance/database";

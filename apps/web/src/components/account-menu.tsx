@@ -3,6 +3,7 @@
 import { Building2, Check, History, LogOut, Plus, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,9 +89,9 @@ export function AccountMenu({ company, companies, user, loginEnabled = true, sta
         aria-label="Account menu"
       >
         <span>{company.name}</span>
-        <span className="grid size-[26px] place-items-center overflow-hidden rounded-full bg-ink text-paper">
+        <span className="relative grid size-[26px] place-items-center overflow-hidden rounded-full bg-ink text-paper">
           <User className="size-3.5" aria-hidden="true" />
-          {user.hasAvatar && !avatarUnavailable && <img src="/api/account" alt="" className="absolute size-full object-cover" onError={() => setAvatarUnavailable(true)} />}
+          {user.hasAvatar && !avatarUnavailable && <Image src="/api/account" alt="" fill sizes="26px" unoptimized className="object-cover" onError={() => setAvatarUnavailable(true)} />}
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 rounded-lg border-rule p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">

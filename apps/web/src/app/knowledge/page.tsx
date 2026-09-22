@@ -1,5 +1,5 @@
 import { auth, authMode } from "@/lib/auth";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { decisions, getDatabase, knowledgeDocuments, policies } from "@finance/database";

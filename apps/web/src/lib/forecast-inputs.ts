@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { addMonths, buildForecastedCloses, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { rowsToModel } from "@/lib/forecast-model-rows";
@@ -63,11 +63,16 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const [company] = await db.select({ baseCurrency: companies.baseCurrency, minimumCashMinor: companies.minimumCashMinor }).from(companies).where(eq(companies.id, companyId)).limit(1);
   if (!company) throw new Error("Company not found while loading forecast inputs");
   const asOfMonth = await forecastAsOfMonth(companyId, now, db);
+  const currentMonth = now.toISOString().slice(0, 7);
+  const openMonth = addMonths(asOfMonth, 1) === currentMonth ? currentMonth : null;
   const [{ drivers, templates }, actualLines, accounts, model] = await Promise.all([
     loadForecastDrivers(companyId, {}, db),
-    loadPostedJournalLines(companyId, asOfMonth, db),
+    loadPostedJournalLines(companyId, openMonth ?? asOfMonth, db),
     loadForecastAccounts(companyId, db),
     loadForecastModel(companyId, db),
   ]);
-  return { actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor, ...(model ? { model } : {}) };
+  const baseCurrencyLines = actualLines.filter((line) => line.currency === company.baseCurrency);
+  const closes = openMonth ? buildForecastedCloses(baseCurrencyLines, openMonth) : null;
+  const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")) : [];
+  return { actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor, ...(openMonth && closes ? { openMonth: { month: openMonth, throughDate: now.toISOString().slice(0, 10), actualLines: openActualLines, forecastedLines: closes.projectedLines, matches: closes.matches } } : {}), ...(model ? { model } : {}) };
 }

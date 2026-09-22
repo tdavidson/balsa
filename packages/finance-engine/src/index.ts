@@ -21,3 +21,4 @@ export * from "./forecast-run";
 export * from "./forecast-consequence";
 export * from "./forecast-actuals";
 export * from "./forecast-model";
+export * from "./forecasted-closes";

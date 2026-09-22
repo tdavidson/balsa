@@ -50,7 +50,7 @@ const money = (value: string, currency: string) => { const amount = BigInt(value
 export function IntercompanyEliminationsPanel({ period }: { period: string }) {
   const [preview, setPreview] = useState<Preview | null>(null); const [loading, setLoading] = useState(false); const [posting, setPosting] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
   const load = useCallback(async () => { setLoading(true); try { const response = await fetch(`/api/intercompany-eliminations?period=${period}`); setPreview(response.ok ? await response.json() as Preview : null); } finally { setLoading(false); } }, [period]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   const post = async (mappingId: string) => { setPosting(mappingId); setMessage(null); try { const response = await fetch("/api/intercompany-eliminations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period, mappingId }) }); const result = await response.json(); if (!response.ok) { setMessage((result.blockers as string[] | undefined)?.join(" ") ?? result.error ?? "Unable to post elimination."); return; } setMessage(result.idempotent ? "This elimination was already posted." : "CFO-approved elimination posted; the calculation graph is refreshing."); await load(); } finally { setPosting(null); } };
   if (loading && !preview) return <p className="text-sm text-muted-foreground">Reviewing reciprocal balances…</p>;
   if (!preview) return <p className="text-sm text-muted-foreground">Intercompany preview is unavailable for this period.</p>;

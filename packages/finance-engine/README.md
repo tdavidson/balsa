@@ -1,42 +1,35 @@
 # Finance Engine
 
-Deterministic schedules, cash, P&L, outstanding items, intercompany balances,
-and a calculation trace. The package depends on nothing but TypeScript: no
+Deterministic journals, statements, reconciliation, forecasts, consolidation,
+and calculation traces. The package depends on nothing but TypeScript: no
 React, Next.js, database, authentication, or model provider.
 
-`runEngine(input)` takes Company State as schedule items (agreements,
-obligations, assumptions), actual cash events, allocation rules, the opening
-cash balance and its month, closed months, and an optional scenario. It
-returns one result per month in the horizon.
+Posted actuals enter as balanced `PostedJournalLine` values. Trial balances,
+financial statements, cash summaries, and forecasts all use those same journal
+lines rather than a parallel event engine.
+
+`buildForecastRun(input)` takes a compact actual-cash summary, confirmed
+forecast drivers, approved entry templates, active chart accounts, and forecast
+settings. It returns monthly cash projections, balanced projected journal lines,
+calculation nodes, exceptions, and runway. Projected lines remain derived until
+the user explicitly pins them as a plan.
 
 Rules the engine enforces:
 
-- Schedule items expand on their own calendar from `effectiveFrom` to
-  `effectiveTo`, so a quarterly fee lands in its contractual months.
-- Actuals settle the expectations they match: a persisted `settlesItemId`
-  first, then same-month counterparty or amount, then a late payment for one of
-  the two preceding months. Nothing is counted twice.
-- Months before `asOfMonth`, and closed months, move cash on actuals only.
-  Unsettled expectations there become outstanding receivables or payables.
-  Open months project actuals plus unsettled expectations.
-- The cash roll starts at the opening balance's month. Transfers never move
-  consolidated cash; investment and financing activity never enters the P&L.
-- Accrual and prepaid items spread evenly over their recognition range.
-- Approved allocations split a spend line into the company's expense and a
-  receivable due from the bearer.
-- Every month carries its lines with amount, category, basis (contractual or
-  assumed), the item or event behind it, what settled it, and its provenance.
+- Reported actual cash includes actual, adjustment, and elimination journals;
+  posted plan, forecast, and scenario journals never become actuals.
+- Confirmed drivers expand from `effectiveFrom` to `effectiveTo` on their own
+  monthly, quarterly, annual, or one-time cadence.
+- Every driver must resolve to exactly one approved balanced entry template.
+  Missing or ambiguous mappings remain visible exceptions.
+- The open month combines month-to-date actuals with unresolved forecasted
+  closes. Stable historical closes disappear when matching actuals arrive.
+- Forecast formulas are deterministic, versioned, bounded, and retain their
+  model inputs and source lineage.
+- Transfers never become revenue, debits equal credits, balance sheets balance,
+  and cash roll-forwards reconcile.
 
-Statements: every line carries a working-capital key, an entity, and an
-account. The cumulative gap between what a key has recognized and what it has
-paid or received becomes a receivable, payable, accrued liability, prepaid
-asset, or deferred revenue; allocations, investments, and financing post to
-their own ledgers; opening positions set absolute balances against opening
-equity. Each month therefore carries a balance sheet that balances and a cash
-flow statement whose indirect operating figure ties to the direct one. With
-`consolidate`, recognized lines whose counterparty is a consolidated entity
-are eliminated and shown as affiliate balances.
-
-`traceValue(output, { month, category, label })` returns the lines behind one
-figure. `summarizeMonths(output, start, end)` returns compact totals for
-prompts and summaries.
+Use `buildTrialBalance`, `buildJournalStatements`, and
+`buildJournalCalculationGraph` for reported results. Consolidation, FX,
+reconciliation, retained earnings, and allocation modules operate on the same
+journal-native types exported from `src/index.ts`.

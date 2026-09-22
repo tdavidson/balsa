@@ -8,7 +8,7 @@ import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/l
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { takeRateLimit } from "@/lib/request-rate-limit";
 
-const worksheetRole = z.enum(["historical_statement", "chart_of_accounts", "forecast_drivers", "schedule", "presentation", "reference_only", "exclude"]);
+type WorksheetRole = "historical_statement" | "chart_of_accounts" | "forecast_drivers" | "schedule" | "presentation" | "reference_only" | "exclude";
 const proposalSchema = z.object({
   chartAccountMappings: z.array(z.object({ worksheet: z.string(), sourceLabel: z.string(), accountType: z.enum(["asset", "liability", "equity", "revenue", "expense", "contra", "unknown"]), statementSection: z.enum(["asset", "liability", "equity", "revenue", "expense", "unknown"]), suggestedAccountName: z.string(), reason: z.string() })).max(40),
   historicalCoverage: z.array(z.object({ worksheet: z.string(), period: z.string(), statement: z.string(), reason: z.string() })).max(30),
@@ -16,7 +16,7 @@ const proposalSchema = z.object({
   questions: z.array(z.string()).max(12),
 });
 
-type SourceMetadata = { sourceRole?: string; classification?: { kind?: string }; workbookReview?: Record<string, z.infer<typeof worksheetRole>>; [key: string]: unknown };
+type SourceMetadata = { sourceRole?: string; classification?: { kind?: string }; workbookReview?: Record<string, WorksheetRole>; [key: string]: unknown };
 
 /** Draft structural onboarding suggestions. Results stay in source metadata until a CFO separately creates or approves a mapping. */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
