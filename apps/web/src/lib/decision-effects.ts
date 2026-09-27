@@ -24,6 +24,7 @@ export const effectItemSchema = z.object({
   counterparty: z.string().nullable().optional(),
   direction: z.enum(["receipt", "spend"]),
   amount: z.number().positive(),
+  amountFormula: modelFormulaSchema.optional(),
   cadence: z.enum(["once", "monthly", "quarterly", "annual"]),
   effectiveFrom: month,
   effectiveTo: month.nullable().optional(),
@@ -149,6 +150,7 @@ export async function applyDecisionEffectWith(db: DbTransaction, companyId: stri
         amount: String(effect.item.amount), cadence: effect.item.cadence, effectiveFrom: effect.item.effectiveFrom, effectiveTo: effect.item.effectiveTo ?? undefined, category: effect.item.category, basis: "assumed",
         accountingTreatment: effect.item.accountingTreatment, recognitionStart: effect.item.recognitionStart ?? undefined, recognitionEnd: effect.item.recognitionEnd ?? undefined, decisionId, scenarioId, status: "confirmed",
       }).returning({ id: economicItems.id });
+      if (effect.item.amountFormula && row) await setItemFormulaWith(db, companyId, row.id, effect.item.amountFormula, { decisionId });
       await appendAssumption(db, companyId, `- [decision:${decisionId}] ${effect.item.label}: ${effect.item.direction === "receipt" ? "+" : "−"}$${effect.item.amount.toLocaleString("en-US")} ${effect.item.cadence} from ${effect.item.effectiveFrom}${effect.item.effectiveTo ? ` to ${effect.item.effectiveTo}` : ""}${effect.scenario ? ` (scenario ${effect.scenario})` : ""}`);
       return { applied: describeEffect(effect)!, itemId: row?.id };
   }
@@ -167,7 +169,7 @@ export async function applyDecisionEffectWith(db: DbTransaction, companyId: stri
     void _id; void _createdAt; void _updatedAt;
     // The replacement row is written by whoever applied this decision, not by
     // the author of the row it supersedes, so the copied attribution is dropped.
-    const [row] = await db.insert(economicItems).values({ ...copy, createdByUserId: actorUserId, amount: String(effect.amount), effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
+    const [row] = await db.insert(economicItems).values({ ...copy, forecastOrigin: null, createdByUserId: actorUserId, amount: String(effect.amount), effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
     await appendAssumption(db, companyId, `- [decision:${decisionId}] ${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`);
     return { applied: `${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`, itemId: row?.id };
   }

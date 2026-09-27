@@ -80,16 +80,16 @@ describe("buildForecastRun", () => {
     expect(run.projectedLines[0]).toMatchObject({ basis: "forecast", period: "2026-09", provenance: { sourceLocation: "forecast-driver:payroll" } });
   });
 
-  it("combines month-to-date actuals with unresolved forecasted closes", () => {
+  it("includes month-to-date actuals but never silently approves historical suggestions", () => {
     const actualPayroll = [posted("actual-pay:0", "payroll", "30000", "0", "2026-09"), posted("actual-pay:1", "cash", "0", "30000", "2026-09")];
     const inferredHosting = [
       { ...posted("forecast-close:0", "payroll", "20000", "0", "2026-09", "forecast"), entrySource: "forecasted_close" },
       { ...posted("forecast-close:1", "cash", "0", "20000", "2026-09", "forecast"), entrySource: "forecasted_close" },
     ];
     const run = forecast({ ...base, drivers: [], openMonth: { month: "2026-09", throughDate: "2026-09-21", actualLines: actualPayroll, forecastedLines: inferredHosting, matches: [] } });
-    expect(run.months.find((month) => month.month === "2026-09")).toMatchObject({ endingCashMinor: "850000", spendingMinor: "50000" });
-    expect(run.projectedLines).toEqual(inferredHosting);
-    expect(run.forecastedCloseMatches).toEqual([]);
+    expect(run.months.find((month) => month.month === "2026-09")).toMatchObject({ endingCashMinor: "870000", spendingMinor: "30000" });
+    expect(run.projectedLines).toEqual([]);
+    expect(run.forecastedCloseMatches).toBeUndefined();
   });
 
   it("excludes unmapped drivers as exceptions without moving cash", () => {

@@ -5,6 +5,8 @@ import { buildForecastRun } from "@nevermodel/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { loadForecastInputs } from "@/lib/forecast-inputs";
 import { persistForecastRun, recordForecastConsequence } from "@/lib/forecast-persistence";
+import { captureApprovedRecurrences } from "./forecast-recurrence";
+import { applyApprovedAutoSettlements } from "./forecast-auto-settlement";
 
 class ForecastSuperseded extends Error {}
 
@@ -40,7 +42,9 @@ export async function runForecastJob(companyId: string, financialStateRevision: 
     return await getDatabase().transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${FORECAST_LOCK_NAMESPACE}, hashtext(${companyId}))`);
       if ((await currentRevision(tx)) !== financialStateRevision) throw new ForecastSuperseded();
-      const input = await loadForecastInputs(companyId, { ...(options.now ? { now: options.now } : {}), db: tx });
+      let input = await loadForecastInputs(companyId, { ...(options.now ? { now: options.now } : {}), db: tx });
+      if (await captureApprovedRecurrences(tx, companyId, input, (options.now ?? new Date()).toISOString().slice(0, 10))) input = await loadForecastInputs(companyId, { ...(options.now ? { now: options.now } : {}), db: tx });
+      if (input.settlement && await applyApprovedAutoSettlements(tx, companyId, input.settlement, input.currency)) input = await loadForecastInputs(companyId, { ...(options.now ? { now: options.now } : {}), db: tx });
       const run = buildForecastRun(input);
       const persisted = await persistForecastRun({ companyId, financialStateRevision, run, input }, tx);
       // Unconditional: a retry after a failure between persist and record must still record. The (company, revision) unique index keeps it idempotent.

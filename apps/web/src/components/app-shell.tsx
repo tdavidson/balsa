@@ -1648,6 +1648,10 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <Link href="/knowledge" className={quietButton}>
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
+              <Link href="/progress" className={quietButton}>Financial progress</Link>
+              <Link href="/reviews" className={quietButton}>Reports & sign-off</Link>
+              <Link href="/goals" className={quietButton}>Goals & reviews</Link>
+              <Link href="/goal-decisions" className={quietButton}>Decisions & outcomes</Link>
             </div>
             {siteUrl && (
               <a href={siteUrl} target="_blank" rel="noreferrer" className={quietButton}>

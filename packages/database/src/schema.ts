@@ -4,6 +4,8 @@ import {
   boolean,
   char,
   date,
+  foreignKey,
+  integer,
   index,
   jsonb,
   pgEnum,
@@ -14,6 +16,149 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/** Append-only management goals. Revisions preserve the goal's stable identity. */
+export const cashGoalVersions = pgTable("cash_goal_versions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  goalId: uuid("goal_id").notNull(),
+  version: integer("version").notNull(),
+  status: text("status").notNull().default("active"),
+  definition: jsonb("definition").notNull(),
+  reason: text("reason").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("cash_goal_versions_identity").on(table.companyId, table.goalId, table.version),
+  uniqueIndex("cash_goal_versions_company_id").on(table.companyId, table.id),
+]);
+
+/** Company-wide review landing preference; goal versions remain immutable. */
+export const financialReviewPreferences = pgTable("financial_review_preferences", {
+  companyId: uuid("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  primaryGoalVersionId: uuid("primary_goal_version_id"),
+  version: integer("version").notNull().default(1),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [foreignKey({ columns: [table.companyId, table.primaryGoalVersionId], foreignColumns: [cashGoalVersions.companyId, cashGoalVersions.id] })]);
+
+/** Full immutable plan/review payloads, independent of mutable plan journal pins. */
+export const financialReviewSnapshots = pgTable("financial_review_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  goalVersionId: uuid("goal_version_id").notNull(),
+  planId: uuid("plan_id"),
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  requestKey: uuid("request_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("financial_review_snapshots_company_id").on(table.companyId, table.id),
+  uniqueIndex("financial_review_snapshots_request").on(table.companyId, table.requestKey),
+  index("financial_review_snapshots_goal").on(table.companyId, table.goalVersionId, table.createdAt),
+  index("financial_review_snapshots_plan").on(table.companyId, table.planId),
+  foreignKey({ columns: [table.companyId, table.goalVersionId], foreignColumns: [cashGoalVersions.companyId, cashGoalVersions.id] }),
+  foreignKey({ columns: [table.companyId, table.planId], foreignColumns: [table.companyId, table.id] }),
+]);
+
+/** Reviewed journal occurrences; revisions are retained in the audit log and saved reviews. */
+export const forecastOccurrences = pgTable("forecast_occurrences", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  occurrenceKey: text("occurrence_key").notNull(),
+  version: integer("version").notNull().default(1),
+  definition: jsonb("definition").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("forecast_occurrences_key").on(table.companyId, table.occurrenceKey), uniqueIndex("forecast_occurrences_company_id").on(table.companyId, table.id)]);
+
+export const forecastSettlementAllocations = pgTable("forecast_settlement_allocations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  occurrenceId: uuid("occurrence_id").notNull(),
+  actualEntryId: uuid("actual_entry_id").notNull(),
+  amountMinor: text("amount_minor").notNull(),
+  revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("forecast_settlement_occurrence").on(table.companyId, table.occurrenceId),
+  index("forecast_settlement_actual").on(table.companyId, table.actualEntryId),
+  foreignKey({ columns: [table.companyId, table.occurrenceId], foreignColumns: [forecastOccurrences.companyId, forecastOccurrences.id] }),
+  // Journal entries are ownership-checked and locked by the mutation service.
+  foreignKey({ columns: [table.actualEntryId], foreignColumns: [journalEntries.id] }),
+]);
+
+export const cashCoverageRecords = pgTable("cash_coverage_records", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  accountId: uuid("account_id").notNull().references(() => chartAccounts.id, { onDelete: "cascade" }),
+  startDate: date("start_date").notNull(), throughDate: date("through_date").notNull(),
+  status: text("status").notNull(), reason: text("reason").notNull(),
+  evidenceId: uuid("evidence_id").references(() => evidence.id, { onDelete: "set null" }),
+  evidenceHash: text("evidence_hash"), ledgerHash: text("ledger_hash").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("cash_coverage_account").on(table.companyId, table.accountId, table.createdAt)]);
+
+/** An approved, bounded capture policy over an existing economic driver. */
+export const forecastRecurrencePolicies = pgTable("forecast_recurrence_policies", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  driverId: uuid("driver_id").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull(),
+  startMonth: text("start_month").notNull(), endMonth: text("end_month").notNull(),
+  definition: jsonb("definition").notNull(), definitionHash: text("definition_hash").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("forecast_recurrence_driver").on(table.companyId, table.driverId)]);
+
+export const forecastReviewCommands = pgTable("forecast_review_commands", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("forecast_review_commands_request").on(table.companyId, table.requestKey)]);
+
+/** Immutable, goal-aware scenario evaluations, approvals and outcome reviews. */
+export const goalDecisionReviews = pgTable("goal_decision_reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  goalVersionId: uuid("goal_version_id").notNull(), planId: uuid("plan_id").notNull(),
+  scenarioId: uuid("scenario_id").notNull(), parentId: uuid("parent_id"),
+  kind: text("kind").notNull(), name: text("name").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(),
+  previewToken: text("preview_token").notNull(), snapshot: jsonb("snapshot").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("goal_decision_reviews_company_id").on(table.companyId, table.id),
+  uniqueIndex("goal_decision_reviews_request").on(table.companyId, table.requestKey),
+  index("goal_decision_reviews_history").on(table.companyId, table.createdAt),
+  foreignKey({ columns: [table.companyId, table.goalVersionId], foreignColumns: [cashGoalVersions.companyId, cashGoalVersions.id] }),
+  foreignKey({ columns: [table.companyId, table.planId], foreignColumns: [financialReviewSnapshots.companyId, financialReviewSnapshots.id] }),
+  foreignKey({ columns: [table.companyId, table.parentId], foreignColumns: [table.companyId, table.id] }),
+]);
+
+/** Preserved import comparisons and their atomic posting approval receipts. */
+export const financialImportReviews = pgTable("financial_import_reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  sourceId: uuid("source_id").notNull().references(() => sources.id),
+  previousSourceId: uuid("previous_source_id").references(() => sources.id),
+  kind: text("kind").notNull(), name: text("name").notNull(), reason: text("reason").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("financial_import_reviews_request").on(table.companyId, table.requestKey), index("financial_import_reviews_source").on(table.companyId, table.sourceId, table.createdAt),
+  foreignKey({ columns: [table.companyId, table.sourceId], foreignColumns: [sources.companyId, sources.id] }),
+  foreignKey({ columns: [table.companyId, table.previousSourceId], foreignColumns: [sources.companyId, sources.id] }),
+]);
 
 export const companyRole = pgEnum("company_role", ["owner", "member"]);
 export const evidenceStatus = pgEnum("evidence_status", ["pending", "approved", "rejected"]);
@@ -143,7 +288,7 @@ export const sources = pgTable("sources", {
   hash: text("hash"),
   metadata: text("metadata").default("{}").notNull(),
   ...timestamps,
-}, (table) => [index("sources_company_index").on(table.companyId, table.createdAt), index("sources_hash_index").on(table.companyId, table.hash)]);
+}, (table) => [uniqueIndex("sources_company_id").on(table.companyId, table.id), index("sources_company_index").on(table.companyId, table.createdAt), index("sources_hash_index").on(table.companyId, table.hash)]);
 
 export const ingestionRuns = pgTable(
   "ingestion_runs",
@@ -542,7 +687,7 @@ export const journalEntries = pgTable("journal_entries", {
   id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), batchId: uuid("batch_id").notNull().references(() => journalBatches.id, { onDelete: "cascade" }),
   entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }), postingDate: date("posting_date").notNull(), period: text("period").notNull(), memo: text("memo").notNull(), status: journalEntryStatus("status").default("draft").notNull(), basis: text("basis").default("actual").notNull(), scenarioId: uuid("scenario_id").references(() => scenarios.id, { onDelete: "set null" }),
   reversalOfEntryId: uuid("reversal_of_entry_id").references((): AnyPgColumn => journalEntries.id, { onDelete: "set null" }), postedAt: timestamp("posted_at", { withTimezone: true }), ...timestamps,
-}, (table) => [index("journal_entries_company_period_index").on(table.companyId, table.period, table.status), index("journal_entries_basis_index").on(table.companyId, table.basis, table.period), index("journal_entries_batch_index").on(table.batchId)]);
+}, (table) => [uniqueIndex("journal_entries_company_id").on(table.companyId, table.id), index("journal_entries_company_period_index").on(table.companyId, table.period, table.status), index("journal_entries_basis_index").on(table.companyId, table.basis, table.period), index("journal_entries_batch_index").on(table.batchId)]);
 
 /** Debit and credit are integer minor units as text; a pure validator enforces balance before posting. */
 export const journalLines = pgTable("journal_lines", {
@@ -643,7 +788,7 @@ export const forecastEntryTemplates = pgTable("forecast_entry_templates", {
   name: text("name").notNull(), itemType: text("item_type").notNull(), direction: cashEventDirection("direction").notNull(), category: text("category"),
   debitAccountId: uuid("debit_account_id").notNull().references(() => chartAccounts.id, { onDelete: "restrict" }), creditAccountId: uuid("credit_account_id").notNull().references(() => chartAccounts.id, { onDelete: "restrict" }),
   decisionId: uuid("decision_id").references(() => decisions.id, { onDelete: "set null" }), policyId: uuid("policy_id").references(() => policies.id, { onDelete: "set null" }), active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
-}, (table) => [index("forecast_entry_templates_company_index").on(table.companyId, table.active)]);
+}, (table) => [uniqueIndex("forecast_templates_company_id").on(table.companyId, table.id), index("forecast_entry_templates_company_index").on(table.companyId, table.active)]);
 
 /** A named list of items that forecast model variables break down by (for example team: Eng, Sales). */
 export const forecastDimensions = pgTable("forecast_dimensions", {
@@ -669,6 +814,9 @@ export const decisionEffectApplications = pgTable("decision_effect_applications"
 export const economicItems = pgTable(
   "economic_items",
   {
+    forecastTemplateId: uuid("forecast_template_id").references(() => forecastEntryTemplates.id),
+    forecastOrigin: jsonb("forecast_origin"),
+    expectedDay: integer("expected_day"),
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     evidenceId: uuid("evidence_id").references(() => evidence.id, { onDelete: "set null" }),
@@ -706,8 +854,27 @@ export const economicItems = pgTable(
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
-  (table) => [index("economic_items_company_index").on(table.companyId, table.status), index("economic_items_scenario_index").on(table.scenarioId)],
+  (table) => [uniqueIndex("economic_items_company_id").on(table.companyId, table.id), index("economic_items_company_index").on(table.companyId, table.status), index("economic_items_scenario_index").on(table.scenarioId), foreignKey({ columns: [table.companyId, table.forecastTemplateId], foreignColumns: [forecastEntryTemplates.companyId, forecastEntryTemplates.id] }), uniqueIndex("economic_items_history_pattern").on(table.companyId, sql`(${table.forecastOrigin}->>'patternKey')`).where(sql`${table.forecastOrigin} IS NOT NULL AND ${table.scenarioId} IS NULL`)],
 );
+
+export const recognitionJournalLinks = pgTable("recognition_journal_links", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  driverId: uuid("driver_id").notNull().references(() => economicItems.id), entryId: uuid("entry_id").notNull().references(() => journalEntries.id),
+  sourceHash: text("source_hash").notNull(), reason: text("reason").notNull(), version: integer("version").notNull().default(1), revoked: boolean("revoked").notNull().default(false),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }), ...timestamps,
+}, (table) => [uniqueIndex("recognition_links_entry").on(table.companyId, table.entryId).where(sql`NOT ${table.revoked}`), index("recognition_links_driver").on(table.companyId, table.driverId), foreignKey({ columns: [table.companyId, table.driverId], foreignColumns: [economicItems.companyId, economicItems.id] }), foreignKey({ columns: [table.companyId, table.entryId], foreignColumns: [journalEntries.companyId, journalEntries.id] })]);
+
+export const financialWorkReviews = pgTable("financial_work_reviews", {
+ id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+ kind: text("kind").notNull(), name: text("name").notNull(), scope: jsonb("scope").notNull(), snapshot: jsonb("snapshot").notNull(), snapshotHash: text("snapshot_hash").notNull(),
+ preparerUserId: uuid("preparer_user_id").notNull().references(() => users.id), reviewerUserId: uuid("reviewer_user_id").references(() => users.id), status: text("status").notNull().default("draft"), version: integer("version").notNull().default(1), requestKey: uuid("request_key").notNull(), ...timestamps,
+}, (table) => [uniqueIndex("financial_work_reviews_company_id_id_key").on(table.companyId, table.id), uniqueIndex("financial_work_reviews_company_id_request_key_key").on(table.companyId, table.requestKey), index("financial_work_reviews_company").on(table.companyId, table.createdAt)]);
+export const financialReviewTasks = pgTable("financial_review_tasks", {
+ id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), reviewId: uuid("review_id").notNull(), subjectKey: text("subject_key").notNull(), title: text("title").notNull(), assigneeUserId: uuid("assignee_user_id").references(() => users.id), dueDate: date("due_date"), status: text("status").notNull().default("open"), resolution: text("resolution"), version: integer("version").notNull().default(1), ...timestamps,
+}, (table) => [foreignKey({ columns: [table.companyId, table.reviewId], foreignColumns: [financialWorkReviews.companyId, financialWorkReviews.id] }).onDelete("cascade"), uniqueIndex("financial_review_tasks_company_id_review_id_subject_key_key").on(table.companyId, table.reviewId, table.subjectKey), index("financial_review_tasks_assignee").on(table.companyId, table.assigneeUserId, table.status, table.dueDate)]);
+export const financialReviewSignoffs = pgTable("financial_review_signoffs", {
+ id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), reviewId: uuid("review_id").notNull(), reviewerUserId: uuid("reviewer_user_id").notNull().references(() => users.id), snapshotHash: text("snapshot_hash").notNull(), reason: text("reason").notNull(), selfReview: boolean("self_review").notNull(), snapshot: jsonb("snapshot").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [foreignKey({ columns: [table.companyId, table.reviewId], foreignColumns: [financialWorkReviews.companyId, financialWorkReviews.id] }).onDelete("cascade"), index("financial_review_signoffs_review").on(table.companyId, table.reviewId)]);
 
 export const cashEvents = pgTable(
   "cash_events",

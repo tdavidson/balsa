@@ -533,6 +533,69 @@
       "when": 1789300000038,
       "tag": "0075_forecast_model",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1790294400000,
+      "tag": "0076_goal_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1790294400001,
+      "tag": "0077_forecast_settlement",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1790294400002,
+      "tag": "0078_forecast_recurrence",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1790294400003,
+      "tag": "0079_goal_decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1790294400004,
+      "tag": "0080_review_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1790294400005,
+      "tag": "0081_history_drivers",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1790294400006,
+      "tag": "0082_import_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1790380800000,
+      "tag": "0083_recognition_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1790380800001,
+      "tag": "0084_review_operations",
+      "breakpoints": true
     }
   ]
 }

@@ -11,9 +11,12 @@ export function amountToMinor(value: string | null | undefined): string {
   return `${whole}${fraction.padEnd(2, "0")}`.replace(/^0+(?=\d)/, "");
 }
 
-export type EconomicItemDriverRow = { id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; amountFormula?: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
+export type EconomicItemDriverRow = { expectedDay?: number | null; accountingTreatment?: string | null; recognitionStart?: string | null; recognitionEnd?: string | null; forecastTemplateId?: string | null; id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; amountFormula?: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
 export function economicItemToDriver(item: EconomicItemDriverRow): ForecastDriver {
   return {
+    ...(item.expectedDay ? { expectedDay: item.expectedDay } : {}),
+    ...(item.forecastTemplateId ? { templateId: item.forecastTemplateId } : {}),
+    ...(item.accountingTreatment && item.accountingTreatment !== "cash" ? { accountingTreatment: item.accountingTreatment } : {}), ...(item.recognitionStart ? { recognitionStart: item.recognitionStart } : {}), ...(item.recognitionEnd ? { recognitionEnd: item.recognitionEnd } : {}),
     id: item.id, label: item.label, itemType: item.type === "obligation" ? "obligation" : "agreement", direction: item.direction,
     ...(item.category ? { category: item.category } : {}), amountMinor: amountToMinor(item.amount), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), cadence: cadences.find((cadence) => cadence === item.cadence) ?? "once", effectiveFrom: item.effectiveFrom ?? "",
     ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}), ...(item.decisionId ? { decisionId: item.decisionId } : {}),
@@ -38,8 +41,8 @@ export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAcc
   };
 }
 
-/** The forecast's as-of month: max(latest closed period, last full calendar month), so posted actuals after an old close stay visible. */
+/** Calendar anchor: a close cannot move the information cutoff into the future. */
 export function forecastAsOfFromClosure(latestClosedPeriod: string | null, now: Date): string {
-  const lastFullMonth = addMonths(now.toISOString().slice(0, 7), -1);
-  return latestClosedPeriod && latestClosedPeriod > lastFullMonth ? latestClosedPeriod : lastFullMonth;
+  void latestClosedPeriod;
+  return addMonths(now.toISOString().slice(0, 7), -1);
 }
