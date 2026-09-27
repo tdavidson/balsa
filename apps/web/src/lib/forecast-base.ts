@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { calculationRuns, companies, getDatabase } from "@finance/database";
 import { forecastFormulaVersion, type ForecastRunInput } from "@nevermodel/finance-engine";
 import { compareIds, forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastInputs, loadForecastModel } from "@/lib/forecast-inputs";
+import { loadRecurrenceReview } from "./forecast-recurrence";
 import type { DbExecutor } from "@/lib/db-executor";
 
 /** Parse the stored input, treating a parse failure or a non-object result as not reusable. */
@@ -38,12 +39,13 @@ export async function loadForecastBaseWith(db: DbExecutor, companyId: string, no
   if (latestRun && company && latestRun.revision === company.revision) {
     const parsed = parseStoredInput(latestRun.inputJson);
     const asOfMonth = await forecastAsOfMonth(companyId, now, db);
-    if (parsed && "actuals" in parsed && parsed.asOfMonth === asOfMonth) {
+    if (parsed && "actuals" in parsed && parsed.asOfMonth === asOfMonth && parsed.settlement?.throughDate === now.toISOString().slice(0, 10)) {
       const [{ drivers, templates }, accounts, model] = await Promise.all([loadForecastDrivers(companyId, {}, db), loadForecastAccounts(companyId, db), loadForecastModel(companyId, db)]);
       // The model is reloaded with drivers and templates; a stored model is dropped so a deleted one cannot linger.
       const { model: _storedModel, ...stored } = parsed as ForecastRunInput;
       void _storedModel;
-      return { ...stored, drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, ...(model ? { model } : {}) };
+      const recurrence = await loadRecurrenceReview(db, companyId, { drivers, templates, accounts, currency: stored.currency }, now.toISOString().slice(0, 10), new Set(stored.settlement?.occurrences.map((item) => item.key) ?? []));
+      return { ...stored, recurrence: recurrence.states, drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, ...(model ? { model } : {}) };
     }
   }
   return loadForecastInputs(companyId, { now, db });

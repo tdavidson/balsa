@@ -7,6 +7,9 @@ continuously maintained financial model. Upload bank activity, invoices,
 contracts, spreadsheets, or accounting exports; review what the system learned;
 then ask questions, close periods, and change the forecast in plain language.
 
+[Goals & reviews](docs/goal-reviews.md) adds cash targets, preserved plan baselines,
+saved reviews of the latest outlook, and atomic scenario decisions with preserved outcome reviews.
+
 Language models interpret meaning. Deterministic code owns the ledger, schedules,
 calculations, controls, and statements. The model is never the calculator and
 never the database.
@@ -245,3 +248,12 @@ Nevermodel is open source under the [Apache License 2.0](LICENSE). You may use,
 modify, and distribute it for personal or commercial purposes under its terms.
 
 Built by [Taylor Davidson](https://taylordavidson.com).
+
+Financial planning review starts at `/progress`, with `/goals` for draft/primary
+goals and preserved plans, `/reconciliation` for expectations and coverage,
+`/goal-decisions` for scenario attribution and approval, and `/imports` for
+reviewing full or partial evidence changes before financial posting. `/reviews`
+adds forecast accuracy, named cases, timing sensitivity, assigned exceptions and
+preserved sign-off. The progress page includes a guided first review, recognition
+continuity and dated weekly cash. See
+[goal reviews](docs/goal-reviews.md) for controls and supported accounting scope.

@@ -13,7 +13,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 // never candidates, so this suite cannot race them even though vitest runs test files concurrently.
 describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
-  const { calculationOutbox, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastEntryTemplates, getDatabase, journalBatches, journalEntries, journalLines } = await import("@finance/database");
+  const { calculationOutbox, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastEntryTemplates, forecastRecurrencePolicies, forecastOccurrences, getDatabase, journalBatches, journalEntries, journalLines } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { refreshRolledForecasts } = await import("./forecast-rollover");
   const db = getDatabase();
@@ -54,6 +54,9 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
     await db.update(calculationRuns).set({ asOfMonth: "2020-01" }).where(eq(calculationRuns.id, initial.id));
 
     const now = new Date();
+    const { loadForecastReconciliation } = await import("./forecast-reconciliation");
+    const option = (await loadForecastReconciliation(companyId, now)).recurrence.options[0]!;
+    await db.insert(forecastRecurrencePolicies).values({ companyId, driverId: option.driverId, status: "active", startMonth: now.toISOString().slice(0, 7), endMonth: now.toISOString().slice(0, 7), definition: option.definition, definitionHash: option.hash });
     const first = await refreshRolledForecasts(now, 20);
     expect(first.refreshed).toContain(companyId);
 
@@ -64,6 +67,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
 
     const second = await refreshRolledForecasts(now, 20);
     expect(second.refreshed).not.toContain(companyId);
+    expect(await db.select().from(forecastOccurrences).where(eq(forecastOccurrences.companyId, companyId))).toHaveLength(1);
   });
 
   it("does not consider a company that has never had a forecast run", async () => {

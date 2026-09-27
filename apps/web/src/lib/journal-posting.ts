@@ -74,11 +74,9 @@ async function verifyProvenanceOwnership(companyId: string, request: JournalPost
  * the company, rejects closed periods, and refreshes deterministic reporting
  * only after the posting transaction commits.
  */
-export async function postApprovedJournal(companyId: string, request: JournalPostingRequest): Promise<JournalPostingResult> {
+export async function postApprovedJournalWith(tx: import("./db-executor").DbTransaction, companyId: string, request: JournalPostingRequest) {
   const validation = validateJournalEntry({ idempotencyKey: request.idempotencyKey, postingDate: request.postingDate, period: request.period, lines: request.lines });
   if (!validation.valid) throw new Error(validation.errors.join(" "));
-  const db = getDatabase();
-  const committed = await db.transaction(async (tx) => {
     const basis = request.basis ?? "actual";
     if (basis === "scenario" && !request.scenarioId) throw new Error("Scenario journal entries require a scenario.");
     if (request.scenarioId && !(await tx.select({ id: scenarios.id }).from(scenarios).where(and(eq(scenarios.id, request.scenarioId), eq(scenarios.companyId, companyId))).limit(1))[0]) throw new Error("Scenario must belong to the company.");
@@ -145,7 +143,9 @@ export async function postApprovedJournal(companyId: string, request: JournalPos
     const reversing = Boolean(request.reversalOfEntryId) || request.source === "journal_reversal";
     await recordAudit(tx, { companyId, actorUserId: request.actorUserId ?? null, via: request.actorUserId ? "ui" : "worker", action: reversing ? "journal.reversed" : "journal.posted", entityType: "journal_entry", entityId: entry!.id, summary: `${reversing ? "Reversed" : "Posted"} journal ${request.label} in ${request.period}`, after: { batchId: batch!.id, label: request.label, source: request.source, period: request.period, basis } });
     return { batchId: batch!.id, entryId: entry!.id, proposalId: proposal.id, idempotent: false };
-  });
+}
+export async function postApprovedJournal(companyId: string, request: JournalPostingRequest): Promise<JournalPostingResult> {
+  const committed = await getDatabase().transaction((tx) => postApprovedJournalWith(tx, companyId, request));
   const reversing = Boolean(request.reversalOfEntryId) || request.source === "journal_reversal";
   // An idempotent retry must not create a second calculation revision.
   const calculationRun = committed.idempotent || request.deferRefresh ? null : await refreshCurrentCalculationRun(companyId, { journalPeriods: [request.period], cause: { kind: reversing ? "journal_reversed" : "journal_posted", subjectType: "journal_entry", subjectId: committed.entryId, actorUserId: request.actorUserId ?? null, via: request.actorUserId ? "ui" : "worker" } });

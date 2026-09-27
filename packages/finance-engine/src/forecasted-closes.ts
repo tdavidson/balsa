@@ -2,10 +2,10 @@ import type { PostedJournalLine } from "./ledger";
 import { addMonths } from "./periods";
 
 export type ForecastedCloseMatch = { forecastId: string; actualEntryId: string; signature: string };
-export type ForecastedCloseResult = { projectedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[] };
+export type ForecastedCloseResult = { projectedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[]; sourceLineIds: Record<string, string[]> };
 
 const actualBases = new Set(["actual"]);
-const normalizeMemo = (value: string | undefined) => (value ?? "").toLowerCase().replace(/\d+/g, "#").replace(/[^a-z#]+/g, " ").trim();
+const normalizeMemo = (value: string | undefined) => (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const entryId = (line: PostedJournalLine) => line.entryId ?? line.id;
 const day = (date: string | undefined) => Number(date?.slice(8, 10) ?? "1");
 const median = (values: bigint[]) => [...values].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)[Math.floor(values.length / 2)]!;
@@ -24,9 +24,9 @@ function events(lines: PostedJournalLine[]): Event[] {
   const output: Event[] = [];
   for (const [id, unsortedRows] of grouped) {
     const rows = [...unsortedRows].sort((left, right) => left.id.localeCompare(right.id));
-    if (rows.length !== 2 || rows.some((row) => row.currency !== rows[0]!.currency)) continue;
-    const debit = rows.find((row) => BigInt(row.debitMinor) > 0n);
-    const credit = rows.find((row) => BigInt(row.creditMinor) > 0n);
+    if (rows.length !== 2 || rows.some((row) => row.currency !== rows[0]!.currency || row.entityId !== rows[0]!.entityId || row.period !== rows[0]!.period || row.fxRateId || row.transactionCurrency && row.transactionCurrency !== row.currency || !/^\d+$/.test(row.debitMinor) || !/^\d+$/.test(row.creditMinor))) continue;
+    const debit = rows.find((row) => BigInt(row.debitMinor) > 0n && BigInt(row.creditMinor) === 0n);
+    const credit = rows.find((row) => BigInt(row.creditMinor) > 0n && BigInt(row.debitMinor) === 0n);
     if (!debit || !credit || debit.debitMinor !== credit.creditMinor || BigInt(debit.debitMinor) <= 0n) continue;
     const memo = normalizeMemo(rows[0]!.memo);
     // A stable description is required. Account-pair-only recurrence is too broad
@@ -43,24 +43,24 @@ function events(lines: PostedJournalLine[]): Event[] {
  * Infer conservative current-month closes from three consecutive completed
  * months. A candidate must occur exactly once in every month with the same
  * normalized memo and account pair, and its amounts must stay within 10% of
- * their median. Any current-month actual with that signature settles the
- * expectation, regardless of its final amount.
+ * their median. These are review suggestions, never automatic settlement instructions.
+ * Current-month actuals are allocated only through explicit approved matches.
  */
 export function buildForecastedCloses(lines: PostedJournalLine[], currentMonth: string): ForecastedCloseResult {
   const historyMonths = [addMonths(currentMonth, -3), addMonths(currentMonth, -2), addMonths(currentMonth, -1)];
   const all = events(lines);
-  const current = all.filter((event) => event.period === currentMonth);
   const bySignature = new Map<string, Event[]>();
   for (const event of all.filter((candidate) => historyMonths.includes(candidate.period))) bySignature.set(event.signature, [...(bySignature.get(event.signature) ?? []), event]);
   const projectedLines: PostedJournalLine[] = [];
   const matches: ForecastedCloseMatch[] = [];
+  const sourceLineIds: Record<string, string[]> = {};
   for (const [signature, observed] of [...bySignature.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     if (observed.length !== 3 || historyMonths.some((month) => observed.filter((event) => event.period === month).length !== 1)) continue;
     const amount = median(observed.map((event) => event.amount));
     if (observed.some((event) => (event.amount > amount ? event.amount - amount : amount - event.amount) * 10n > amount)) continue;
     const forecastId = `forecasted-close:${signature}:${currentMonth}`;
-    const settled = current.find((event) => event.signature === signature);
-    if (settled) { matches.push({ forecastId, actualEntryId: settled.id, signature }); continue; }
+    sourceLineIds[forecastId] = observed.flatMap((event) => event.lines.map((line) => line.id)).sort();
+    observed.sort((a, b) => a.period.localeCompare(b.period) || a.id.localeCompare(b.id));
     const exemplar = observed[observed.length - 1]!;
     const expectedDay = Math.min(medianNumber(observed.map((event) => day(event.postingDate))), daysInMonth(currentMonth));
     const postingDate = `${currentMonth}-${String(expectedDay).padStart(2, "0")}`;
@@ -69,5 +69,5 @@ export function buildForecastedCloses(lines: PostedJournalLine[], currentMonth: 
       projectedLines.push({ ...row, id: `${forecastId}:${index}`, entryId: forecastId, entrySource: "forecasted_close", basis: "forecast", postingDate, period: currentMonth, memo: `Forecasted close: ${exemplar.memo}`, debitMinor: isDebit ? amount.toString() : "0", creditMinor: isDebit ? "0" : amount.toString(), provenance: { sourceLocation: forecastId } });
     }
   }
-  return { projectedLines, matches };
+  return { projectedLines, matches, sourceLineIds };
 }

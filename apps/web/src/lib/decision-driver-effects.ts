@@ -20,7 +20,7 @@ export function projectDecisionEffectOnDrivers(drivers: ForecastDriver[], effect
   if (effect.kind === "add_item") {
     if (effect.scenario) return drivers;
     const { item } = effect;
-    return [...drivers, { id: `decision:${decisionId}`, label: item.label, itemType: item.direction === "spend" ? "obligation" : "agreement", direction: item.direction, category: item.category, amountMinor: amountToMinor(String(item.amount)), cadence: item.cadence, effectiveFrom: item.effectiveFrom, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), decisionId }];
+    return [...drivers, { id: `decision:${decisionId}`, label: item.label, itemType: item.direction === "spend" ? "obligation" : "agreement", direction: item.direction, category: item.category, ...(item.accountingTreatment !== "cash" ? { accountingTreatment: item.accountingTreatment } : {}), ...(item.recognitionStart ? { recognitionStart: item.recognitionStart } : {}), ...(item.recognitionEnd ? { recognitionEnd: item.recognitionEnd } : {}), amountMinor: amountToMinor(String(item.amount)), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), cadence: item.cadence, effectiveFrom: item.effectiveFrom, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), decisionId }];
   }
   if (effect.kind === "end_item") return drivers.map((driver) => (driver.id === effect.itemId ? { ...driver, effectiveTo: effect.effectiveTo, decisionId } : driver));
   if (effect.kind === "change_amount") {

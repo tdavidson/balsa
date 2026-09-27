@@ -1,11 +1,14 @@
 import "server-only";
+import { loadRecognitionProofs } from "./recognition-continuity";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, buildForecastedCloses, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { rowsToModel } from "@/lib/forecast-model-rows";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
+import { loadRecurrenceReview } from "./forecast-recurrence";
+import { loadSettlementInput } from "./forecast-settlement-load";
 
 export const forecastHorizonMonths = 24;
 
@@ -21,7 +24,7 @@ export async function loadForecastDrivers(companyId: string, options: { scenario
   };
 }
 
-/** max(latest closed period, last full calendar month). */
+/** Use the last full calendar month; a future closure cannot advance the actual cutoff. */
 export async function forecastAsOfMonth(companyId: string, now: Date, db: DbExecutor = getDatabase()) {
   const [closure] = await db.select({ period: journalPeriodClosures.period }).from(journalPeriodClosures).where(eq(journalPeriodClosures.companyId, companyId)).orderBy(desc(journalPeriodClosures.period)).limit(1);
   return forecastAsOfFromClosure(closure?.period ?? null, now);
@@ -65,14 +68,18 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const asOfMonth = await forecastAsOfMonth(companyId, now, db);
   const currentMonth = now.toISOString().slice(0, 7);
   const openMonth = addMonths(asOfMonth, 1) === currentMonth ? currentMonth : null;
-  const [{ drivers, templates }, actualLines, accounts, model] = await Promise.all([
+  const [{ drivers, templates }, loadedActualLines, accounts, model] = await Promise.all([
     loadForecastDrivers(companyId, {}, db),
     loadPostedJournalLines(companyId, openMonth ?? asOfMonth, db),
     loadForecastAccounts(companyId, db),
     loadForecastModel(companyId, db),
   ]);
+  const throughDate = now.toISOString().slice(0, 10);
+  const actualLines = loadedActualLines.filter((line) => !line.postingDate || line.postingDate <= throughDate);
+  const settlement = await loadSettlementInput(db, companyId, actualLines, throughDate);
+  const recurrence = await loadRecurrenceReview(db, companyId, { drivers, templates, accounts, currency: company.baseCurrency }, throughDate, new Set(settlement.occurrences.map((item) => item.key)));
   const baseCurrencyLines = actualLines.filter((line) => line.currency === company.baseCurrency);
-  const closes = openMonth ? buildForecastedCloses(baseCurrencyLines, openMonth) : null;
   const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")) : [];
-  return { actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor, ...(openMonth && closes ? { openMonth: { month: openMonth, throughDate: now.toISOString().slice(0, 10), actualLines: openActualLines, forecastedLines: closes.projectedLines, matches: closes.matches } } : {}), ...(model ? { model } : {}) };
+  const recognitionProofs = await loadRecognitionProofs(db, companyId, asOfMonth, company.baseCurrency, actualLines);
+  return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}) };
 }

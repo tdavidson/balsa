@@ -115,14 +115,17 @@ export async function deactivateScenario(companyId: string, scenarioId: string, 
 }
 
 export function scenarioItemToEffect(item: ItemRow): DecisionEffect | null {
-  const parsed = decisionEffectSchema.safeParse({ kind: "add_item", item: { label: item.label, counterparty: item.counterparty, direction: item.direction, amount: Number(item.amount ?? ""), cadence: item.cadence, effectiveFrom: item.effectiveFrom, effectiveTo: item.effectiveTo, category: isCategory(item.category) ? item.category : "other", accountingTreatment: item.accountingTreatment, recognitionStart: item.recognitionStart, recognitionEnd: item.recognitionEnd } });
+  const parsed = decisionEffectSchema.safeParse({ kind: "add_item", item: { label: item.label, counterparty: item.counterparty, direction: item.direction, amount: Number(item.amount ?? (item.amountFormula ? "1" : "")), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), cadence: item.cadence, effectiveFrom: item.effectiveFrom, effectiveTo: item.effectiveTo, category: isCategory(item.category) ? item.category : "other", accountingTreatment: item.accountingTreatment, recognitionStart: item.recognitionStart, recognitionEnd: item.recognitionEnd } });
   return parsed.success ? parsed.data : null;
 }
 
 export async function promoteScenario(companyId: string, scenarioId: string, actorUserId: string | null): Promise<{ decisionIds: string[]; skippedItems: number }> {
-  return getDatabase().transaction(async (tx) => {
+  return getDatabase().transaction((tx) => promoteScenarioWith(tx, companyId, scenarioId, actorUserId));
+}
+
+export async function promoteScenarioWith(tx: DbTransaction, companyId: string, scenarioId: string, actorUserId: string | null, now = new Date()): Promise<{ decisionIds: string[]; skippedItems: number }> {
     const scenario = await loadActiveScenarioForMutation(tx, companyId, scenarioId);
-    const base = await loadForecastBaseWith(tx, companyId, new Date());
+    const base = await loadForecastBaseWith(tx, companyId, now);
     let projected;
     try { projected = applyScenarioChanges(base, scenario.changes, scenario.id); }
     catch (error) { if (error instanceof ScenarioChangeInvalid) throw new ScenarioInvalid(error.message); throw error; }
@@ -161,7 +164,6 @@ export async function promoteScenario(companyId: string, scenarioId: string, act
     const rows = await tx.insert(decisions).values(proposals.map(({ effect, summary }) => ({ companyId, question: `Apply from scenario ${scenario.name}: ${summary}`, answer: `Promoted from scenario ${scenario.name}.`, status: "proposed", effect: JSON.stringify(effect), createdByUserId: actorUserId }))).returning({ id: decisions.id });
     await recordAudit(tx, { companyId, actorUserId, via: "ui", action: "scenario.promoted", entityType: "scenario", entityId: scenario.id, summary: `Promoted scenario ${scenario.name} to ${rows.length} proposed decision${rows.length === 1 ? "" : "s"}`, after: { decisionIds: rows.map((row) => row.id), skippedItems } });
     return { decisionIds: rows.map((row) => row.id), skippedItems };
-  });
 }
 
 async function freeScenarioName(db: DbExecutor, companyId: string, base: string) {

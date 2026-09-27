@@ -13,12 +13,12 @@ describe("buildForecastedCloses", () => {
     expect(result.projectedLines.find((line) => line.debitMinor === "10000")).toMatchObject({ basis: "forecast", entrySource: "forecasted_close", period: "2026-09", postingDate: "2026-09-15" });
   });
 
-  it("removes the forecast when the current actual arrives, even at a different final amount", () => {
+  it("preserves a suggestion when an actual arrives; matching requires explicit allocation", () => {
     const history = [...event("j1", "2026-06", "14", "10000"), ...event("j2", "2026-07", "15", "10000"), ...event("j3", "2026-08", "16", "10000")];
     const result = buildForecastedCloses([...history, ...event("actual", "2026-09", "13", "10500")], "2026-09");
-    expect(result.projectedLines).toEqual([]);
-    expect(result.matches).toHaveLength(1);
-    expect(result.matches[0]!.actualEntryId).toBe("actual");
+    expect(result.projectedLines).toHaveLength(2);
+    expect(result.matches).toEqual([]);
+    expect(Object.values(result.sourceLineIds)[0]).toHaveLength(6);
   });
 
   it("does not infer sparse, volatile, or description-free activity", () => {

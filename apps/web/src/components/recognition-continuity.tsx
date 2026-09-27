@@ -1,0 +1,24 @@
+"use client";
+import { useState } from "react";
+import type { loadFinancialProgress } from "@/lib/financial-progress";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { exactMoney } from "./opening-cash-review";
+type Data = Awaited<ReturnType<typeof loadFinancialProgress>>["recognition"];
+type Preview = { blockers: string[]; projectedLines: { id: string; period: string; accountName: string; debitMinor: string; creditMinor: string; currency: string }[] };
+export function RecognitionContinuity({ data, busy, send }: { data: Data; busy: boolean; send: (body: object) => Promise<unknown> }) {
+  const [driverId, setDriverId] = useState(""); const [entryIds, setEntryIds] = useState<string[]>([]); const [reason, setReason] = useState(""); const [preview, setPreview] = useState<Preview | null>(null);
+  if (!data.drivers.length) return null;
+  return <Card id="recognition-continuity"><CardHeader><CardTitle>Carry recognition forward</CardTitle><CardDescription>Link the actual journals that complete the earlier part of a schedule. The completed amounts must reconcile before remaining recognition continues. Selection replaces the schedule’s existing journal links.</CardDescription></CardHeader><CardContent><FieldGroup>
+    <Field><FieldLabel>Schedule</FieldLabel><Select value={driverId} disabled={busy} onValueChange={(value) => { const id = value ?? ""; setDriverId(id); setEntryIds(data.links.filter((link) => link.driverId === id).map((link) => link.entryId)); setPreview(null); }}><SelectTrigger><SelectValue placeholder="Choose a schedule" /></SelectTrigger><SelectContent><SelectGroup>{data.drivers.map((driver) => <SelectItem key={driver.id} value={driver.id}>{driver.label}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+    {driverId && <><ul className="list-disc pl-5 text-sm">{data.exceptions.filter((item) => item.driverId === driverId).map((item, index) => <li key={index}>{item.reason}</li>)}</ul>{data.entries.map((entry) => { const elsewhere = data.links.some((link) => link.entryId === entry.id && link.driverId !== driverId); return <Field key={entry.id}><Field orientation="horizontal"><Checkbox id={`recognition-${entry.id}`} checked={entryIds.includes(entry.id)} disabled={busy || elsewhere} onCheckedChange={(checked) => { setEntryIds((ids) => checked ? [...ids, entry.id] : ids.filter((id) => id !== entry.id)); setPreview(null); }} /><FieldLabel htmlFor={`recognition-${entry.id}`}>{entry.lines[0]?.postingDate} · {entry.lines[0]?.memo ?? entry.id}{elsewhere ? " · Assigned to another schedule" : ""}</FieldLabel></Field><details><summary className="cursor-pointer text-sm">Inspect balanced journal</summary><ul className="list-disc pl-5 text-sm">{entry.lines.map((line) => <li key={line.id}>{line.accountCode} {line.accountName}: debit {exactMoney(line.debitMinor, line.currency)}, credit {exactMoney(line.creditMinor, line.currency)}</li>)}</ul></details></Field>; })}</>}
+    <Field><FieldLabel htmlFor="recognition-reason">Review reason</FieldLabel><Input id="recognition-reason" value={reason} disabled={busy} maxLength={2000} onChange={(event) => { setReason(event.target.value); setPreview(null); }} /></Field>
+    <Button variant="outline" disabled={busy || !driverId || !entryIds.length || !reason.trim()} onClick={async () => { const result = await send({ action: "preview_recognition", driverId, entryIds, reason }); if (result) setPreview(result as Preview); }}>Preview remaining schedule</Button>
+    {preview && <><p>{preview.blockers.length ? preview.blockers.join(" ") : "Completed journals reconcile. Remaining recognition:"}</p><ul className="list-disc pl-5 text-sm">{preview.projectedLines.map((line) => <li key={line.id}>{line.period} · {line.accountName}: debit {exactMoney(line.debitMinor, line.currency)}, credit {exactMoney(line.creditMinor, line.currency)}</li>)}</ul><Button disabled={busy || !!preview.blockers.length} onClick={async () => { const result = await send({ action: "link_recognition", driverId, entryIds, reason }); if (result) setPreview(null); }}>Approve journal links</Button></>}
+    {data.links.filter((link) => link.driverId === driverId).map((link) => <Button key={link.id} variant="outline" disabled={busy || !reason.trim()} onClick={async () => { await send({ action: "unlink_recognition", linkId: link.id, expectedVersion: link.version, reason }); setPreview(null); }}>Revoke journal link {link.entryId.slice(0, 8)}</Button>)}
+  </FieldGroup></CardContent></Card>;
+}

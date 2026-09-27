@@ -44,3 +44,12 @@ describe("formula drivers", () => {
     expect(buildProjectedEntries([unresolved], [template], { start: "2026-09", end: "2026-10" }).exceptions).toEqual([{ driverId: "f", reason: "Formula driver was not resolved against the forecast model." }]);
   });
 });
+
+describe("reviewed schedule dates", () => {
+  it("clamps month-end payment days and rejects invalid dates", () => {
+    const driver: ForecastDriver = { id: "month-end", label: "Synthetic", itemType: "obligation", direction: "spend", amountMinor: "100", cadence: "monthly", effectiveFrom: "2027-01", expectedDay: 31 };
+    const template = { id: "template", itemType: "obligation" as const, direction: "spend" as const, debitAccountId: "expense", creditAccountId: "cash" };
+    expect(buildProjectedEntries([driver], [template], { start: "2027-01", end: "2027-03" }).entries.map((item) => item.postingDate)).toEqual(["2027-01-31", "2027-02-28", "2027-03-31"]);
+    expect(buildProjectedEntries([{ ...driver, expectedDay: 32 }], [template], { start: "2027-01", end: "2027-03" }).exceptions).toHaveLength(1);
+  });
+});
