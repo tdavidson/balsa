@@ -663,7 +663,7 @@ export const chartAccounts = pgTable("chart_accounts", {
   entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
   activeFrom: text("active_from"), activeTo: text("active_to"), active: char("active", { length: 1 }).default("Y").notNull(),
   ...timestamps,
-}, (table) => [uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
+}, (table) => [uniqueIndex("chart_accounts_company_id").on(table.companyId, table.id), uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
 
 /** Approved reciprocal account pair for one intercompany relationship. */
 export const intercompanyAccountMappings = pgTable("intercompany_account_mappings", {
@@ -1016,3 +1016,25 @@ export const companyMembersRelations = relations(
     }),
   }),
 );
+
+/** Installation-owned Teller credentials stay in env; only encrypted enrollment tokens are persisted. */
+export const bankConnections = pgTable("bank_connections", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  enrollmentId: text("enrollment_id").notNull(), environment: text("environment").notNull(), applicationId: text("application_id").notNull(),
+  institution: text("institution").notNull(), encryptedToken: text("encrypted_token"), status: text("status").default("active").notNull(),
+  createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }), nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).defaultNow().notNull(),
+  error: text("error"), ...timestamps,
+}, (t) => [uniqueIndex("bank_connections_enrollment").on(t.environment, t.applicationId, t.enrollmentId), uniqueIndex("bank_connections_company_id").on(t.companyId, t.id), index("bank_connections_due").on(t.nextSyncAt).where(sql`${t.encryptedToken} is not null`)]);
+export const bankAccounts = pgTable("bank_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull().references(() => bankConnections.id, { onDelete: "cascade" }), providerAccountId: text("provider_account_id").notNull(),
+  name: text("name").notNull(), lastFour: text("last_four"), currency: text("currency").notNull(), accountType: text("account_type").notNull(),
+  status: text("status").default("open").notNull(), chartAccountId: uuid("chart_account_id").references(() => chartAccounts.id),
+  snapshots: jsonb("snapshots").$type<Record<string, { hash: string; sourceId: string }>>().default({}).notNull(), ...timestamps,
+}, (t) => [uniqueIndex("bank_accounts_provider").on(t.connectionId, t.providerAccountId), foreignKey({ columns: [t.companyId, t.connectionId], foreignColumns: [bankConnections.companyId, bankConnections.id] }).onDelete("cascade"), foreignKey({ columns: [t.companyId, t.chartAccountId], foreignColumns: [chartAccounts.companyId, chartAccounts.id] })]);
+export const bankConnectSessions = pgTable("bank_connect_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), nonce: text("nonce").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), ...timestamps,
+});

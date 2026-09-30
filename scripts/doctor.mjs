@@ -60,6 +60,17 @@ if ((env.FILE_STORAGE || "local") === "local") {
 
 for (const key of ["APP_SECRET", "CRON_SECRET", "HEALTHCHECK_SECRET"]) env[key] ? pass(key, "configured") : warn(key, "not configured");
 
+if (env.TELLER_APPLICATION_ID) {
+  const environment = env.TELLER_ENVIRONMENT || "sandbox";
+  if (!["sandbox", "development", "production"].includes(environment)) fail("Teller environment", "use sandbox, development, or production");
+  const required = ["TELLER_TOKEN_SIGNING_PUBLIC_KEY", "TELLER_TOKEN_ENCRYPTION_KEY", ...(environment === "sandbox" ? [] : ["TELLER_CERTIFICATE", "TELLER_PRIVATE_KEY"])];
+  const missing = required.filter((key) => !env[key]);
+  if (missing.length) fail("Teller", `set ${missing.join(", ")}; see .env.example and docs/teller.md`);
+  else if (Buffer.from(env.TELLER_TOKEN_ENCRYPTION_KEY, "base64").length !== 32) fail("Teller encryption", "TELLER_TOKEN_ENCRYPTION_KEY must encode 32 random bytes");
+  else pass("Teller", `${environment} configuration present; provider connectivity is not checked`);
+  if (!env.CRON_SECRET) warn("Teller automatic sync", "set CRON_SECRET and configure the scheduled job in docs/teller.md");
+} else pass("Teller", "optional bank sync is disabled");
+
 if (env.DATABASE_URL && existsSync(resolve(root, "node_modules"))) {
   const database = spawnSync("pnpm", ["--filter", "@finance/database", "db:doctor"], { cwd: root, encoding: "utf8", env });
   if (database.status === 0) pass("Database", database.stdout.trim().split("\n").at(-1) || "connected and current");

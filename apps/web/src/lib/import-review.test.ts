@@ -41,6 +41,15 @@ describe.skipIf(!process.env.DATABASE_URL)("financial import reviews", async () 
     expect(saved.snapshot.appliedOutlook?.output.months).toEqual(view.after?.output.months);
     expect(await db.select().from(journalEntries).where(eq(journalEntries.companyId, f.id))).toHaveLength(1);
   });
+  it("requires Teller updates to compare their lineage as partial history", async () => {
+    const f = await seed(); const old = await f.file([["a", "100"]], true); const incoming = await f.file([["a", "125"]]);
+    await db.update(sources).set({ type: "teller", metadata: JSON.stringify({ provider: "teller", previousSourceId: old }) }).where(eq(sources.id, incoming));
+    const standalone = await preview(f.id, incoming);
+    expect(standalone.blockers).toContain("Compare this bank update with its previous feed import before approving it.");
+    const full = await preview(f.id, incoming, old);
+    expect(full.blockers).toContain("Bank feeds are partial history, not complete statements. Use partial update and explicitly review row identity mappings.");
+    expect(await db.select().from(journalEntries).where(eq(journalEntries.companyId, f.id))).toHaveLength(1);
+  });
   it("retains duplicates, reverses changed and removed rows, and preserves the saved comparison", async () => {
     const f = await seed(); const old = await f.file([["a", "100"], ["b", "200"], ["c", "300"]], true); const incoming = await f.file([["a", "100"], ["b", "250"], ["d", "400"]]);
     const view = await preview(f.id, incoming, old); expect(view.blockers).toEqual([]);

@@ -38,10 +38,14 @@ export function compareImportRows(current: Row[], previous: Row[], mode: Selecti
 }
 export async function loadImportReviewWorkspace(companyId: string) {
   const [files, reviews] = await Promise.all([
-    getDatabase().select({ id: sources.id, name: sources.filename, type: sources.type, createdAt: sources.createdAt }).from(sources).where(eq(sources.companyId, companyId)).orderBy(desc(sources.createdAt)).limit(100),
+    getDatabase().select({ id: sources.id, name: sources.filename, type: sources.type, metadata: sources.metadata, createdAt: sources.createdAt }).from(sources).where(eq(sources.companyId, companyId)).orderBy(desc(sources.createdAt)).limit(100),
     getDatabase().select({ id: financialImportReviews.id, name: financialImportReviews.name, kind: financialImportReviews.kind, sourceId: financialImportReviews.sourceId, previousSourceId: financialImportReviews.previousSourceId, createdAt: financialImportReviews.createdAt }).from(financialImportReviews).where(eq(financialImportReviews.companyId, companyId)).orderBy(desc(financialImportReviews.createdAt)).limit(50),
   ]);
-  return { companyId, sources: files.map((file) => ({ ...file, createdAt: file.createdAt.toISOString() })), reviews: reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() })) };
+  return { companyId, sources: files.map(({ metadata, ...file }) => {
+    let previousSourceId: string | null = null;
+    if (file.type === "teller") { try { const previous = JSON.parse(metadata).previousSourceId; if (typeof previous === "string" && z.uuid().safeParse(previous).success) previousSourceId = previous; } catch { /* malformed metadata is never a suggested comparison */ } }
+    return { ...file, previousSourceId, createdAt: file.createdAt.toISOString() };
+  }), reviews: reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() })) };
 }
 async function prepare(tx: DbTransaction, companyId: string, selected: Selection, now: Date) {
   if (selected.sourceId === selected.previousSourceId) throw new GoalReviewError("Choose two different imports.");
@@ -59,6 +63,13 @@ async function prepare(tx: DbTransaction, companyId: string, selected: Selection
   const base = await captureOutlook(tx, companyId, now); const goals = (await goalsWith(tx, companyId)).filter((goal) => goal.status === "active");
   const blockers: string[] = []; const warnings: string[] = [];
   if (superseded.length) blockers.push("One selected import was already superseded. Compare with the current replacement instead.");
+  const bankFeed = files.find((file) => file.id === selected.sourceId && file.type === "teller");
+  if (bankFeed) {
+    const metadata = JSON.parse(bankFeed.metadata) as { previousSourceId?: string | null };
+    if (metadata.previousSourceId && selected.previousSourceId !== metadata.previousSourceId) blockers.push("Compare this bank update with its previous feed import before approving it.");
+    if (selected.previousSourceId && selected.mode !== "partial_update") blockers.push("Bank feeds are partial history, not complete statements. Use partial update and explicitly review row identity mappings.");
+    warnings.push("Teller feeds omit pending transactions and do not certify complete history or statement balances. Missing rows are not proof of a reversal; review removed transactions and overlap with uploaded statements separately.");
+  }
   const currentDocs = docs.filter((doc) => doc.sourceId === selected.sourceId);
   if (!currentDocs.length || currentDocs.some((doc) => doc.status !== "approved" || doc.identityStatus !== "approved")) blockers.push("Review the new import's document identity and evidence before approving financial postings.");
   if (!currentRows.length) blockers.push("This import has no normalized source rows for a complete financial comparison.");
