@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth, requireCompanyAccess } from "@/lib/auth";
 import { loadImportReviewWorkspace } from "@/lib/import-review";
 import { goalDecisionErrorResponse } from "@/lib/goal-decisions-http";
@@ -8,5 +9,5 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
   await auth.protect({ unauthenticatedUrl: "/login" }); const context = await requireCompanyAccess();
   let data = null; let error = "";
   try { data = await loadImportReviewWorkspace(context.company.id); } catch (cause) { error = (await goalDecisionErrorResponse(cause).json()).error; }
-  return <ImportReview key={context.company.id} company={{ id: context.company.id, name: context.company.name, currency: context.company.baseCurrency }} initialSourceId={data?.sources.some((source) => source.id === selected) ? selected : ""} initialData={data} initialError={error} />;
+  return <><div className="px-6 pt-6"><Link className="text-sm underline" href="/banks">Connect bank accounts</Link></div><ImportReview key={context.company.id} company={{ id: context.company.id, name: context.company.name, currency: context.company.baseCurrency }} initialSourceId={data?.sources.some((source) => source.id === selected) ? selected : ""} initialData={data} initialError={error} /></>;
 }

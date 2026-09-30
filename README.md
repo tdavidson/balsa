@@ -257,3 +257,7 @@ adds forecast accuracy, named cases, timing sensitivity, assigned exceptions and
 preserved sign-off. The progress page includes a guided first review, recognition
 continuity and dated weekly cash. See
 [goal reviews](docs/goal-reviews.md) for controls and supported accounting scope.
+
+## Optional bank connections
+
+Connect selected bank accounts through your own Teller application. Configuration is entirely environment-based; see [Teller setup and testing](docs/teller.md). Bank sync stages transaction evidence for review and does not automatically approve financial postings.
