@@ -80,7 +80,7 @@ if (env.DATABASE_URL && existsSync(resolve(root, "node_modules"))) {
 const json = process.argv.includes("--json");
 if (json) console.log(JSON.stringify({ ok: !results.some((result) => result.level === "fail"), results }, null, 2));
 else {
-  console.log("Nevermodel doctor\n");
+  console.log("Balsa doctor\n");
   for (const result of results) console.log(`${result.level === "pass" ? "✓" : result.level === "warn" ? "!" : "✗"} ${result.name}: ${result.detail}`);
   const failures = results.filter((result) => result.level === "fail").length;
   const warnings = results.filter((result) => result.level === "warn").length;

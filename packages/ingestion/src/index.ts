@@ -45,14 +45,14 @@ export function assessPdfText(pages: PdfPageText[]): PdfExtractionQuality {
 const execFileAsync = promisify(execFile);
 
 /**
- * Optional OCR fallback. Deployments opt in with NEVERMODEL_OCR_COMMAND
+ * Optional OCR fallback. Deployments opt in with BALSA_OCR_COMMAND
  * pointing at an ocrmypdf-compatible executable. The sidecar preserves page
  * breaks, so downstream facts remain traceable to an OCR page.
  */
 async function extractOcrPdfDocument(buffer: Uint8Array): Promise<{ pages: PdfPageText[]; detail: NonNullable<PdfExtractionQuality["ocr"]> }> {
-  const command = process.env.NEVERMODEL_OCR_COMMAND?.trim();
+  const command = (process.env.BALSA_OCR_COMMAND ?? process.env.NEVERMODEL_OCR_COMMAND)?.trim();
   if (!command) return { pages: [], detail: { status: "unavailable", message: "OCR is not configured on this deployment." } };
-  const directory = await mkdtemp(join(tmpdir(), "nevermodel-ocr-"));
+  const directory = await mkdtemp(join(tmpdir(), "balsa-ocr-"));
   const input = join(directory, "source.pdf");
   const output = join(directory, "ocr.pdf");
   const sidecar = join(directory, "ocr.txt");
@@ -84,7 +84,7 @@ export async function extractPdfDocument(buffer: Uint8Array): Promise<{ text: st
         selectedPages = ocr.pages;
         quality = { ...ocrQuality, ocr: ocr.detail, warnings: [...ocrQuality.warnings, "Text was recovered by OCR; review OCR-sensitive amounts and identifiers."] };
       } else {
-        quality = { ...quality, ocr: ocr.detail, warnings: [...quality.warnings, ocr.detail.status === "unavailable" ? "OCR fallback is unavailable; configure NEVERMODEL_OCR_COMMAND or upload a searchable copy." : `OCR fallback did not improve this source${ocr.detail.message ? `: ${ocr.detail.message}` : "."}`] };
+        quality = { ...quality, ocr: ocr.detail, warnings: [...quality.warnings, ocr.detail.status === "unavailable" ? "OCR fallback is unavailable; configure BALSA_OCR_COMMAND or upload a searchable copy." : `OCR fallback did not improve this source${ocr.detail.message ? `: ${ocr.detail.message}` : "."}`] };
       }
     } else quality = { ...quality, ocr: { status: "not_needed" } };
     const text = selectedPages.map((page) => `--- Page ${page.page} ---\n${page.text}`).join("\n\n");

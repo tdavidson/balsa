@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { cashEvents, evidence, financialImportReviews, getDatabase, journalEntries, postingProposals, postingRuleApplications, recordAudit, setCompanyScopeSql, sourceRows, sources } from "@finance/database";
-import { buildCashGoalBridge, evaluateCashGoal, stableJson } from "@nevermodel/finance-engine";
+import { buildCashGoalBridge, evaluateCashGoal, stableJson } from "@balsa/finance-engine";
 import { captureOutlook, GoalReviewError, goalsWith, previewToken } from "./goal-reviews";
 import { postApprovedJournalWith, type JournalPostingRequest } from "./journal-posting";
 import { loadPostedJournalLines } from "./journal-ledger";

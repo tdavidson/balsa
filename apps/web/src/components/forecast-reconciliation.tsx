@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSyncExternalStore, useRef, useState, type FormEvent } from "react";
-import { addMonths, compatibleCashMovement, type CashOccurrence } from "@nevermodel/finance-engine";
+import { addMonths, compatibleCashMovement, type CashOccurrence } from "@balsa/finance-engine";
 import type { ForecastReconciliationData } from "@/lib/forecast-reconciliation-contract";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

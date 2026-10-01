@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { calculationRuns, companies, decisions, economicItems, evidence, forecastConsequences, forecastDimensions, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { forecastFormulaVersion, type ForecastConsequence, type ForecastRun } from "@nevermodel/finance-engine";
+import { forecastFormulaVersion, type ForecastConsequence, type ForecastRun } from "@balsa/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { forecastAsOfFromClosure } from "@/lib/forecast-drivers";
 

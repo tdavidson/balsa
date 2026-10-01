@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CashGoalBridge, CashGoalEvaluation, ForecastRun, ForecastRunInput } from "@nevermodel/finance-engine";
+import type { CashGoalBridge, CashGoalEvaluation, ForecastRun, ForecastRunInput } from "@balsa/finance-engine";
 import type { GoalOutlook, GoalVersion } from "./goal-review-contract";
 import type { ScenarioDetail } from "./scenario-changes";
 

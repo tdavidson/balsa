@@ -16,7 +16,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scenario forecast", async () => {
   const { loadScenarioForecast } = await import("./forecast-scenarios");
   const { ScenarioNotFound } = await import("./scenarios");
   const { scenarioChangeToEffect } = await import("./scenario-changes");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const db = getDatabase();
   let companyId = ""; let otherCompanyId = ""; let firstMonth = "";
   const headline = (delta: unknown) => { const value = delta as { horizonEndCash: unknown; cashOutMonth: unknown; runwayMonths: unknown; projectedSpending: unknown; projectedReceipts: unknown }; return { horizonEndCash: value.horizonEndCash, cashOutMonth: value.cashOutMonth, runwayMonths: value.runwayMonths, projectedSpending: value.projectedSpending, projectedReceipts: value.projectedReceipts }; };

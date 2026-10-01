@@ -1,4 +1,4 @@
-import type { Category } from "@nevermodel/finance-engine";
+import type { Category } from "@balsa/finance-engine";
 
 /** Conservative category guess for rows created before categories were persisted. */
 export function legacyCategory(text: string, direction: "receipt" | "spend"): Category | undefined {

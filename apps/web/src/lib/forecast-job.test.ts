@@ -16,7 +16,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast job", async () => {
   const { persistForecastRun } = await import("./forecast-persistence");
   const { FORECAST_LOCK_NAMESPACE, runForecastJob } = await import("./forecast-job");
   const { processCalculationOutboxJob } = await import("./calculation-outbox");
-  const { addMonths, buildForecastRun } = await import("@nevermodel/finance-engine");
+  const { addMonths, buildForecastRun } = await import("@balsa/finance-engine");
   const db = getDatabase();
   let companyId = ""; let itemId = ""; let firstMonth = "";
   const cause = (kind: "entity_changed" | "item_confirmed" | "item_edited", subjectId: string | null) => ({ kind, subjectType: kind === "entity_changed" ? "company" : "economic_item", subjectId, actorUserId: null, via: "worker" as const });

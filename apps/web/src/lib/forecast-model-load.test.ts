@@ -10,7 +10,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 describe.skipIf(!process.env.DATABASE_URL)("forecast model loading", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { closeDatabase, companies, economicItems, forecastDimensions, forecastVariables, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { forecastAsOfMonth, loadForecastInputs, loadForecastModel, resolveDriversForWindow } = await import("./forecast-inputs");
   const db = getDatabase();
   let companyId = ""; let otherId = "";

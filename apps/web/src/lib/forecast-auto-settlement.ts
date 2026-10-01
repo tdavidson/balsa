@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { evidence, factRecords, forecastOccurrences, forecastSettlementAllocations, recordAudit } from "@finance/database";
-import { compatibleCashMovement, settleForecastLines, type CashSettlementInput } from "@nevermodel/finance-engine";
+import { compatibleCashMovement, settleForecastLines, type CashSettlementInput } from "@balsa/finance-engine";
 import type { DbTransaction } from "./db-executor";
 
 export const autoSettlementRuleVersion = "exact-source-fact-2026-09-25.1";

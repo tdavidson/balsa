@@ -1,5 +1,5 @@
 {
-  "name": "@nevermodel/accounting-evals",
+  "name": "@balsa/accounting-evals",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@nevermodel/finance-engine": "workspace:*",
-    "@nevermodel/ingestion": "workspace:*"
+    "@balsa/finance-engine": "workspace:*",
+    "@balsa/ingestion": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.4.1",

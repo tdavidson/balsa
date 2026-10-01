@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { cashCoverageRecords, chartAccounts, evidence, sourceRows } from "@finance/database";
-import { stableJson, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { stableJson, type PostedJournalLine } from "@balsa/finance-engine";
 import type { DbExecutor } from "./db-executor";
 
 export async function loadCoverageSourceState(db: DbExecutor, companyId: string) {

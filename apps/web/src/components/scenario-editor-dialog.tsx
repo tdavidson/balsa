@@ -2,7 +2,7 @@
 
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { categories } from "@nevermodel/finance-engine";
+import { categories } from "@balsa/finance-engine";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

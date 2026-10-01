@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   buildForecastRun, categories, diffForecastRuns, validateModel,
   type Category, type ForecastConsequence, type ForecastDriver, type ForecastMonth, type ForecastRun, type ForecastRunInput, type ForecastRunway,
-} from "@nevermodel/finance-engine";
+} from "@balsa/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import type { DecisionEffect } from "@/lib/decision-effects";
 import { projectDecisionEffect } from "@/lib/decision-driver-effects";

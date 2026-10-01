@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, lte } from "drizzle-orm";
 import { forecastOccurrences, forecastSettlementAllocations, journalEntries } from "@finance/database";
-import { cashMovement, type CashOccurrence, type CashSettlementInput, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { cashMovement, type CashOccurrence, type CashSettlementInput, type PostedJournalLine } from "@balsa/finance-engine";
 import type { DbExecutor } from "./db-executor";
 
 export async function loadSettlementInput(db: DbExecutor, companyId: string, actualLines: PostedJournalLine[], throughDate: string): Promise<CashSettlementInput> {

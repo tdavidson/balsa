@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { chartAccounts, getDatabase, journalBatches, journalEntries, journalLineLineage, journalLines, journalPeriodCloseEntries, journalPeriodClosures, journalPeriodPromotions, recordAudit, reportingPeriods } from "@finance/database";
-import { previewRetainedEarningsClose, type RetainedEarningsClosePreview } from "@nevermodel/finance-engine";
+import { previewRetainedEarningsClose, type RetainedEarningsClosePreview } from "@balsa/finance-engine";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";

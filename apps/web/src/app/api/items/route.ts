@@ -3,7 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { economicItems, entities, evidence, getDatabase, knowledgeDocuments } from "@finance/database";
-import { categories } from "@nevermodel/finance-engine";
+import { categories } from "@balsa/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { commitModelWrite, modelErrorResponse } from "@/lib/forecast-model-http";

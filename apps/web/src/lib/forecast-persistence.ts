@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { calculationNodes, calculationRuns, financialStateRevisions, forecastConsequences, getDatabase } from "@finance/database";
-import { diffForecastRuns, stableJson, type ForecastRun, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { diffForecastRuns, stableJson, type ForecastRun, type ForecastRunInput } from "@balsa/finance-engine";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 
 const forecastEngines = "forecast-run-%";

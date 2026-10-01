@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { decisions, economicItems, getDatabase, recordAudit, scenarios } from "@finance/database";
-import { isCategory, validateModel, type ForecastModel, type ForecastVariable } from "@nevermodel/finance-engine";
+import { isCategory, validateModel, type ForecastModel, type ForecastVariable } from "@balsa/finance-engine";
 import { decisionEffectSchema, describeEffect, parseStoredEffect, type DecisionEffect } from "@/lib/decision-effects";
 import { applyScenarioChanges, describeScenarioChange, effectToScenarioChange, parseStoredChanges, ScenarioChangeInvalid, scenarioChangeToEffect, type ScenarioChange, type ScenarioDetail, type ScenarioSummary } from "@/lib/scenario-changes";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";

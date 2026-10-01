@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
 import { getDatabase, intercompanyAccountMappings, intercompanyEliminationEntries } from "@finance/database";
-import { previewIntercompanyEliminations } from "@nevermodel/finance-engine";
+import { previewIntercompanyEliminations } from "@balsa/finance-engine";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 
 /** Loads approved reciprocal maps and creates a read-only elimination preview. */

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { calculationRuns, companies, getDatabase } from "@finance/database";
-import { forecastFormulaVersion, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { forecastFormulaVersion, type ForecastRunInput } from "@balsa/finance-engine";
 import { compareIds, forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastInputs, loadForecastModel } from "@/lib/forecast-inputs";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import type { DbExecutor } from "@/lib/db-executor";

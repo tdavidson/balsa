@@ -6,7 +6,7 @@
  */
 export async function seedModelCompany(name: string) {
   const { chartAccounts, companies, economicItems, forecastEntryTemplates, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { forecastAsOfMonth } = await import("./forecast-inputs");
   const { createDimension, createVariable } = await import("./forecast-model-store");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");

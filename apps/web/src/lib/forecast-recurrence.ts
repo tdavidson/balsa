@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { evidence, factRecords, forecastOccurrences, forecastRecurrencePolicies, recordAudit } from "@finance/database";
-import { recurrenceDefinition, recurringOccurrences, recurrenceRuleVersion, stableJson, type RecurrenceContext, type RecurrenceDefinition, type RecurrencePolicy, type RecurrenceState } from "@nevermodel/finance-engine";
+import { recurrenceDefinition, recurringOccurrences, recurrenceRuleVersion, stableJson, type RecurrenceContext, type RecurrenceDefinition, type RecurrencePolicy, type RecurrenceState } from "@balsa/finance-engine";
 import { loadHistoryOrigins } from "./forecast-history";
 import type { DbExecutor, DbTransaction } from "./db-executor";
 

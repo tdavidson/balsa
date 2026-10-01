@@ -1,5 +1,5 @@
 {
-  "name": "@nevermodel/finance-engine",
+  "name": "@balsa/finance-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",

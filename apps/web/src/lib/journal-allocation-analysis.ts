@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { allocations, cashEvents, getDatabase } from "@finance/database";
-import { analyzeApprovedAllocations } from "@nevermodel/finance-engine";
+import { analyzeApprovedAllocations } from "@balsa/finance-engine";
 
 /** Load the allocation-control layer for one period without posting it. */
 export async function loadJournalAllocationAnalysis(companyId: string, period: string) {

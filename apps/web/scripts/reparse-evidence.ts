@@ -3,7 +3,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { cashEvents, evidence, factRecords, getDatabase, observations, policies, reviewItems } from "@finance/database";
 import { createModelProvider } from "@finance/model-providers";
-import { expandFinancialFactDates, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey, type TransactionRow } from "@nevermodel/ingestion";
+import { expandFinancialFactDates, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey, type TransactionRow } from "@balsa/ingestion";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 
 config({ path: "../../.env.local" });

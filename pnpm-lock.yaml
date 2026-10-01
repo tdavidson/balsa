@@ -23,10 +23,10 @@ importers:
       '@finance/model-providers':
         specifier: workspace:*
         version: link:../../packages/model-providers
-      '@nevermodel/finance-engine':
+      '@balsa/finance-engine':
         specifier: workspace:*
         version: link:../../packages/finance-engine
-      '@nevermodel/ingestion':
+      '@balsa/ingestion':
         specifier: workspace:*
         version: link:../../packages/ingestion
       better-auth:
@@ -120,10 +120,10 @@ importers:
 
   packages/accounting-evals:
     dependencies:
-      '@nevermodel/finance-engine':
+      '@balsa/finance-engine':
         specifier: workspace:*
         version: link:../finance-engine
-      '@nevermodel/ingestion':
+      '@balsa/ingestion':
         specifier: workspace:*
         version: link:../ingestion
     devDependencies:
@@ -142,7 +142,7 @@ importers:
 
   packages/agent:
     dependencies:
-      '@nevermodel/company-state':
+      '@balsa/company-state':
         specifier: workspace:*
         version: link:../company-state
     devDependencies:

@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq, lte } from "drizzle-orm";
 import { journalEntries, recognitionJournalLinks } from "@finance/database";
-import { stableJson, type PostedJournalLine, type RecognitionProof } from "@nevermodel/finance-engine";
+import { stableJson, type PostedJournalLine, type RecognitionProof } from "@balsa/finance-engine";
 import type { DbExecutor } from "./db-executor";
 export const recognitionJournalHash = (lines: PostedJournalLine[]) => createHash("sha256").update(stableJson([...lines].sort((a, b) => a.id.localeCompare(b.id)))).digest("hex");
 export async function loadRecognitionProofs(db: DbExecutor, companyId: string, throughMonth: string, currency: string, lines: PostedJournalLine[]): Promise<RecognitionProof[]> {

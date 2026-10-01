@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, gte, inArray, like, lte } from "drizzle-orm";
-import { buildProjectedEntries } from "@nevermodel/finance-engine";
+import { buildProjectedEntries } from "@balsa/finance-engine";
 import { getDatabase, journalBatches, journalEntries, journalLines, scenarios } from "@finance/database";
 import { loadForecastDrivers, loadForecastModel, resolveDriversForWindow } from "@/lib/forecast-inputs";
 import { postApprovedJournal, type JournalPostingRequest } from "@/lib/journal-posting";

@@ -18,7 +18,7 @@
 
 ## Global Constraints
 
-- Work in `/Users/taylordavidson/Documents/GitHub/nevermodel` on branch `feature/forecast-consequences`. Commit there and do not push. End every commit message with a trailer that names the implementing model, for example `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`. Implementers do not spawn subagents.
+- Work in `/Users/taylordavidson/Documents/GitHub/balsa` on branch `feature/forecast-consequences`. Commit there and do not push. End every commit message with a trailer that names the implementing model, for example `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`. Implementers do not spawn subagents.
 - TypeScript is strict with `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`. Build optional properties with conditional spreads, and never assign `undefined` to an optional property.
 - Pure modules have no `server-only` import and no DB access, and they get unit tests. Server modules start with `import "server-only"`. The apps/web vitest config aliases `@` to `src` and stubs `server-only`.
 - DB-backed tests follow `apps/web/src/lib/forecast-job.test.ts`:
@@ -30,7 +30,7 @@
 - Nothing inside `runForecastJob`'s transaction may call `getDatabase()`. This plan does not touch that job.
 - Migrations are handwritten SQL plus a `packages/database/drizzle/meta/_journal.json` entry. This plan uses **0074** (`idx` 74, `when` 1789300000037). The later C3 feature takes the next free number after it. Apply with `pnpm --filter @finance/database db:migrate`. No destructive SQL. No new tables, so RLS is unchanged (`scenarios` already has `scenarios_company_scope` from 0070).
 - Verify before every commit:
-  - `pnpm --filter @nevermodel/finance-engine test`
+  - `pnpm --filter @balsa/finance-engine test`
   - `pnpm --filter @finance/web test` (the DB suites must run, not skip)
   - `pnpm -r typecheck`
   - `pnpm --filter @finance/web lint`: the baseline is 10 errors / 13 warnings. Record the counts before Task 1, in case C1 changed them, and add none.
@@ -46,7 +46,7 @@
   - The agent's `simulate` writes nothing.
 
 Commands:
-- Engine: `pnpm --filter @nevermodel/finance-engine test`
+- Engine: `pnpm --filter @balsa/finance-engine test`
 - Web (one file): `pnpm --filter @finance/web test -- <file-stem>`
 - Web (all): `pnpm --filter @finance/web test`
 - `pnpm -r typecheck`
@@ -99,7 +99,7 @@ Commands:
 - Consumes:
   - `projectDecisionEffectOnDrivers(drivers: ForecastDriver[], effect: DecisionEffect, decisionId: string): ForecastDriver[]` (`@/lib/decision-driver-effects`)
   - `type DecisionEffect` (`@/lib/decision-effects`, type-only import)
-  - `buildForecastRun`, `diffForecastRuns`, `categories`, and the types `Category`, `ForecastDriver`, `ForecastRunInput`, `ForecastRun`, `ForecastMonth`, `ForecastRunway`, `ForecastConsequence` (`@nevermodel/finance-engine`)
+  - `buildForecastRun`, `diffForecastRuns`, `categories`, and the types `Category`, `ForecastDriver`, `ForecastRunInput`, `ForecastRun`, `ForecastMonth`, `ForecastRunway`, `ForecastConsequence` (`@balsa/finance-engine`)
   - `type ConsequenceSource` (`@/lib/consequence-copy`)
 - Produces:
   - `type ScenarioChange = { kind: "add_driver"; label: string; direction: "receipt" | "spend"; amount: number; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; category?: Category } | { kind: "change_amount"; itemId: string; amount: number; effectiveFrom: string } | { kind: "end_item"; itemId: string; effectiveTo: string }`
@@ -120,7 +120,7 @@ Commands:
 
 - [ ] **Step 1: Create the shared test fixture.** `apps/web/src/test/forecast-fixture.ts`:
 ```ts
-import { summarizeActualCash, type ForecastAccount, type ForecastDriver, type ForecastRunInput, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { summarizeActualCash, type ForecastAccount, type ForecastDriver, type ForecastRunInput, type PostedJournalLine } from "@balsa/finance-engine";
 
 const accounts: ForecastAccount[] = [
   { accountId: "cash", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
@@ -152,7 +152,7 @@ export function fixtureBaseInput(drivers: ForecastDriver[] = [fixturePayroll]): 
 ```ts
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { buildForecastRun, type ForecastDriver } from "@nevermodel/finance-engine";
+import { buildForecastRun, type ForecastDriver } from "@balsa/finance-engine";
 import { fixtureBaseInput, fixturePayroll } from "@/test/forecast-fixture";
 import { projectDecisionEffectOnDrivers } from "./decision-driver-effects";
 import {
@@ -308,7 +308,7 @@ import { z } from "zod";
 import {
   buildForecastRun, categories, diffForecastRuns,
   type Category, type ForecastConsequence, type ForecastDriver, type ForecastMonth, type ForecastRun, type ForecastRunInput, type ForecastRunway,
-} from "@nevermodel/finance-engine";
+} from "@balsa/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import type { DecisionEffect } from "@/lib/decision-effects";
 import { projectDecisionEffectOnDrivers } from "@/lib/decision-driver-effects";
@@ -543,7 +543,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scenario forecast", async () => {
   const { loadScenarioForecast } = await import("./forecast-scenarios");
   const { ScenarioNotFound } = await import("./scenarios");
   const { scenarioChangeToEffect } = await import("./scenario-changes");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const db = getDatabase();
   let companyId = ""; let otherCompanyId = ""; let firstMonth = "";
   const headline = (delta: unknown) => { const value = delta as { horizonEndCash: unknown; cashOutMonth: unknown; runwayMonths: unknown; projectedSpending: unknown; projectedReceipts: unknown }; return { horizonEndCash: value.horizonEndCash, cashOutMonth: value.cashOutMonth, runwayMonths: value.runwayMonths, projectedSpending: value.projectedSpending, projectedReceipts: value.projectedReceipts }; };
@@ -647,7 +647,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scenario forecast", async () => {
 import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { calculationRuns, companies, getDatabase } from "@finance/database";
-import { forecastFormulaVersion, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { forecastFormulaVersion, type ForecastRunInput } from "@balsa/finance-engine";
 import { compareIds, forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastInputs } from "@/lib/forecast-inputs";
 
 /** Parse the stored input, treating a parse failure or a non-object result as not reusable. */
@@ -745,7 +745,7 @@ export async function loadActiveScenario(companyId: string, scenarioId: string):
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { evidence, getDatabase } from "@finance/database";
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { loadForecastBase } from "@/lib/forecast-base";
 import { loadForecastDrivers } from "@/lib/forecast-inputs";
@@ -844,7 +844,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scenarios", async () => {
   const { forecastAsOfMonth, loadForecastInputs } = await import("./forecast-inputs");
   const { loadScenarioForecast } = await import("./forecast-scenarios");
   const { createScenario, deactivateScenario, listScenarios, loadActiveScenario, promoteScenario, scenarioFromDecision, updateScenario, ScenarioConflict, ScenarioInvalid, ScenarioNotFound } = await import("./scenarios");
-  const { addMonths, buildForecastRun } = await import("@nevermodel/finance-engine");
+  const { addMonths, buildForecastRun } = await import("@balsa/finance-engine");
   const db = getDatabase();
   const companyIds: string[] = [];
   let main = { id: "", firstMonth: "", payrollId: "", softwareId: "" };
@@ -996,7 +996,7 @@ describe.skipIf(!process.env.DATABASE_URL)("scenarios", async () => {
 import "server-only";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { decisions, economicItems, getDatabase, recordAudit, scenarios } from "@finance/database";
-import { isCategory } from "@nevermodel/finance-engine";
+import { isCategory } from "@balsa/finance-engine";
 import { decisionEffectSchema, describeEffect, parseStoredEffect, type DecisionEffect } from "@/lib/decision-effects";
 import { describeScenarioChange, effectToScenarioChange, parseStoredChanges, scenarioChangeToEffect, type ScenarioChange, type ScenarioDetail, type ScenarioSummary } from "@/lib/scenario-changes";
 
@@ -1404,7 +1404,7 @@ describe("simulate tool", () => {
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { evidence, getDatabase } from "@finance/database";
-import type { ForecastConsequence, ForecastRun, ForecastRunInput, ForecastRunway } from "@nevermodel/finance-engine";
+import type { ForecastConsequence, ForecastRun, ForecastRunInput, ForecastRunway } from "@balsa/finance-engine";
 import { describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 import { loadForecastBase } from "@/lib/forecast-base";
 import { loadForecastDrivers } from "@/lib/forecast-inputs";
@@ -1567,7 +1567,7 @@ export function ScenarioVsBaseLine({ forecast, onOpenEvidence }: { forecast: Sce
 
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
-import { categories } from "@nevermodel/finance-engine";
+import { categories } from "@balsa/finance-engine";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -1973,7 +1973,7 @@ Only decisions with a structured effect get the button. The server still answers
       )}
 ```
 
-- [ ] **Step 14: Verify.** Run `pnpm -r typecheck` and `pnpm --filter @finance/web lint`. Expected: typecheck passes, and the lint error and warning counts equal the baseline. If lint flags `react-hooks/set-state-in-effect` on the Step 6 effect, check that no `set…` call runs synchronously in the effect body; the ones inside `.then` are allowed. If it flags the Step 5 mount-effect line, it flags `refreshProposedItems` there too; check whether that was already part of the baseline. Then run `pnpm --filter @finance/web test` and `pnpm --filter @nevermodel/finance-engine test`. Expected: PASS.
+- [ ] **Step 14: Verify.** Run `pnpm -r typecheck` and `pnpm --filter @finance/web lint`. Expected: typecheck passes, and the lint error and warning counts equal the baseline. If lint flags `react-hooks/set-state-in-effect` on the Step 6 effect, check that no `set…` call runs synchronously in the effect body; the ones inside `.then` are allowed. If it flags the Step 5 mount-effect line, it flags `refreshProposedItems` there too; check whether that was already part of the baseline. Then run `pnpm --filter @finance/web test` and `pnpm --filter @balsa/finance-engine test`. Expected: PASS.
 
 - [ ] **Step 15: Smoke test by hand (recommended, not gating).** Run `pnpm --filter @finance/web dev` and open the dashboard of a company with a forecast. Then:
   1. **New scenario:** add an expense, save. The switcher selects it; Runway shows the scenario value with "vs base N mo"; the "… vs base:" line appears; outlined bars sit beside the forecast bars; Cash, Cash in, Cash out, and Net are unchanged.
@@ -2034,7 +2034,7 @@ EOF
 ```
 
 - [ ] **Step 2: Run the final verification.** Run all four Global Constraints commands once more:
-  - `pnpm --filter @nevermodel/finance-engine test`
+  - `pnpm --filter @balsa/finance-engine test`
   - `pnpm --filter @finance/web test`: confirm that `forecast-scenarios`, `scenarios`, and `forecast-preview` ran, not skipped
   - `pnpm -r typecheck`
   - `pnpm --filter @finance/web lint`: at the baseline counts

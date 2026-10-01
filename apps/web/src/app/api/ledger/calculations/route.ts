@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { calculationNodes, calculationRuns, getDatabase } from "@finance/database";
-import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@balsa/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";
 import { loadJournalReport } from "@/lib/journal-ledger";

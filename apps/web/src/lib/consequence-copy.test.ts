@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 import { describeCause, describeConsequence, describeSources, visibleSources } from "./consequence-copy";
 
 const base: ForecastConsequence = {

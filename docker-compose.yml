@@ -1,3 +1,6 @@
+# Keep the existing Compose project and volumes when the checkout is renamed.
+name: nevermodel
+
 services:
   postgres:
     image: postgres:17-alpine

@@ -3,7 +3,7 @@ import { loadRecognitionProofs } from "@/lib/recognition-continuity";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { addMonths, buildProjectedEntries } from "@nevermodel/finance-engine";
+import { addMonths, buildProjectedEntries } from "@balsa/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
 import { loadForecastAccounts, loadForecastDrivers, loadForecastModel, resolveDriversForWindow } from "@/lib/forecast-inputs";
 

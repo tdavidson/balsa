@@ -1,4 +1,4 @@
-<title>nevermodel Design Language</title>
+<title>balsa Design Language</title>
 <style>
   /* Self-hosted variable fonts, shared with the app (apps/web/src/fonts). */
   @font-face { font-family: "Inter"; src: url("../apps/web/src/fonts/InterVariable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
@@ -158,7 +158,7 @@
 <main class="page">
   <header>
     <p class="muted">Design language, approved 5 September 2026</p>
-    <h1 style="margin-top:12px">nevermodel, from the bare bones</h1>
+    <h1 style="margin-top:12px">balsa, from the bare bones</h1>
     <p class="lede">A finance system that reads evidence, drafts a forecast, and asks you to confirm before anything counts. The interface should feel like that: a clean sheet, a pencil draft, and ink once you sign off.</p>
     <div class="thesis">
       <div><strong>Ink</strong><small>Actuals, closed months, and anything you have approved. Full contrast. Solid marks.</small></div>
@@ -170,12 +170,12 @@
 
   <section class="section">
     <h2>Sign in</h2>
-    <p>Nevermodel owns the sign-in interface: a small, left-aligned 384px column centered on the page. The title carries the name rather than a wordmark. Better Auth supplies the local email/password session layer, while the form remains normal Nevermodel markup. Sign in and create-account states are explicit.</p>
+    <p>Balsa owns the sign-in interface: a small, left-aligned 384px column centered on the page. The title carries the name rather than a wordmark. Better Auth supplies the local email/password session layer, while the form remains normal Balsa markup. Sign in and create-account states are explicit.</p>
     <div class="frame">
-      <div class="frame-bar"><i></i><i></i><i></i><span>nevermodel.app/login</span></div>
+      <div class="frame-bar"><i></i><i></i><i></i><span>balsa.app/login</span></div>
       <div class="signin">
         <form onsubmit="return false">
-          <h2>Sign in to Nevermodel</h2>
+          <h2>Sign in to Balsa</h2>
           <p class="sub">A radical approach to an LLM-native financial operating system</p>
           <input class="field" type="email" placeholder="you@company.com" aria-label="Email">
           <button class="btn-primary" type="submit">Send code <span aria-hidden="true">→</span></button>
@@ -191,7 +191,7 @@
     <h2>The app</h2>
     <p>A reading column, not a dashboard. Composer on top. Below it, two blocks separated by rules rather than boxes: what needs you, and where the company stands. Headings and prose are Source Serif 4. Every number, including the large figures, is Inter with tabular numerals, so columns of money always align.</p>
     <div class="frame">
-      <div class="frame-bar"><i></i><i></i><i></i><span>nevermodel.app</span></div>
+      <div class="frame-bar"><i></i><i></i><i></i><span>balsa.app</span></div>
       <div class="ws">
         <div class="ws-top">
           <span class="acct">Northlake Capital <span class="avatar">T</span></span>
@@ -351,7 +351,7 @@
       <tr><td>Fonts</td><td>IBM Plex Mono (local), DM Serif Display, Manrope</td><td>Source Serif 4 and Inter as self-hosted variable WOFF2 files in <code>src/fonts</code>, roman only, loaded with <code>next/font/local</code>. No font CDN, no italics.</td></tr>
       <tr><td>Theme</td><td>next-themes with a three-way icon button in the top bar; dark styles duplicated per component</td><td>next-themes kept. Tokens redefined once under <code>.dark</code>. Segmented light / dark / system control in the account menu and on the sign-in page.</td></tr>
       <tr><td>Routes</td><td><code>/</code> sign-in, <code>/sign-in</code> redirect, <code>/sign-up</code> embedded provider, <code>/workspace</code></td><td><code>/login</code> sign-in, <code>/</code> the app. Signed-out visits to <code>/</code> go to <code>/login</code>; signed-in visits to <code>/login</code> go to <code>/</code>. The three old routes are deleted.</td></tr>
-      <tr><td>Auth UI</td><td>Hosted provider forms with appearance overrides</td><td>Nevermodel-owned Better Auth email/password form. Server auth, middleware, and company provisioning remain behind the app boundary.</td></tr>
+      <tr><td>Auth UI</td><td>Hosted provider forms with appearance overrides</td><td>Balsa-owned Better Auth email/password form. Server auth, middleware, and company provisioning remain behind the app boundary.</td></tr>
       <tr><td>Top bar</td><td>Wordmark, theme toggle, help popover, provider profile menu</td><td>Company name and avatar, right-aligned. The menu holds the theme control, company settings, and sign out.</td></tr>
       <tr><td>App page</td><td>Greeting, orb, four bordered metric cells, forecast bars in four colours</td><td>Composer, “Waiting on you”, month figures in the sans, ink and pencil chart. Same data, same API calls.</td></tr>
     </table>
@@ -361,7 +361,7 @@
   <section class="section">
     <h2>Decisions</h2>
     <div class="decisions">
-      <div class="decision"><i class="done"></i><div><strong>Use Better Auth behind Nevermodel UI</strong><p>Completed. The login screen and sessions are provider-neutral at the application boundary.</p></div></div>
+      <div class="decision"><i class="done"></i><div><strong>Use Better Auth behind Balsa UI</strong><p>Completed. The login screen and sessions are provider-neutral at the application boundary.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Light, dark, and system theme</strong><p>Confirmed. Control lives in the account menu and on the sign-in page, not in the top bar.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Keep Tailwind and shadcn, wire them properly</strong><p>Confirmed. Tokens in <code>@theme</code>, shadcn variables mapped to them.</p></div></div>
       <div class="decision"><i class="done"></i><div><strong>Source Serif 4 and Inter, sans for all numbers</strong><p>Confirmed. Weights 400 and 500 only, tight tracking.</p></div></div>

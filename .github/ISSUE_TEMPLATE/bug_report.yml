@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Nevermodel
+description: Report a reproducible problem in Balsa
 title: "[Bug]: "
 labels: [bug]
 body:

@@ -1,4 +1,4 @@
-import type { EntryBasis } from "@nevermodel/finance-engine";
+import type { EntryBasis } from "@balsa/finance-engine";
 
 const passthrough = ["actual", "scenario", "adjustment", "elimination", "translation"] as const;
 

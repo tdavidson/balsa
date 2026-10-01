@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { approvalEvents, chartAccounts, decisions, entities, evidence, factRecords, fxRates, fxRateSets, getDatabase, journalBatches, journalEntries, journalLines, policies, postingProposals, recordAudit, reportingPeriods, scenarios, sourceRows, sources } from "@finance/database";
-import { convertMinorAtFxRate, selectApprovedFxRate, validateJournalEntry, type JournalLineInput } from "@nevermodel/finance-engine";
+import { convertMinorAtFxRate, selectApprovedFxRate, validateJournalEntry, type JournalLineInput } from "@balsa/finance-engine";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { validatePostingActivity } from "@/lib/posting-controls";
 import { hasPostingBasis } from "@/lib/posting-basis";

@@ -1,4 +1,4 @@
-import { addMonths, type ForecastDriver, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { addMonths, type ForecastDriver, type ForecastRunInput } from "@balsa/finance-engine";
 import type { DecisionEffect } from "@/lib/decision-effects";
 import { amountToMinor } from "@/lib/forecast-drivers";
 import { emptyModel, withDimension, withVariable } from "@/lib/forecast-model-rows";

@@ -74,14 +74,14 @@ function databaseClient() {
   return client;
 }
 
-/** The provider database is isolated from Nevermodel's application-user tables. */
+/** The provider database is isolated from Balsa's application-user tables. */
 export const betterAuthServer = configuredAuthMode() === "better-auth"
   ? betterAuth({
     database: databaseClient(),
     baseURL,
     trustedOrigins: [...new Set([baseURL, ...configuredOrigins])],
     secret: secret!,
-    // Nevermodel uses snake_case SQL columns. Keep Better Auth's public API in
+    // Balsa uses snake_case SQL columns. Keep Better Auth's public API in
     // its native camelCase while mapping its core models to that schema.
     user: { fields: { emailVerified: "email_verified", createdAt: "created_at", updatedAt: "updated_at" } },
     session: { fields: { expiresAt: "expires_at", createdAt: "created_at", updatedAt: "updated_at", ipAddress: "ip_address", userAgent: "user_agent", userId: "user_id" } },

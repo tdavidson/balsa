@@ -14,7 +14,7 @@ describe.skipIf(!process.env.DATABASE_URL)("loadRecentConsequences sources", asy
   const { chartAccounts, closeDatabase, companies, economicItems, evidence, forecastEntryTemplates, getDatabase, users } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { forecastAsOfMonth } = await import("./forecast-inputs");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { loadRecentConsequences } = await import("./forecast-read");
   const db = getDatabase();
   let companyId = ""; let otherCompanyId = ""; let userId = ""; let firstMonth = "";

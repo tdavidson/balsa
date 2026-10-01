@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { cashGoalVersions, companies, evidence, financialReviewSnapshots, financialReviewPreferences, getDatabase, journalLines, recordAudit, setCompanyScopeSql } from "@finance/database";
-import { buildCashGoalBridge, buildForecastRun, cashGoalChange, evaluateCashGoal, stableJson } from "@nevermodel/finance-engine";
+import { buildCashGoalBridge, buildForecastRun, cashGoalChange, evaluateCashGoal, stableJson } from "@balsa/finance-engine";
 import type { DbExecutor, DbTransaction } from "./db-executor";
 import { loadForecastInputs } from "./forecast-inputs";
 import { persistForecastRun } from "./forecast-persistence";

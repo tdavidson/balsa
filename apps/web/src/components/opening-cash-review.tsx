@@ -1,4 +1,4 @@
-import type { OpeningCashReview } from "@nevermodel/finance-engine";
+import type { OpeningCashReview } from "@balsa/finance-engine";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function exactMoney(value: string | null | undefined, currency: string) {

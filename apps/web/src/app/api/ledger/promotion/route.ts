@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { calculationRuns, getDatabase, journalPeriodPromotions } from "@finance/database";
-import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@balsa/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";

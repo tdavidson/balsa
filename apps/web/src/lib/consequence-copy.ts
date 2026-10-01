@@ -1,4 +1,4 @@
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 
 /** A driver's or item's supporting document: the evidence id it links to, and its resolved name (company-scoped). */
 export type ConsequenceSource = { evidenceId: string; sourceName: string | null };

@@ -1,5 +1,5 @@
 import "server-only";
-import { endingCashMinor as computeEndingCashMinor, type CurrencyJournalStatements, JournalStatementSelection } from "@nevermodel/finance-engine";
+import { endingCashMinor as computeEndingCashMinor, type CurrencyJournalStatements, JournalStatementSelection } from "@balsa/finance-engine";
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadLatestForecast, type LatestForecast } from "@/lib/forecast-read";
 

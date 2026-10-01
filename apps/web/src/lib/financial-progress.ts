@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { chartAccounts, journalEntries, recognitionJournalLinks, decisions, evidence, financialReviewSnapshots, forecastReviewCommands, getDatabase, goalDecisionReviews, recordAudit, setCompanyScopeSql } from "@finance/database";
-import { buildWeeklyCash, buildCashGoalBridge, buildForecastRun, evaluateCashGoal, isValidMonth, stableJson, summarizeActualCash } from "@nevermodel/finance-engine";
+import { buildWeeklyCash, buildCashGoalBridge, buildForecastRun, evaluateCashGoal, isValidMonth, stableJson, summarizeActualCash } from "@balsa/finance-engine";
 import { captureOutlook, GoalReviewError, loadGoalReviewWith, previewToken } from "./goal-reviews";
 import type { GoalOutlook, SavedGoalSnapshot } from "./goal-review-contract";
 import { loadForecastReconciliationWith } from "./forecast-reconciliation";

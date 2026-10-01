@@ -1,4 +1,4 @@
-import { summarizeActualCash, type ForecastAccount, type ForecastDriver, type ForecastRunInput, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { summarizeActualCash, type ForecastAccount, type ForecastDriver, type ForecastRunInput, type PostedJournalLine } from "@balsa/finance-engine";
 
 const accounts: ForecastAccount[] = [
   { accountId: "cash", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },

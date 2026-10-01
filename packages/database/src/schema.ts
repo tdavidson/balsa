@@ -205,7 +205,7 @@ export const users = pgTable(
 
 /**
  * Better Auth owns credential and session data. These tables intentionally
- * remain separate from `users`, which is Nevermodel's application identity and
+ * remain separate from `users`, which is Balsa's application identity and
  * company-membership anchor.
  */
 export const betterAuthUsers = pgTable("user", {

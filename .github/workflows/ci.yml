@@ -22,11 +22,11 @@ jobs:
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
-          POSTGRES_DB: nevermodel_ci
+          POSTGRES_DB: balsa_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci -d nevermodel_ci"
+          --health-cmd "pg_isready -U ci -d balsa_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -45,13 +45,13 @@ jobs:
       # so the row level security policies under test exist.
       - run: pnpm db:migrate
         env:
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/balsa_ci
       - run: pnpm test
         env:
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/balsa_ci
       - run: pnpm build
         env:
           AUTH_MODE: disabled
           ALLOW_AUTH_DISABLED: "true"
           LOCAL_OWNER_EMAIL: ci@localhost
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/nevermodel_ci_build
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/balsa_ci_build

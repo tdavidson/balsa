@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq, lte } from "drizzle-orm";
 import { economicItems, evidence, journalEntries } from "@finance/database";
-import { stableJson, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { stableJson, type PostedJournalLine } from "@balsa/finance-engine";
 import { loadPostedJournalLines } from "./journal-ledger";
 import type { DbExecutor } from "./db-executor";
 export const historyRuleVersion = "approved-history-median-2026-09-25.1";
