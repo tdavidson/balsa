@@ -2,7 +2,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { entities } from "@finance/database";
 import type { ModelProvider } from "@finance/model-providers";
-import { categories, isCategory, type Category } from "@nevermodel/finance-engine";
+import { categories, isCategory, type Category } from "@balsa/finance-engine";
 import { legacyCategory } from "./categories";
 import type { DbExecutor } from "@/lib/db-executor";
 

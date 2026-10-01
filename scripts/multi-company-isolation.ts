@@ -1,7 +1,7 @@
 /**
  * Black-box acceptance for local multi-company isolation.
  *
- * Runs against a live Nevermodel (BASE_URL, default http://localhost:3000) and
+ * Runs against a live Balsa (BASE_URL, default http://localhost:3000) and
  * proves the local multi-company acceptance gate: two clean
  * companies, repeated switching, no state or blob leakage, and cookies that are
  * a preference and never authorization.
@@ -159,7 +159,7 @@ function assertAbsent(snapshot: Record<string, string>, needles: string[], label
 }
 
 /** Derived from the label so an owner can add an address before anyone has registered it. */
-const addressFor = (label: string) => `isolation-${label}-${token}@nevermodel.test`;
+const addressFor = (label: string) => `isolation-${label}-${token}@balsa.test`;
 
 const signUpBody = (label: string, email: string) => ({ name: `Isolation ${label}`, email, password: `Isolation-${token}-passphrase` });
 
@@ -187,7 +187,7 @@ async function main() {
     // The passcode is the whole registration gate: an unauthenticated stranger
     // must not be able to create an identity on this installation at all.
     const stranger = browser("stranger");
-    const denied = await json(stranger, "/api/auth/sign-up/email", { method: "POST", json: signUpBody("stranger", `isolation-stranger-${token}@nevermodel.test`) });
+    const denied = await json(stranger, "/api/auth/sign-up/email", { method: "POST", json: signUpBody("stranger", `isolation-stranger-${token}@balsa.test`) });
     assert(denied.status === 403, `Sign-up without the sign-up code returned ${denied.status}, expected 403`);
     assert(stranger.jar.size === 0, "A rejected sign-up still returned a session cookie");
     pass("signing up without the sign-up code is rejected (403) and sets no session cookie");

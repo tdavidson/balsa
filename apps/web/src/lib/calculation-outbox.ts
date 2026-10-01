@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, lt, or } from "drizzle-orm";
 import { calculationOutbox, companies, getDatabase } from "@finance/database";
-import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, journalCalculationFormulaVersion } from "@balsa/finance-engine";
 import { runForecastJob } from "@/lib/forecast-job";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";

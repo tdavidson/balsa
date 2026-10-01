@@ -48,7 +48,7 @@ export function UserSettingsDialog({ open, onOpenChange, user, localOnly }: User
           <DialogDescription>
             {localOnly
               ? "This is the persisted user profile for this installation. Environment values are used only when it is first created."
-              : "This changes your Nevermodel display profile. Authentication credentials are managed separately."}
+              : "This changes your Balsa display profile. Authentication credentials are managed separately."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">

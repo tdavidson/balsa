@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { evidence, getDatabase } from "@finance/database";
-import type { ForecastConsequence, ForecastRun, ForecastRunInput, ForecastRunway } from "@nevermodel/finance-engine";
+import type { ForecastConsequence, ForecastRun, ForecastRunInput, ForecastRunway } from "@balsa/finance-engine";
 import { describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 import { loadForecastBase, loadForecastBaseWith } from "@/lib/forecast-base";
 import { loadForecastDrivers } from "@/lib/forecast-inputs";

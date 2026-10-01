@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { categories } from "@nevermodel/finance-engine";
+import { categories } from "@balsa/finance-engine";
 import { auth, requireCompanyAccess } from "@/lib/auth";
 import { PreviewConflict, previewForecastChange, type ForecastPreviewChange } from "@/lib/forecast-preview";
 

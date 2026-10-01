@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { buildForecastRun, type ForecastDriver } from "@nevermodel/finance-engine";
+import { buildForecastRun, type ForecastDriver } from "@balsa/finance-engine";
 import { fixtureBaseInput, fixturePayroll } from "@/test/forecast-fixture";
 import { projectDecisionEffectOnDrivers } from "./decision-driver-effects";
 import {

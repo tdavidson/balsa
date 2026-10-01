@@ -1,4 +1,4 @@
-import type { CompanyState } from "@nevermodel/company-state";
+import type { CompanyState } from "@balsa/company-state";
 
 export type AgentContext = {
   companyId: string;

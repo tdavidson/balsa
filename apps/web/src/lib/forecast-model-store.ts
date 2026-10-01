@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { companies, decisions, economicItems, forecastDimensions, forecastVariables, getDatabase } from "@finance/database";
-import { addMonths, evaluateFormula, evaluateModel, formatDecimal, monthRange, validateModel, type ForecastModel, type ModelIssue } from "@nevermodel/finance-engine";
+import { addMonths, evaluateFormula, evaluateModel, formatDecimal, monthRange, validateModel, type ForecastModel, type ModelIssue } from "@balsa/finance-engine";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 import { forecastAsOfMonth } from "@/lib/forecast-inputs";
 import { emptyModel, mergeModelDraft, rowsToModel, variableFromDraft, withDimension, withoutDimension, withVariable, withoutVariable, type DimensionDraft, type ModelDraft, type VariableDraft } from "@/lib/forecast-model-rows";

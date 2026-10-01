@@ -1,5 +1,5 @@
-import { buildForecastRun, buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, diffForecastRuns, selectApprovedFxRate, summarizeActualCash, type PostedJournalLine } from "@nevermodel/finance-engine";
-import { detectSourceCurrencies, normalizeTransactions } from "@nevermodel/ingestion";
+import { buildForecastRun, buildJournalStatements, buildProjectedEntries, buildTrialBalance, convertMinorAtFxRate, diffForecastRuns, selectApprovedFxRate, summarizeActualCash, type PostedJournalLine } from "@balsa/finance-engine";
+import { detectSourceCurrencies, normalizeTransactions } from "@balsa/ingestion";
 
 export type AccountingEvalStage = "extraction" | "journal" | "financial_statements" | "forecasting" | "provenance" | "fx";
 export type AccountingEval = { id: string; stage: AccountingEvalStage; reason: string; execute: () => string[] };

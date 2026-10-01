@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ForecastDriver } from "@nevermodel/finance-engine";
+import type { ForecastDriver } from "@balsa/finance-engine";
 import { fixtureBaseInput } from "@/test/forecast-fixture";
 import { projectDecisionEffect, projectDecisionEffectOnDrivers } from "./decision-driver-effects";
 

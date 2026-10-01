@@ -16,7 +16,7 @@ monthly amount from a formula, so a change carries through:
 headcount → payroll → payroll tax → cash. That in turn moves runway and
 shows up in consequences and previews.
 
-This is Reambase's lesson, rebuilt inside Nevermodel's own deterministic
+This is Reambase's lesson, rebuilt inside Balsa's own deterministic
 engine. Formulas are parsed by our own grammar and are never evaluated as
 JavaScript.
 

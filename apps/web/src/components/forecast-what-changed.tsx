@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 import { SourceLinks } from "@/components/source-links";
 import { describeCause, describeConsequence, type ConsequenceSource } from "@/lib/consequence-copy";
 

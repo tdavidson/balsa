@@ -1,12 +1,13 @@
 "use client";
 
+import { BalsaIcon } from "@/components/balsa-icon";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 /**
- * Nevermodel-owned password sign-in. Better Auth handles credentials and session
+ * Balsa-owned password sign-in. Better Auth handles credentials and session
  * cookies; this screen deliberately remains application UI rather than a
  * hosted identity widget.
  */
@@ -49,11 +50,12 @@ export function LoginForm({ allowSignUp, requireSignUpCode }: { allowSignUp: boo
 
   return (
     <form className="grid w-full max-w-[384px] gap-2" onSubmit={submit} noValidate>
+      <BalsaIcon className="mb-3 h-16 w-auto text-ink" />
       <h1 className="display text-[32px] leading-[1.15]" style={{ fontVariationSettings: '"opsz" 32' }}>
-        Sign in to Nevermodel
+        Sign in to Balsa
       </h1>
       <p className="mb-5 text-ink-2">
-        {mode === "sign-in" ? "Sign in to continue working with your company’s financial system." : "Create the first sign-in for this Nevermodel installation."}
+        {mode === "sign-in" ? "Sign in to continue working with your company’s financial system." : "Create the first sign-in for this Balsa installation."}
       </p>
 
       {mode === "sign-up" && (
@@ -134,7 +136,7 @@ export function LoginForm({ allowSignUp, requireSignUpCode }: { allowSignUp: boo
 }
 
 const field =
-  "nevermodel-auth-field h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus:bg-background focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
+  "balsa-auth-field h-[52px] w-full rounded-lg border border-input bg-background px-4 text-[17px] text-ink outline-none transition-colors placeholder:text-pencil focus:border-ink focus:bg-background focus-visible:ring-2 focus-visible:ring-ink/20 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-60";
 
 function describe(error: { message?: string | undefined; longMessage?: string | undefined } | null): string {
   return error?.longMessage ?? error?.message ?? "Something went wrong. Try again.";

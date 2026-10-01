@@ -1,7 +1,7 @@
 import "server-only";
 import { calculationOutbox, companies, financialStateRevisions, getDatabase, journalEntries } from "@finance/database";
 import { and, eq, sql } from "drizzle-orm";
-import { forecastFormulaVersion, journalCalculationFormulaVersion } from "@nevermodel/finance-engine";
+import { forecastFormulaVersion, journalCalculationFormulaVersion } from "@balsa/finance-engine";
 import { processCalculationOutboxJob } from "@/lib/calculation-outbox";
 import type { RevisionCause } from "@/lib/revision-cause";
 import type { DbTransaction } from "@/lib/db-executor";

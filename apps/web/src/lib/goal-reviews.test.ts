@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildForecastRun, evaluateCashGoal, type CashGoal } from "@nevermodel/finance-engine";
+import { buildForecastRun, evaluateCashGoal, type CashGoal } from "@balsa/finance-engine";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)), quiet: true });
 config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)), quiet: true });

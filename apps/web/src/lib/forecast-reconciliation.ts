@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { cashCoverageRecords, economicItems, forecastEntryTemplates, evidence, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, forecastSettlementAllocations, getDatabase, recordAudit, setCompanyScopeSql } from "@finance/database";
-import { addMonths, suggestCashMatches, buildForecastedCloses, buildForecastRun, cashMovement, compatibleCashMovement, stableJson, recurrenceDefinition, type CashOccurrence } from "@nevermodel/finance-engine";
+import { addMonths, suggestCashMatches, buildForecastedCloses, buildForecastRun, cashMovement, compatibleCashMovement, stableJson, recurrenceDefinition, type CashOccurrence } from "@balsa/finance-engine";
 import { historyRuleVersion, historySourceHash } from "./forecast-history";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import type { DbExecutor } from "./db-executor";

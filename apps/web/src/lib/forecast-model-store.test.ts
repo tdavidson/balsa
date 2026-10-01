@@ -2,7 +2,7 @@ import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)) });
@@ -11,7 +11,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 describe.skipIf(!process.env.DATABASE_URL)("forecast model store", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { calculationOutbox, closeDatabase, companies, decisions, economicItems, financialStateRevisions, forecastVariables, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { seedModelCompany } = await import("./forecast-model-fixture");
   const store = await import("./forecast-model-store");
   const { loadForecastInputs, loadForecastModel } = await import("./forecast-inputs");

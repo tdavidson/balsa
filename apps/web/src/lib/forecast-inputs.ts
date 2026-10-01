@@ -2,7 +2,7 @@ import "server-only";
 import { loadRecognitionProofs } from "./recognition-continuity";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { rowsToModel } from "@/lib/forecast-model-rows";

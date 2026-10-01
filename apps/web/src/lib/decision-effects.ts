@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { assumptions, cashEvents, decisionEffectApplications, decisions, economicItems, entities, getDatabase, knowledgeDocuments, recordAudit, reviewItems } from "@finance/database";
-import { addMonths, categories, isValidMonth } from "@nevermodel/finance-engine";
+import { addMonths, categories, isValidMonth } from "@balsa/finance-engine";
 import { resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
 import { getOrCreateActiveScenario } from "@/lib/scenario-name-lock";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";

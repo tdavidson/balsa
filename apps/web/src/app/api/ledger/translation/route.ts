@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { chartAccounts, fxRates, fxRateSets, fxTranslationPolicies, getDatabase } from "@finance/database";
-import { buildJournalCalculationGraph, buildJournalStatements, buildTrialBalance, translateJournalLines } from "@nevermodel/finance-engine";
+import { buildJournalCalculationGraph, buildJournalStatements, buildTrialBalance, translateJournalLines } from "@balsa/finance-engine";
 import { requireCompanyAccess } from "@/lib/auth";
 import { loadConsolidatedJournalReport } from "@/lib/consolidated-journal-report";
 import { persistJournalCalculationGraph } from "@/lib/journal-calculation-graph";

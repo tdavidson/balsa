@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { chartAccounts, fxRateSets, fxRates, fxRemeasurementEntries, fxTranslationPolicies, getDatabase, journalBatches, journalEntries, journalLineLineage, journalLines, reportingPeriods } from "@finance/database";
-import { remeasureForeignMonetaryBalance, validateJournalEntry, type FxRateObservation } from "@nevermodel/finance-engine";
+import { remeasureForeignMonetaryBalance, validateJournalEntry, type FxRateObservation } from "@balsa/finance-engine";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 

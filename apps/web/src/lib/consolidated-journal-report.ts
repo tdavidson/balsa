@@ -1,5 +1,5 @@
 import "server-only";
-import { buildConsolidatedJournalReport } from "@nevermodel/finance-engine";
+import { buildConsolidatedJournalReport } from "@balsa/finance-engine";
 import { loadEntityStructure } from "@/lib/entity-structure";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 

@@ -4,7 +4,7 @@ import { cashEvents, decisions, entities, evidence, factRecords, getDatabase, in
 import { and, eq, inArray, desc, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { requireCompanyAccess } from "@/lib/auth";
-import { adaptTransactionRows, classifySource, detectSourceCurrencies, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@nevermodel/ingestion";
+import { adaptTransactionRows, classifySource, detectSourceCurrencies, normalizeTransactions, parseCsvRows, parseOfx, transactionExternalKey } from "@balsa/ingestion";
 import { classifyCashActivity } from "@/lib/financial-events";
 import { storeSourceBlob } from "@/lib/blob-store";
 import { classifyWithCompanyPolicy } from "@/lib/company-policy-engine";

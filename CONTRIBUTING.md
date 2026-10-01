@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Nevermodel. Contributions are welcome, especially
+Thanks for helping improve Balsa. Contributions are welcome, especially
 those that make financial outputs more correct, traceable, secure, and useful.
 
 ## Before you start
@@ -65,7 +65,7 @@ whether AI proposes the result or deterministic code authorizes and calculates i
 
 ## Licensing
 
-Nevermodel is licensed under the [Apache License 2.0](LICENSE). Under Section 5,
+Balsa is licensed under the [Apache License 2.0](LICENSE). Under Section 5,
 contributions intentionally submitted for inclusion are provided under the same
 terms unless explicitly stated otherwise. No separate CLA is required.
 

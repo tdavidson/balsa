@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, or } from "drizzle-orm";
 import { chartAccounts, evidence, sources } from "@finance/database";
-import { addMonths, reconcileOpeningCash, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { addMonths, reconcileOpeningCash, type PostedJournalLine } from "@balsa/finance-engine";
 import { chartAccountToForecastAccount } from "./forecast-drivers";
 import type { DbExecutor } from "./db-executor";
 

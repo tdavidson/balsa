@@ -1,7 +1,7 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { companies, getDatabase } from "@finance/database";
-import { buildForecastRun } from "@nevermodel/finance-engine";
+import { buildForecastRun } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { loadForecastInputs } from "@/lib/forecast-inputs";
 import { persistForecastRun, recordForecastConsequence } from "@/lib/forecast-persistence";

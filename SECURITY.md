@@ -12,12 +12,12 @@ investigate and release a fix before public disclosure.
 
 ## Supported versions
 
-Nevermodel is pre-release software. Security fixes are applied to the latest
+Balsa is pre-release software. Security fixes are applied to the latest
 commit on `main`; older commits and forks are not maintained by the project.
 
 ## Deployment responsibility
 
-Nevermodel processes sensitive financial information. Operators are responsible
+Balsa processes sensitive financial information. Operators are responsible
 for securing their deployment, database, object storage, model-provider keys,
 network access, backups, and retention policies.
 

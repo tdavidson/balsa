@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { cashEvents, decisions, economicItems, entities, evidence, factRecords, getDatabase, knowledgeDocuments, openingPositions, policies, reportingPeriods, reviewItems } from "@finance/database";
-import { transactionExternalKey } from "@nevermodel/ingestion";
+import { transactionExternalKey } from "@balsa/ingestion";
 import type { ApplicationContext } from "@finance/auth";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";

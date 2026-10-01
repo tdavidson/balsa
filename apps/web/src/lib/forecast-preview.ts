@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { decisions, economicItems, evidence, getDatabase } from "@finance/database";
-import { buildForecastRun, diffForecastRuns } from "@nevermodel/finance-engine";
+import { buildForecastRun, diffForecastRuns } from "@balsa/finance-engine";
 import type { ConsequenceSource } from "@/lib/consequence-copy";
 import { parseStoredEffect } from "@/lib/decision-effects";
 import { projectDecisionEffect } from "@/lib/decision-driver-effects";

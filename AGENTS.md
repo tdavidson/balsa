@@ -1,4 +1,4 @@
-# Nevermodel agent guide
+# Balsa agent guide
 
 This file is the operating contract for coding agents working in this repository.
 Read it before changing code. More detailed setup instructions live in

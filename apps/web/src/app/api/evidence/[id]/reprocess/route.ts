@@ -3,7 +3,7 @@ import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { cashEvents, companies, economicItems, entities, evidence, factRecords, getDatabase, ingestionRuns, observations, policies, reviewItems, sources } from "@finance/database";
-import { classifySource, detectSourceCurrencies, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, type PdfExtractionQuality } from "@nevermodel/ingestion";
+import { classifySource, detectSourceCurrencies, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, type PdfExtractionQuality } from "@balsa/ingestion";
 import { requireCompanyAccess } from "@/lib/auth";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";

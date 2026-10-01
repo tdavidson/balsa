@@ -4,7 +4,7 @@ import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, Fil
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { CompanyRole } from "@finance/auth";
-import type { ForecastRunway } from "@nevermodel/finance-engine";
+import type { ForecastRunway } from "@balsa/finance-engine";
 import { AccountMenu } from "@/components/account-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -1546,9 +1546,9 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               collectFiles(event.dataTransfer.files);
             }}
           >
-            <label htmlFor="nevermodel-message" className="sr-only">What should we work on?</label>
+            <label htmlFor="balsa-message" className="sr-only">What should we work on?</label>
             <textarea
-              id="nevermodel-message"
+              id="balsa-message"
               ref={composerInput}
               className="prose-serif max-h-[60vh] min-h-[72px] w-full resize-none overflow-y-auto bg-transparent text-[19px] leading-[1.45] text-ink outline-none placeholder:text-pencil"
               style={{ fontVariationSettings: '"opsz" 19' }}
@@ -1655,7 +1655,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
             </div>
             {siteUrl && (
               <a href={siteUrl} target="_blank" rel="noreferrer" className={quietButton}>
-                <CircleHelp className="size-3.5" aria-hidden="true" /> How Nevermodel works
+                <CircleHelp className="size-3.5" aria-hidden="true" /> How Balsa works
               </a>
             )}
           </div>
@@ -2243,7 +2243,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                   <div className="grid min-w-0 gap-1 overflow-hidden"><div className="break-words text-[17px] text-ink [overflow-wrap:anywhere]">{item.extraction?.summary ?? item.sourceName}</div><div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-2"><span className="max-w-full break-words [overflow-wrap:anywhere]">{item.sourceName}{item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""} · {item.ingestionStatus ?? item.status}</span>{item.ingestionError ? <span className="max-w-full break-words text-red-ink [overflow-wrap:anywhere]" title={item.ingestionError}>{readableProcessingError(item.ingestionError)}</span> : null}{item.storageReference ? <><span className="text-ink">Original stored</span><a className="underline underline-offset-2" href={`/api/evidence/${item.id}/file`}>Download original</a><button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => reprocessEvidence(item)} disabled={reprocessingEvidenceId === item.id}>{reprocessingEvidenceId === item.id ? "Reprocessing…" : "Reprocess original"}</button></> : <span className="text-red-ink">Original not stored</span>}</div>{item.sourceMetadata?.pdfQuality?.status !== "good" && item.sourceMetadata?.pdfQuality?.warnings?.length ? <div className="mt-2 max-w-full break-words rounded-lg border border-red-ink/30 bg-red-ink/5 p-3 text-[13px] text-red-ink [overflow-wrap:anywhere]"><span className="font-medium">PDF extraction needs review.</span> {item.sourceMetadata.pdfQuality.warnings.join(" ")}</div> : null}</div>
                   {isReferenceModel && <section className="grid gap-4 rounded-lg border border-rule bg-rule/30 p-4" aria-label="Reference-model review">
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="grid gap-1"><span className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Reference financial model</span><h3 className="text-[16px] font-medium text-ink">Workbook review</h3><p className="max-w-[62ch] text-[13px] leading-5 text-ink-2">This file is onboarding context: it can teach Nevermodel the company&apos;s structure, periods, and drivers. Its formulas and outputs are never posted as actuals or treated as verified financial results.</p></div>
+                      <div className="grid gap-1"><span className="text-[11px] uppercase tracking-[0.12em] text-ink-2">Reference financial model</span><h3 className="text-[16px] font-medium text-ink">Workbook review</h3><p className="max-w-[62ch] text-[13px] leading-5 text-ink-2">This file is onboarding context: it can teach Balsa the company&apos;s structure, periods, and drivers. Its formulas and outputs are never posted as actuals or treated as verified financial results.</p></div>
                       <Button type="button" variant="outline" className="cursor-pointer rounded-full" onClick={() => reviewReferenceModel(item)}>Review in chat</Button>
                     </div>
                     {workbook ? <>

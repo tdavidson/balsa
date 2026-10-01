@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { calculationNodes, calculationRuns, getDatabase } from "@finance/database";
-import { journalCalculationFormulaVersion, stableJson, type JournalCalculationGraph } from "@nevermodel/finance-engine";
+import { journalCalculationFormulaVersion, stableJson, type JournalCalculationGraph } from "@balsa/finance-engine";
 
 /** Persist journal math separately from the legacy schedule/cash calculation engine. */
 export async function persistJournalCalculationGraph(input: {

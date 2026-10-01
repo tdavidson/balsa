@@ -59,7 +59,7 @@ If a landed signature differs, adapt the call and keep the behavior this plan de
 - If behavior ends up differing from the spec, update the spec (Task 8, final step).
 
 Commands:
-- Engine: `pnpm --filter @nevermodel/finance-engine test`
+- Engine: `pnpm --filter @balsa/finance-engine test`
 - Web: `pnpm --filter @finance/web test`
 - Types: `pnpm -r typecheck`
 - Lint: `pnpm --filter @finance/web lint`
@@ -135,7 +135,7 @@ Commands:
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces (exported from `@nevermodel/finance-engine`):
+- Produces (exported from `@balsa/finance-engine`):
   - `modelScale: bigint`, `modelValueCap: bigint`, `modelLimits`, `defaultModelMonthCount: number`, `modelFunctionNames`
   - `type ModelReducer = "sum" | "avg" | "min" | "max"`
   - `isModelIdentifier(value: string): boolean`
@@ -286,7 +286,7 @@ describe("formula parser", () => {
 ```
 
 - [ ] **Step 2: Run the tests to confirm they fail.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test forecast-model.test`
+  - Run: `pnpm --filter @balsa/finance-engine test forecast-model.test`
   - Expected: FAIL with `Failed to resolve import "./forecast-model"`.
 
 - [ ] **Step 3: Implement.** Create `packages/finance-engine/src/forecast-model.ts`:
@@ -524,9 +524,9 @@ export * from "./forecast-model";
 ```
 
 - [ ] **Step 4: Run the tests to confirm they pass.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test forecast-model.test`
+  - Run: `pnpm --filter @balsa/finance-engine test forecast-model.test`
   - Expected: PASS, with all `model decimals`, `formula tokenizer`, and `formula parser` tests green.
-  - Then run: `pnpm --filter @nevermodel/finance-engine typecheck`
+  - Then run: `pnpm --filter @balsa/finance-engine typecheck`
   - Expected: exits 0.
 
 - [ ] **Step 5: Commit.**
@@ -829,7 +829,7 @@ describe("resolveFormulaDrivers", () => {
 ```
 
 - [ ] **Step 3: Run the tests to confirm they fail.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test forecast-model-evaluate`
+  - Run: `pnpm --filter @balsa/finance-engine test forecast-model-evaluate`
   - Expected: FAIL with `SyntaxError: The requested module './forecast-model' does not provide an export named 'canonicalizeModel'` (or the vitest equivalent, "is not a function").
 
 - [ ] **Step 4: Implement.** At the top of `packages/finance-engine/src/forecast-model.ts`, directly after the header comment, add:
@@ -1267,9 +1267,9 @@ export function resolveFormulaDrivers(drivers: ForecastDriver[], model: Forecast
 ```
 
 - [ ] **Step 5: Run the tests to confirm they pass.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test forecast-model`
+  - Run: `pnpm --filter @balsa/finance-engine test forecast-model`
   - Expected: PASS for both `forecast-model.test.ts` and `forecast-model-evaluate.test.ts`.
-  - Then run: `pnpm --filter @nevermodel/finance-engine test && pnpm --filter @nevermodel/finance-engine typecheck`
+  - Then run: `pnpm --filter @balsa/finance-engine test && pnpm --filter @balsa/finance-engine typecheck`
   - Expected: all engine tests pass, and typecheck exits 0.
 
 - [ ] **Step 6: Commit.**
@@ -1456,7 +1456,7 @@ Then add these two tests inside the existing `describe`, after the 250-ledger te
 ```
 
 - [ ] **Step 5: Run the tests to confirm they fail.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test`
+  - Run: `pnpm --filter @balsa/finance-engine test`
   - Expected: FAIL. The equivalence file fails with `does not provide an export named 'buildProjectedEntriesReference'`. The projection "formula drivers" tests fail, for example `expected [ …entries for 2026-10… ] to deeply equal`. `forecast-model-run.test.ts` fails because runway is 0 instead of 20, since the unresolved driver is rejected by the old amount check. The consequence test fails with `expected [] to deeply equal [ 'amountByMonth' ]`.
 
 - [ ] **Step 6: Freeze the reference projection.** In `packages/finance-engine/src/forecast-run.reference.ts`:
@@ -1598,7 +1598,7 @@ and inside `diffForecastRuns`:
 ```
 
 - [ ] **Step 10: Run the tests to confirm they pass.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test`
+  - Run: `pnpm --filter @balsa/finance-engine test`
   - Expected: PASS for every file, including the original 250-seed equivalence test, the two new equivalence tests, the four projection formula tests, the worked example, and the consequence test.
   - Then run: `pnpm -r typecheck`
   - Expected: exits 0. The web app compiles unchanged, because the new fields are optional.
@@ -1834,7 +1834,7 @@ Append to `apps/web/src/lib/consequence-copy.test.ts`, inside the `describeCause
 - [ ] **Step 7: Implement the pure pieces.** Create `apps/web/src/lib/forecast-model-rows.ts`:
 
 ```ts
-import { canonicalizeModel, type ForecastModel, type ForecastVariable, type ForecastVariableInput } from "@nevermodel/finance-engine";
+import { canonicalizeModel, type ForecastModel, type ForecastVariable, type ForecastVariableInput } from "@balsa/finance-engine";
 
 export type ModelDimensionRow = { name: string; items: string[] };
 export type ModelVariableRow = { name: string; kind: "money" | "number"; dims: string[]; formula: string | null; inputs: ForecastVariableInput[] };
@@ -1911,7 +1911,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 describe.skipIf(!process.env.DATABASE_URL)("forecast model loading", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { closeDatabase, companies, economicItems, forecastDimensions, forecastVariables, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { forecastAsOfMonth, loadForecastInputs, loadForecastModel, resolveDriversForWindow } = await import("./forecast-inputs");
   const db = getDatabase();
   let companyId = ""; let otherId = "";
@@ -1970,7 +1970,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast model loading", async () =>
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { chartAccounts, companies, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { rowsToModel } from "@/lib/forecast-model-rows";
@@ -2065,7 +2065,7 @@ Keep the three existing lookups exactly as they are, in their current positions.
 - [ ] **Step 15: Run the tests.**
   - Run: `pnpm --filter @finance/web test forecast-model-load forecast-model-rows forecast-drivers consequence-copy forecast-preview forecast-job`
   - Expected: PASS. The DB suites run, they do not skip.
-  - Then run: `pnpm --filter @nevermodel/finance-engine test && pnpm --filter @finance/web test && pnpm -r typecheck && pnpm --filter @finance/web lint`
+  - Then run: `pnpm --filter @balsa/finance-engine test && pnpm --filter @finance/web test && pnpm -r typecheck && pnpm --filter @finance/web lint`
   - Expected: all tests pass, typecheck exits 0, and lint reports 10 errors and 13 warnings (the baseline).
 
 - [ ] **Step 16: Commit.**
@@ -2178,7 +2178,7 @@ export const modelDraftSchema = z.object({
  */
 export async function seedModelCompany(name: string) {
   const { chartAccounts, companies, economicItems, forecastEntryTemplates, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { forecastAsOfMonth } = await import("./forecast-inputs");
   const { createDimension, createVariable } = await import("./forecast-model-store");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
@@ -2237,7 +2237,7 @@ import { config } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ForecastConsequence } from "@nevermodel/finance-engine";
+import type { ForecastConsequence } from "@balsa/finance-engine";
 
 config({ path: fileURLToPath(new URL("../../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)) });
@@ -2246,7 +2246,7 @@ if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_D
 describe.skipIf(!process.env.DATABASE_URL)("forecast model store", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { calculationOutbox, closeDatabase, companies, financialStateRevisions, forecastVariables, getDatabase } = await import("@finance/database");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const { seedModelCompany } = await import("./forecast-model-fixture");
   const store = await import("./forecast-model-store");
   const { loadForecastInputs, loadForecastModel } = await import("./forecast-inputs");
@@ -2976,7 +2976,7 @@ type AccountingModalProps = { open: boolean; onOpenChange: (open: boolean) => vo
 - [ ] **Step 6: Exercise UI state and accessibility.** Add component tests if the existing UI harness supports these components; otherwise cover the pure draft/normalization helpers and rely on typecheck plus the required browser walkthrough. At minimum prove stale dry-run responses cannot replace newer ones, blank formulas become `null`, server errors retain drafts, every field has a label, and destructive buttons name the dimension/variable they affect.
 
 - [ ] **Step 7: Run the complete verification gate.**
-  - Run: `pnpm --filter @nevermodel/finance-engine test`
+  - Run: `pnpm --filter @balsa/finance-engine test`
   - Run: `pnpm --filter @finance/web test`
   - Run: `pnpm -r typecheck`
   - Run: `pnpm --filter @finance/web lint` and compare to the documented 10 errors/13 warnings; add none.

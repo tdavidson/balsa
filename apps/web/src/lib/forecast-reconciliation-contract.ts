@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CashOccurrence, CashOccurrenceResult, CashSettlementInput } from "@nevermodel/finance-engine";
+import type { CashOccurrence, CashOccurrenceResult, CashSettlementInput } from "@balsa/finance-engine";
 import type { loadRecurrenceReview } from "./forecast-recurrence";
 import type { loadCashCoverage } from "./cash-coverage";
 
@@ -25,8 +25,8 @@ export type OccurrenceCandidate = { capturedOccurrenceId?: string; definition: O
 export type ForecastReconciliationData = {
   companyId: string; currency: string; throughDate: string; asOfMonth: string;
   candidates: OccurrenceCandidate[];
-  recovery: { driverId: string; hash: string; label: string; reason: string; startMonth: string; oldAmountMinor: string; currentAmountMinor: string; oldSourceLineIds: string[]; currentSourceLines: import("@nevermodel/finance-engine").PostedJournalLine[]; preservedOccurrenceIds: string[] }[];
-  matchSuggestions: ReturnType<typeof import("@nevermodel/finance-engine").suggestCashMatches>;
+  recovery: { driverId: string; hash: string; label: string; reason: string; startMonth: string; oldAmountMinor: string; currentAmountMinor: string; oldSourceLineIds: string[]; currentSourceLines: import("@balsa/finance-engine").PostedJournalLine[]; preservedOccurrenceIds: string[] }[];
+  matchSuggestions: ReturnType<typeof import("@balsa/finance-engine").suggestCashMatches>;
   recurrence: Awaited<ReturnType<typeof loadRecurrenceReview>>;
   settlement: CashSettlementInput;
   results: CashOccurrenceResult[];

@@ -15,7 +15,7 @@ export type KnowledgeTemplate = {
 
 export const universalAccountingRules = `## Core financial reasoning
 
-Nevermodel begins with accounting and forecasting fundamentals. It separates the
+Balsa begins with accounting and forecasting fundamentals. It separates the
 economic event, billing or invoicing, cash settlement, and revenue or expense
 recognition; rolls balance-sheet accounts forward; and treats evidence,
 materiality, and reconciliation as controls rather than optional prompts.
@@ -86,7 +86,7 @@ These baseline rules apply to every company unless a company-specific policy or 
 
 export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
   { slug: "core-accounting", title: "Core accounting", content: `# Core accounting\n\nPlatform-managed financial reasoning that applies before company-specific policies.\n\n${universalAccountingRules}` },
-  { slug: "onboarding", title: "Onboarding", content: "# Onboarding\n\nComplete or confirm these business facts as evidence becomes available. Nevermodel already knows accounting fundamentals; these answers define how they apply to this company.\n\n## Legal entities and ownership\n- Reporting entity and owned entities:\n- Accounts, custodians, and legal owner of each account:\n- Base currency, fiscal year-end, and reporting basis:\n\n## How the business earns and spends\n- Revenue streams, customer contracts, and performance or service periods:\n- Billing, collection, deposits, refunds, and pass-through amounts:\n- Material vendors, payroll, financing, investment, and intercompany activity:\n\n## Close and forecast\n- Chart-of-accounts mapping and materiality threshold:\n- Recognition, allocation, and recurring-counterparty policies to confirm:\n- Forecast drivers, committed contracts, and cash-timing assumptions:\n" },
+  { slug: "onboarding", title: "Onboarding", content: "# Onboarding\n\nComplete or confirm these business facts as evidence becomes available. Balsa already knows accounting fundamentals; these answers define how they apply to this company.\n\n## Legal entities and ownership\n- Reporting entity and owned entities:\n- Accounts, custodians, and legal owner of each account:\n- Base currency, fiscal year-end, and reporting basis:\n\n## How the business earns and spends\n- Revenue streams, customer contracts, and performance or service periods:\n- Billing, collection, deposits, refunds, and pass-through amounts:\n- Material vendors, payroll, financing, investment, and intercompany activity:\n\n## Close and forecast\n- Chart-of-accounts mapping and materiality threshold:\n- Recognition, allocation, and recurring-counterparty policies to confirm:\n- Forecast drivers, committed contracts, and cash-timing assumptions:\n" },
   { slug: "company", title: "Company", content: "# Company\n\nCompany-specific operating model, entities, and business context supported by onboarding evidence.\n" },
   { slug: "policies", title: "Policies", content: "# Financial Policies\n\nStanding CFO judgment and recognition policies.\n" },
   { slug: "allocations", title: "Allocations", content: "# Allocations\n\nRecurring cost allocation treatment.\n" },
@@ -95,11 +95,11 @@ export const defaultKnowledgeDocuments: KnowledgeDocumentTemplate[] = [
 ];
 
 const docs = (template: string, company: string, policies: string, allocations: string, accounting: string, forecast: string): KnowledgeDocumentTemplate[] => [
-  { slug: "company", title: "Company", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${company}` },
-  { slug: "policies", title: "Policies", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${policies}` },
-  { slug: "allocations", title: "Allocations", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${allocations}` },
-  { slug: "accounting", title: "Accounting", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${accounting}` },
-  { slug: "forecast", title: "Forecast", content: `<!-- Nevermodel knowledge template: ${template} v1.0 -->\n\n${forecast}` },
+  { slug: "company", title: "Company", content: `<!-- Balsa knowledge template: ${template} v1.0 -->\n\n${company}` },
+  { slug: "policies", title: "Policies", content: `<!-- Balsa knowledge template: ${template} v1.0 -->\n\n${policies}` },
+  { slug: "allocations", title: "Allocations", content: `<!-- Balsa knowledge template: ${template} v1.0 -->\n\n${allocations}` },
+  { slug: "accounting", title: "Accounting", content: `<!-- Balsa knowledge template: ${template} v1.0 -->\n\n${accounting}` },
+  { slug: "forecast", title: "Forecast", content: `<!-- Balsa knowledge template: ${template} v1.0 -->\n\n${forecast}` },
 ];
 
 const coreKnowledgeTemplates: KnowledgeTemplate[] = [

@@ -14,7 +14,7 @@ config({ path: fileURLToPath(new URL("../../../.env.local", import.meta.url)) })
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 const connectionString = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-const appRole = "nevermodel_app_test";
+const appRole = "balsa_app_test";
 const appRolePassword = randomUUID();
 
 describe.skipIf(!connectionString)("withCompanyTransaction", () => {

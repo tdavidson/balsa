@@ -1,4 +1,4 @@
-import { buildForecastRun, cashGoalChange, evaluateCashGoal, type ForecastDriver, type ForecastRun, type ForecastRunInput } from "@nevermodel/finance-engine";
+import { buildForecastRun, cashGoalChange, evaluateCashGoal, type ForecastDriver, type ForecastRun, type ForecastRunInput } from "@balsa/finance-engine";
 import { applyScenarioChanges, type ScenarioChange } from "./scenario-changes";
 import type { GoalVersion } from "./goal-review-contract";
 /** Ordered replay: scenario items by ID, then the stored change list. Interactions belong to the later step. */

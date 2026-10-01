@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { companyMembers, financialReviewSignoffs, financialReviewSnapshots, financialReviewTasks, financialWorkReviews, getDatabase, recordAudit, scenarios, setCompanyScopeSql, users } from "@finance/database";
-import { assessForecastAccuracy, buildForecastRun, buildWeeklyCash, evaluateCashGoal, stableJson } from "@nevermodel/finance-engine";
+import { assessForecastAccuracy, buildForecastRun, buildWeeklyCash, evaluateCashGoal, stableJson } from "@balsa/finance-engine";
 import { captureOutlook, goalsWith, GoalReviewError } from "./goal-reviews";
 import { previewGoalDecisionWith } from "./goal-decisions";
 import type { SavedGoalSnapshot } from "./goal-review-contract";

@@ -3,7 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, policies, recordAudit, reviewItems } from "@finance/database";
-import { isCategory, isValidMonth, type Category } from "@nevermodel/finance-engine";
+import { isCategory, isValidMonth, type Category } from "@balsa/finance-engine";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";

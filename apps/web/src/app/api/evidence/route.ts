@@ -7,7 +7,7 @@ import { getDatabase, recordAudit, approvalEvents, cashEvents, economicItems, en
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
-import { adaptStatementFacts, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, parseCsvRows, type PdfExtractionQuality, type SourceKind } from "@nevermodel/ingestion";
+import { adaptStatementFacts, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, parseCsvRows, type PdfExtractionQuality, type SourceKind } from "@balsa/ingestion";
 import { parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { matchStatementAccount } from "@/lib/account-matching";

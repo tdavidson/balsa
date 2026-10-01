@@ -1,4 +1,4 @@
-import { canonicalizeModel, type ForecastModel, type ForecastVariable, type ForecastVariableInput } from "@nevermodel/finance-engine";
+import { canonicalizeModel, type ForecastModel, type ForecastVariable, type ForecastVariableInput } from "@balsa/finance-engine";
 
 export type ModelDimensionRow = { name: string; items: string[] };
 export type ModelVariableRow = { name: string; kind: "money" | "number"; dims: string[]; formula: string | null; inputs: ForecastVariableInput[] };

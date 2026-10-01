@@ -1,8 +1,8 @@
-# Nevermodel
+# Balsa
 
 **A radical approach to LLM-native financial operations.**
 
-Nevermodel turns the evidence a company already produces into an auditable,
+Balsa turns the evidence a company already produces into an auditable,
 continuously maintained financial model. Upload bank activity, invoices,
 contracts, spreadsheets, or accounting exports; review what the system learned;
 then ask questions, close periods, and change the forecast in plain language.
@@ -14,18 +14,18 @@ Language models interpret meaning. Deterministic code owns the ledger, schedules
 calculations, controls, and statements. The model is never the calculator and
 never the database.
 
-> Nevermodel is under active development. It is ready for local evaluation and
+> Balsa is under active development. It is ready for local evaluation and
 > contribution, not unattended production accounting. Review all outputs before
 > relying on them.
 
-## Why Nevermodel
+## Why Balsa
 
 A CFO already has everything a financial model needs: evidence, context,
 policies, assumptions, and judgment. The expensive part is translating all of
 that into a spreadsheet—and keeping the spreadsheet alive as the business
 changes.
 
-Nevermodel is built around a different operating loop:
+Balsa is built around a different operating loop:
 
 ```text
 evidence → extracted observations → CFO review → company state
@@ -33,7 +33,7 @@ evidence → extracted observations → CFO review → company state
 ```
 
 When the treatment is clear, the system does the work. When it requires
-judgment, Nevermodel asks a precise question. The answer becomes a durable
+judgment, Balsa asks a precise question. The answer becomes a durable
 decision or policy instead of disappearing into a chat transcript.
 
 This is not Excel in a browser: there is no grid and no collection of formulas
@@ -68,7 +68,7 @@ calculates, reconciles, and reports.
 
 ## The trust model
 
-Nevermodel separates three kinds of state:
+Balsa separates three kinds of state:
 
 1. **Evidence** — what a source said: a transaction, invoice, contract, export,
    or message, retained with provenance.
@@ -95,7 +95,7 @@ real-company test corpus.
 
 ## Deployment model and direction
 
-Nevermodel is being built from a focused single-player product into a shared
+Balsa is being built from a focused single-player product into a shared
 financial system without weakening its company boundaries or audit trail.
 
 | Mode | Users | Companies | Status |
@@ -114,7 +114,7 @@ and hosted tenant operations are outside the scope of this repository.
 
 ## Quick start
 
-Nevermodel includes an automated, non-destructive setup command. It creates the
+Balsa includes an automated, non-destructive setup command. It creates the
 local environment file when needed, generates blank application secrets,
 prepares file storage, installs dependencies, starts local PostgreSQL, and
 applies all checked-in database migrations. Existing configuration and secrets
@@ -128,8 +128,8 @@ are preserved.
 - An OpenAI or OpenRouter API key
 
 ```bash
-git clone https://github.com/tdavidson/nevermodel.git
-cd nevermodel
+git clone https://github.com/tdavidson/balsa.git
+cd balsa
 pnpm run setup
 pnpm run doctor
 pnpm dev
@@ -137,7 +137,7 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-See the [Nevermodel getting-started guide](https://nevermodel.com/docs/getting-started)
+See the [Balsa getting-started guide](https://www.balsamodel.com/docs/getting-started)
 for detailed installation, configuration, authentication, and deployment
 instructions.
 
@@ -173,7 +173,7 @@ newest first. No mail is ever sent: the sign-up code alone decides who may
 register, and registration decides who may work in the installation.
 
 Set `NEXT_PUBLIC_SITE_URL` to the address of a public site carrying the product
-documentation, and the application header shows a **How Nevermodel works** link
+documentation, and the application header shows a **How Balsa works** link
 to it; leave it unset and no link is shown.
 
 The complete configuration surface, including model providers, file storage,
@@ -235,7 +235,7 @@ the design system in [`docs/design-language.html`](docs/design-language.html).
 
 ## Contributing
 
-Nevermodel is early, and contributions that improve correctness, auditability,
+Balsa is early, and contributions that improve correctness, auditability,
 documentation, test coverage, or the self-hosted experience are welcome. Start
 with [CONTRIBUTING.md](CONTRIBUTING.md). For larger changes, open an issue before
 building so the accounting and product model can be discussed first.
@@ -244,7 +244,7 @@ Please report security issues privately as described in [SECURITY.md](SECURITY.m
 
 ## License
 
-Nevermodel is open source under the [Apache License 2.0](LICENSE). You may use,
+Balsa is open source under the [Apache License 2.0](LICENSE). You may use,
 modify, and distribute it for personal or commercial purposes under its terms.
 
 Built by [Taylor Davidson](https://taylordavidson.com).

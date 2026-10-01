@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isValidMonth, type CashGoal, type CashGoalEvaluation, type CashGoalBridge, type ForecastRun, type ForecastRunInput, type PostedJournalLine } from "@nevermodel/finance-engine";
+import { isValidMonth, type CashGoal, type CashGoalEvaluation, type CashGoalBridge, type ForecastRun, type ForecastRunInput, type PostedJournalLine } from "@balsa/finance-engine";
 import type { JournalCoverage } from "./journal-coverage";
 
 const month = z.string().refine(isValidMonth, "Use YYYY-MM.");
@@ -29,7 +29,7 @@ export type GoalOutlook = {
   actualJournalLines: PostedJournalLine[];
   coverage: JournalCoverage[];
   cashCoverage?: Awaited<ReturnType<typeof import("./cash-coverage").loadCashCoverage>> | undefined;
-  openingCash?: import("@nevermodel/finance-engine").OpeningCashReview | undefined;
+  openingCash?: import("@balsa/finance-engine").OpeningCashReview | undefined;
   limitations: string[];
   lineage: { journalLines: unknown[]; evidence: unknown[] };
 };

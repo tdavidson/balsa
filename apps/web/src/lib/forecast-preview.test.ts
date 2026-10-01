@@ -14,7 +14,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
   const { previewForecastChange, PreviewConflict } = await import("./forecast-preview");
   const { applyDecisionIfEffective } = await import("./decision-effects");
   const { forecastAsOfMonth } = await import("./forecast-inputs");
-  const { addMonths } = await import("@nevermodel/finance-engine");
+  const { addMonths } = await import("@balsa/finance-engine");
   const db = getDatabase();
   let companyId = ""; let firstMonth = "";
   const headline = (delta: unknown) => { const value = delta as { horizonEndCash: unknown; cashOutMonth: unknown; runwayMonths: unknown; projectedSpending: unknown; projectedReceipts: unknown }; return { horizonEndCash: value.horizonEndCash, cashOutMonth: value.cashOutMonth, runwayMonths: value.runwayMonths, projectedSpending: value.projectedSpending, projectedReceipts: value.projectedReceipts }; };

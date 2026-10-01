@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { allocations, assumptions, entities, getDatabase, relationships, scenarios, sources, observations, economicItems, factRecords, cashEvents, evidence } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
-import { categories } from "@nevermodel/finance-engine";
+import { categories } from "@balsa/finance-engine";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
 const input = z.discriminatedUnion("kind", [

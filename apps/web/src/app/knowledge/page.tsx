@@ -29,7 +29,7 @@ export default async function KnowledgePage() {
   let documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
   for (const document of documents) {
     // Pre-brand-change template markers are read only for migration; newly
-    // written templates use the Nevermodel marker.
+    // written templates use the Balsa marker.
     const legacyTemplate = knowledgeTemplates.find((template) => document.content.includes(`Hemrock knowledge template: ${template.id} v${template.version}`));
     const templateDocument = legacyTemplate?.documents.find((candidate) => candidate.slug === document.slug);
     if (!legacyTemplate || !templateDocument) continue;
@@ -55,7 +55,7 @@ export default async function KnowledgePage() {
       <main className="mx-auto grid w-full max-w-[960px] flex-1 content-start gap-10 px-7 pt-6 pb-24">
         <div className="grid gap-4">
           <Link href="/" className="inline-flex w-fit items-center gap-1.5 rounded-md text-[13px] text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Nevermodel
+            <ArrowLeft className="size-3.5" aria-hidden="true" /> Back to Balsa
           </Link>
           <h1 className="display text-[40px] leading-[1.1]" style={serif(40)}>Knowledge</h1>
           <p className="max-w-[62ch] text-[17px] leading-[1.55] text-ink-2">Company files capture the evidence, policies, mappings, and forecast drivers that make it specific to {context.company.name}.</p>

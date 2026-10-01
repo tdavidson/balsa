@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildForecastRun } from "@nevermodel/finance-engine";
+import { buildForecastRun } from "@balsa/finance-engine";
 import { fixtureBaseInput } from "@/test/forecast-fixture";
 import { attributeDecision } from "./decision-attribution";
 import { applyScenarioChanges, type ScenarioChange } from "./scenario-changes";

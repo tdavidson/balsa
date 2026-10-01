@@ -1,6 +1,6 @@
 # Teller bank sync
 
-Teller is optional. Every Nevermodel installation uses **its own Teller application** and credentials. There is no Nevermodel-operated account, credential service, or bank-data relay. All installation configuration is supplied through environment variables; connected accounts and encrypted enrollment tokens belong to the selected company in your database.
+Teller is optional. Every Balsa installation uses **its own Teller application** and credentials. There is no Balsa-operated account, credential service, or bank-data relay. All installation configuration is supplied through environment variables; connected accounts and encrypted enrollment tokens belong to the selected company in your database.
 
 ## Configure your installation
 
@@ -24,7 +24,7 @@ Never paste certificates, private keys, access tokens, or encryption keys into i
 | `TELLER_CERTIFICATE` | Development/production | Client certificate PEM **contents**, not a filename. |
 | `TELLER_PRIVATE_KEY` | Development/production | Client private key PEM **contents**, not a filename. |
 | `TELLER_WEBHOOK_SECRET` | For webhooks | Webhook signing secret from the Teller dashboard. |
-| `CRON_SECRET` | For automatic sync | Existing Nevermodel scheduled-job secret. |
+| `CRON_SECRET` | For automatic sync | Existing Balsa scheduled-job secret. |
 
 PEM values accept literal `\n` separators or quoted multiline values. For example, the shape is `TELLER_CERTIFICATE="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"`; replace the entire placeholder with your certificate locally. Docker Compose's full app profile already loads `.env` through `env_file`. Other hosts should inject these variables into the Node server runtime.
 
@@ -34,15 +34,15 @@ For real banks, set `development` or `production` and supply the certificate and
 
 Configure your host's scheduler to request **GET `/api/jobs/banks`** once a minute, with `Authorization: Bearer <your CRON_SECRET>`. The scheduler must keep this header private. This endpoint processes one due enrollment per invocation, orders oldest work first, and schedules the next successful sync six hours later. Failed syncs retry after an hour. Increase scheduler frequency if the installation has many enrollments; no always-running in-process timer is required. A local installation must be running when the scheduler calls it.
 
-For a host cron job, store `NEVERMODEL_URL` and `CRON_SECRET` in the job's private environment and run:
+For a host cron job, store `BALSA_URL` and `CRON_SECRET` in the job's private environment and run:
 
 ```sh
 curl --fail --silent --show-error \
   --header "Authorization: Bearer $CRON_SECRET" \
-  "$NEVERMODEL_URL/api/jobs/banks"
+  "$BALSA_URL/api/jobs/banks"
 ```
 
-Do not put the secret literal in a shared crontab or command history. `NEVERMODEL_URL` above is a scheduler variable, not application configuration.
+Do not put the secret literal in a shared crontab or command history. `BALSA_URL` above is a scheduler variable, not application configuration.
 
 Optionally register `https://YOUR_HOST/api/banks/webhook` in Teller's dashboard and configure `TELLER_WEBHOOK_SECRET`. The endpoint verifies the raw request signature and its timestamp, then queues a sync; **the scheduler is still required**. It does not trust transaction data supplied inside a webhook. Disconnection notifications show a reconnect prompt and pause scheduled work until repaired. A private localhost installation can use scheduled polling without exposing a webhook.
 

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { cashEvents, chartAccounts, evidence, factRecords, getDatabase, journalEntries, journalLines, sourceRowMappings, sourceRows, sources } from "@finance/database";
-import { evaluateJournalAuthority, reconcileAccountBalances, reconcileLedgerMonth } from "@nevermodel/finance-engine";
+import { evaluateJournalAuthority, reconcileAccountBalances, reconcileLedgerMonth } from "@balsa/finance-engine";
 import { loadJournalStatements, loadTrialBalance } from "@/lib/journal-ledger";
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "@nevermodel/company-state",
+  "name": "@balsa/company-state",
   "version": "0.1.0",
   "private": true,
   "type": "module",

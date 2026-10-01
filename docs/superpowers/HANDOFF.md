@@ -15,7 +15,7 @@ to the repository root.
 
 ## The goal
 
-When anything is approved, Nevermodel shows what it does to future cash,
+When anything is approved, Balsa shows what it does to future cash,
 burn, and runway. It shows this **before** approval as a preview and
 **after** approval as a stored consequence, traced to the evidence that
 caused it. The build sequence:
@@ -36,7 +36,7 @@ caused it. The build sequence:
 | **C2 scenarios (step 5)** | **Done, reviewed; uncommitted in this sandbox** | `specs/2026-09-18-forecast-scenarios-design.md` | `plans/2026-09-18-forecast-scenarios.md` |
 | **C3 driver formulas (step 6)** | **Done; Tasks 1–8 built and reviewed** | `specs/2026-09-18-driver-formulas-design.md` | `plans/2026-09-18-driver-formulas.md` |
 
-Spec and plan paths in this table are relative to `nevermodel-site/internal/`.
+Spec and plan paths in this table are relative to `balsa-site/internal/`.
 
 ## To do, in order
 

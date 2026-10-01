@@ -1,4 +1,4 @@
-import { addMonths, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@nevermodel/finance-engine";
+import { addMonths, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@balsa/finance-engine";
 
 const cadences = ["once", "monthly", "quarterly", "annual"] as const;
 const cashFlowCategories = ["operating", "investing", "financing", "none"] as const;

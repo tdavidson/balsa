@@ -3,7 +3,7 @@ import { attributeDecision } from "./decision-attribution";
 import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { decisions, economicItems, financialReviewSnapshots, getDatabase, goalDecisionReviews, recordAudit, scenarios, setCompanyScopeSql } from "@finance/database";
-import { buildCashGoalBridge, buildForecastRun, cashGoalChange, evaluateCashGoal, stableJson } from "@nevermodel/finance-engine";
+import { buildCashGoalBridge, buildForecastRun, cashGoalChange, evaluateCashGoal, stableJson } from "@balsa/finance-engine";
 import { captureOutlook, GoalReviewError, goalsWith } from "./goal-reviews";
 import { loadActiveScenarioWith, promoteScenarioWith } from "./scenarios";
 import { applyScenarioChanges, parseScenarioChanges } from "./scenario-changes";

@@ -1,4 +1,4 @@
-import type { SourceKind } from "@nevermodel/ingestion";
+import type { SourceKind } from "@balsa/ingestion";
 import { classifyCashActivity, inferFinancialDirection, isDetailedFinancialEvent, parseFinancialAmount } from "./financial-events";
 import { classifyWithCompanyPolicy, type ExecutableCompanyPolicy } from "./company-policy-engine";
 

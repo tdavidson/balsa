@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { cashEvents, companies, evidence, getDatabase, ingestionRuns, reconciliationEntries, reviewItems, sources as sourceTable } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { isDetailedFinancialEvent, isSweepCounterpartActivity, parseFinancialAmount } from "@/lib/financial-events";
-import { validateStatementRollforward } from "@nevermodel/ingestion";
+import { validateStatementRollforward } from "@balsa/ingestion";
 import { matchTransactionsAcrossSources } from "@/lib/transaction-matching";
 import { buildReconciliationReview } from "@/lib/reconciliation-review";
 import { buildReconciliationLedger } from "@/lib/reconciliation-ledger";
