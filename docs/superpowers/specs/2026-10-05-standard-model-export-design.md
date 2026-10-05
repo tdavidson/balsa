@@ -26,6 +26,7 @@ Balsa stays the system of record and its engine stays the calculator for every r
 - **Ruling: log change** is logarithmic growth, defined by the Standard formula below.
 - **Ruling: escalation** runs on whatever cycle the user sets.
 - **Ruling: seasonality** is per driver, not one company profile.
+- **Ruling: statement views.** The statements page offers both the ledger-native view and the Standard layout, and the user swaps between them.
 - **Ruling: categories** live in Balsa: revenue and expense categories and the Standard line layout are a statement view inside Balsa, not only an export format.
 - **Ruling: timeline.** Not fixed. The user sets the model timeline in Balsa, and the export uses it.
 - **Ruling: scenarios.** One file holds the base and every exported scenario.
@@ -150,6 +151,8 @@ The mapping changes presentation, never accounting: journals, balances and the l
 
 **Standard-layout statements in Balsa.** The mapping drives a statement view inside Balsa in the Standard layout: income statement by line and category, balance sheet and cash flow on the Standard rows, with actual and forecast months side by side and the same annual rollup as the Summary sheet. It is built from the same `buildJournalStatements` output, regrouped by `report_line` and category, so its totals tie to the ledger-native statements exactly (a test asserts it). Every figure drills down to its accounts, journal lines and evidence, like the existing statements. This view is what the export writes, so what a user sees in Balsa and what they download are the same numbers in the same shape.
 
+**Swapping views.** The statements page has a view switch: *Ledger* (the current account-based statements) and *Standard* (line and category layout). The switch keeps the period, as-of month, scenario and entity selection, and a drill-down opened in one view lands on the matching accounts in the other. The last choice is remembered per user and company. Until the mapping is complete, the Standard view shows a banner with the count of unmapped accounts and a link to the mapping page, and their amounts appear on the "Other" lines rather than disappearing. Reports, reviews and the agent can name either view ("show me the Standard P&L for Q3").
+
 ## Part 3: timeline
 
 Today `horizonMonths` and `asOfMonth` describe the forecast. The Standard model has a model timeline: first period, number of periods, fiscal year end.
@@ -247,4 +250,4 @@ Phases 1 and 3 are independent of the export and can run in parallel with 2.
 
 ## Open questions
 
-- Should the Standard-layout view replace the current statements page, or sit beside it as a second view? Proposal: beside it at first, defaulting to the Standard layout once a company's mapping has no unmapped accounts.
+- Default view for a new company: Ledger until the mapping has no unmapped accounts, then Standard? Proposal: yes, with the user's own choice always winning once made.
