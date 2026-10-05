@@ -1,121 +1,233 @@
-# Standard Financial Model export
+# Standard Financial Model export and driver extensions
 
 Date: 2026-10-05
-Status: design; nothing implemented.
+Status: design; nothing implemented. Rulings from review on 2026-10-05 are marked **Ruling**.
 Audience: product and engineering.
+Builds on: [driver formulas](2026-09-18-driver-formulas-design.md), [forecast scenarios](2026-09-18-forecast-scenarios-design.md), [goal-directed financial model](2026-09-25-goal-directed-financial-model-design.md).
 
 ## Intent
 
-Give every Balsa company a downloadable Excel workbook that looks and works like the Hemrock Standard Financial Model: the same sheet names, the same three-statement layout, the same annual rollups and the same driver columns. A founder or CFO who knows the Standard model should be able to open the export and find their way around without instructions. Someone who has never seen Balsa should be able to read it as an ordinary financial model.
+Give every Balsa company a downloadable workbook that looks and works like the Hemrock Standard Financial Model: the same sheet names, the same three-statement layout, the same annual rollups and the same driver columns. A founder or CFO who knows the Standard model should be able to open the export and find their way around without instructions. Someone who has never seen Balsa should be able to read it as an ordinary financial model.
 
-The reference is `content/_models/standard-model-sheet-map.md` and the workbook it describes (`content/_models/Standard Financial Model, by Foresight.xlsx`). The export follows its format and structure, not its exact rows: Balsa has no cohort revenue engine and the Standard model has no ledger, so a few sheets change shape and a few are Balsa's own.
+The references are `content/_models/standard-model-sheet-map.md`, the workbook it describes (`content/_models/Standard Financial Model, by Foresight.xlsx`), and the driver documentation at `content/content/docs/drivers.md`. The export follows their format and structure, not their exact rows.
 
-The export is an output. Balsa stays the system of record, and its engine stays the calculator for every reported figure. The workbook is a faithful, editable copy of a point-in-time outlook, and any number in it that Excel recalculates must equal what Balsa reported when the file was produced.
+Two pieces of work come out of this, and the second is useful on its own:
 
-## Why this fits
+1. **An export** of the outlook, plan, actuals and scenarios into a Standard-shaped workbook that opens in Excel and Google Sheets.
+2. **Standard-model drivers in Balsa.** The Standard model's driver columns (change by % or #, % of / # per another line, change cadence, caps, seasonality, escalation) become structured fields on Balsa's forecast drivers, computed by Balsa's engine. That gives founders the patterns they already know from the Standard model without writing a formula, and it means most exported rows can be live formulas rather than pasted values.
 
-The two systems already have the same skeleton:
+Balsa stays the system of record and its engine stays the calculator for every reported figure. The workbook is a faithful, editable copy of a point-in-time outlook, and any number Excel or Sheets recalculates must equal what Balsa reported when the file was produced.
 
-| Standard model | Balsa today |
+## Rulings
+
+- **Ruling: sheets.** Revenues, Hiring Plan, Key Metrics and Unit Economics are out of scope, not deferred. They model growth units, cohorts and headcount, which is a different context from Balsa's evidence-backed agreements and obligations.
+- **Ruling: account mapping.** The user sets the mapping from chart accounts to Standard statement lines inside Balsa. Balsa suggests defaults; the user's choice is authoritative and audited.
+- **Ruling: drivers.** Extend Balsa's drivers with the Standard model's driver set (below).
+- **Ruling: timeline.** Not fixed. The user sets the model timeline in Balsa, and the export uses it.
+- **Ruling: scenarios.** One file holds the base and every exported scenario.
+- **Ruling: Google Sheets.** The file must work in Google Sheets as well as Excel, including recalculation after edits.
+
+## Part 1: Standard drivers in Balsa
+
+### What exists today
+
+`ForecastDriver` has a fixed `amountMinor`, a `cadence` (once / monthly / quarterly / annual), `effectiveFrom` and `effectiveTo`. Driver formulas add an optional `amountFormula` over model variables and dimensions, which is the general escape hatch: anything the Standard drivers can express, a formula can, but it asks the user to write one.
+
+### What the Standard model adds
+
+From `docs/drivers.md`, each Forecast row has:
+
+| Standard input | Meaning |
 | --- | --- |
-| Get Started: company, timescale, first period, opening cash | Company settings, `asOfMonth`, `horizonMonths`, currency, opening cash |
-| Forecast driver columns K–X: initial value, start period, repeats every N months, max N months | `ForecastDriver`: `amountMinor`, `effectiveFrom`, `cadence` (once / monthly / quarterly / annual), `effectiveTo` |
-| Actuals by Category, Forecast by Category, Actuals + Forecast | Posted actual lines, projected lines, and the `projected` reporting view that switches at `asOfPeriod` |
-| Statements: income statement, balance sheet, cash flow, balance check | `buildJournalStatements` with `balanced`, `differenceMinor`, cash-flow `ties` |
-| Burn / runway block | `ForecastRun.nodes`: net burn, trailing burn, cash-out month, runway months |
-| Budget (budget vs actuals) | Saved plans versus actuals and the latest outlook |
-| Model Checks | Exceptions, unclassified lines, verification status |
+| Initial Value | Starting amount; or the % / # used with a driver when changing based on `% of` / `# per` |
+| Starts in period # | First period |
+| Repeats every N months | Cadence; 1 monthly, 6 semiannual, 0 once |
+| Changing based on | `% change`, `# change`, `log change`, `% of`, `# per` |
+| Changes every N months | When the change applies; a monthly salary that changes every 12 |
+| Changing by % or # | Rate or step for `% change`, `# change`, `log change` |
+| Using Driver | Another revenue, expense or operating-metric line, for `% of` / `# per` |
+| For a max of N months | Duration |
+| To a max value of | Per-period cap |
+| Use Seasonality | Applies the global 12-month seasonality profile; redistributes *when*, not *how much* |
+| Use Event Flag, Use Custom Flag | Opt in to a globally defined per-period flag |
+| Use Escalation Factor | Opt in to the global escalation / inflation factor |
+| Timeline Flag | Global; zeroes every row outside the model timeline |
 
-The driver mapping is the important one. Balsa's cadence values are exactly the Standard model's "repeats every N months" (once = 0, monthly = 1, quarterly = 3, annual = 12), and `effectiveTo` is "max N months" expressed as a date. Most fixed drivers can become live Forecast rows with no translation loss.
+### Proposed driver fields
 
-## Workbook layout
+Add an optional `pattern` to `ForecastDriver`. A driver with no pattern behaves exactly as today, so existing drivers, projections and idempotency keys are unchanged.
 
-Sheets in Standard model order. "Formula" means Excel formulas in the file; "values" means Balsa-computed numbers written as constants.
+```ts
+type DriverPattern = {
+  /** Integer months; replaces `cadence` when present. 0 = once. */
+  repeatsEveryMonths: number;
+  change?: {
+    basis: "pct_change" | "abs_change" | "log_change";
+    everyMonths: number;          // Changes every N months
+    by: string;                   // decimal; a rate for pct/log, major units for abs
+  } | {
+    basis: "pct_of" | "per_unit";
+    driverRef: DriverRef;         // what the initial value is a % of, or # per
+  };
+  maxMonths?: number;             // derived from effectiveTo when absent
+  maxValueMinor?: string;         // per-period cap
+  useSeasonality?: boolean;
+  useEventFlag?: boolean;
+  useCustomFlag?: boolean;
+  useEscalation?: boolean;
+};
+
+type DriverRef =
+  | { kind: "driver"; driverId: string }
+  | { kind: "variable"; name: string; coords?: Record<string, string> }   // a model variable
+  | { kind: "report_line"; line: StandardLine };                           // e.g. total revenue
+```
+
+`amountMinor` keeps its meaning as the initial value (or the rate, for `pct_of` / `per_unit`, held as a decimal string in a new `initialValue` field so a percentage is not forced into minor units). `pattern` and `amountFormula` are mutually exclusive; validation rejects a driver with both.
+
+### Company-level settings the flags read
+
+| Setting | Shape | Notes |
+| --- | --- | --- |
+| Seasonality profile | 12 calendar-month weights summing to zero change over a year | Redistributes a year's amount across months; never changes the annual total. Validation enforces the sum, as the Standard model's R143 check does |
+| Escalation factor | Annual rate, applied monthly compounding from the timeline start | One factor per company in v1 |
+| Event flag, custom flag | A named per-month multiplier series (default 1) | Lets a user model a one-off event, a shutdown month, a price change |
+| Timeline | First period, last period, fiscal year end month | Part 3 below; zeroes every driver outside it |
+
+These live in company state, versioned and audited like other forecast assumptions, and their edits bump the forecast revision because they change the base forecast.
+
+### Engine
+
+A new pure module, `finance-engine/src/driver-patterns.ts`, expands a patterned driver into `amountByMonth`, the same field formula drivers already fill. Everything downstream (`buildProjectedEntries`, settlement, recognition, statements, runway, scenarios, consequences) is unchanged, because it already consumes per-month amounts.
+
+- Arithmetic in the model's scaled `bigint` decimals, rounded to minor units per period with the same half-even rule formulas use.
+- `pct_of` / `per_unit` references resolve in dependency order with the formula resolver; a cycle through driver references is an exception on the driver, not a crash, and the driver produces nothing until it is fixed.
+- `log_change` follows the Standard model's definition; the reference implementation is the Standard workbook's own formula, read from the file, with a test against its values.
+- Bounds match the existing model limits (value cap, month count).
+- The formula version string increments; projected entries for patterned drivers carry the pattern in their idempotency version so an edit re-projects.
+
+Tests: one per basis against hand-computed fixtures; a parity fixture built from the Standard workbook's Forecast sheet (same inputs, same per-period outputs); cycle and cap cases; seasonality preserves annual totals; a scenario that changes a pattern.
+
+### Product surface
+
+The driver editor gets the Standard columns as a "Pattern" section, collapsed by default, with plain labels ("Grows 5% every 12 months", "3% of revenue"). The agent can propose patterns through the existing decision flow ("make rent go up 4% every January" becomes a proposed pattern change, reviewed like any other). Formula drivers remain for anything a pattern can't say.
+
+## Part 2: account mapping
+
+The Standard model has a fixed statement line set. Balsa's `statementLine` on chart accounts is free text. The export needs a fixed vocabulary; so does any Standard-layout view inside Balsa.
+
+**Vocabulary.** `StandardLine`, an enum in `finance-engine`, mirroring the Standard Statements sheet:
+
+- Income statement: Revenue, COGS, SG&A (R&D), SG&A (Sales & Marketing), SG&A (G&A), SG&A (Misc), Depreciation, Amortization, Interest Income, Interest Expense, Other Income, Other Expense, Taxes.
+- Assets: Cash, Accounts Receivable, Inventory, Prepaid Expense, Other Current Assets, PP&E, Accumulated Depreciation, Other Assets, Accumulated Amortization.
+- Liabilities: Accounts Payable, Inventory AP, Deferred Revenue, Accrued Liabilities, Corporate Tax Payable, VAT Payable, Working Capital Loan, Convertible Notes and SAFEs, Debt Financing, Accrued Interest.
+- Equity: Owners Equity, Equity Investment, SAFE Investment, Retained Earnings.
+
+Revenue may be split into named revenue categories (Standard has Rev Cat 1–3) that the user defines; each maps to Revenue for totals.
+
+**Where it's stored.** A nullable `report_line` column on chart accounts, plus `report_line_source` (`user` / `suggested`). Migration, audit event on change, company-scoped like every chart-account field.
+
+**How it's set.** A "Report mapping" page under the chart of accounts: one row per account, its current balance, a dropdown of `StandardLine`, and the suggestion shown beside it. Bulk accept for suggestions. The agent can propose mappings through the existing mapping review flow; nothing is applied without approval.
+
+**Suggestions** are deterministic first, from fields Balsa already has: `accountType`, `statementSection`, `balanceTiming`, `cashFlowCategory`, `workingCapitalCategory` (`receivables` → Accounts Receivable, `payables` → Accounts Payable, `deferred_revenue` → Deferred Revenue, `prepaids` → Prepaid Expense, `inventory` → Inventory). A model may suggest the rest (which SG&A bucket a vendor-expense account belongs in). Anything unmapped falls to the "Other" line for its section and is listed as an exception on the mapping page and on the export's Checks sheet. Nothing is dropped.
+
+The mapping is presentation only. It never changes journals, balances or Balsa's own statements.
+
+## Part 3: timeline
+
+Today `horizonMonths` and `asOfMonth` describe the forecast. The Standard model has a model timeline: first period, number of periods, fiscal year end.
+
+Add a company **model timeline** setting: `firstPeriod` (may reach back into actuals history), `lastPeriod`, and `fiscalYearEndMonth`. Validation: first ≤ as-of ≤ last, length within the existing model month limit. The forecast horizon becomes "as-of to `lastPeriod`", so the forecast and the export always agree. Periods outside the timeline are zeroed (the Standard Timeline Flag), and Summary columns follow fiscal years, with partial first and last years labelled as such.
+
+Existing companies get a default: first actual month with posted activity, the current horizon, and a December fiscal year end; the setting page shows it as defaulted until the user saves it.
+
+## Part 4: the workbook
+
+### Sheets
+
+Standard model order. "Formula" means spreadsheet formulas in the file; "values" means Balsa-computed constants.
 
 | Sheet | Contents | Cells |
 | --- | --- | --- |
-| README | What this file is, the company, the as-of month, the scenario, the Balsa formula version, export time, and how to read the colour coding | Text |
-| Get Started | Model structure block (company name, monthly timescale, period count, first period, fiscal year end), opening cash, currency, minimum cash. Revenue assumption, debt, tax and valuation blocks are omitted until Balsa has those concepts | Inputs |
-| Summary | Annual rollup by fiscal year: condensed income statement, cash flow and balance sheet, via SUMIFS over Statements | Formula |
-| Snapshot | Single-period cash view with a selectable "as of" month | Formula |
-| Forecast | Driver rows with the K–X columns, then Forecast by Category, Actuals by Category, Actuals + Forecast, and the burn/runway block | Mixed, see below |
-| Statements | Monthly income statement, balance sheet and cash flow on the Standard row layout, with the balance check row | Formula |
-| Budget | Plan versus actuals for a selectable month range, using the latest saved plan | Formula over values |
+| README | What the file is, company, as-of month, timeline, exported scenarios, Balsa formula version, export time, colour key, credit to the Standard model (Apache 2.0) | Text |
+| Get Started | Model structure (company, monthly timescale, first period, number of periods, fiscal year end), opening cash, currency, minimum cash, **active scenario selector**, seasonality profile, escalation factor, event and custom flag series, Model Checks summary | Inputs |
+| Summary | Annual rollup by fiscal year: income statement, cash flow, balance sheet, via SUMIFS over Statements | Formula |
+| Snapshot | Single-period cash view with a selectable as-of period | Formula |
+| Forecast | Driver rows with the Standard driver columns; Forecast by Category, Actuals by Category, Actuals + Forecast; burn and runway | Mixed, below |
+| Statements | Monthly income statement, balance sheet and cash flow on the Standard row layout, balance check row | Formula |
+| Budget | Latest saved plan versus actuals, selectable month range | Formula over values |
 | Sources & Uses | Funding and spending over a selectable range | Formula |
-| Breakdown | Statement by legal entity in place of the Standard model's segments, when the company has more than one entity | Formula |
-| Scenarios | One column block per exported scenario: ending cash, net income, runway, and the delta to base | Values |
-| Lineage | One row per exported figure group: statement line, month, Balsa node or account ids, journal line count, source evidence ids, verification status | Values |
-| Checks | Balance sheet balances, cash ties to Balsa's ending cash every month, Excel totals equal Balsa totals, no unmapped accounts, no driver exceptions. Each returns yes/no, like Get Started's Model Checks | Formula |
-| Glossary, Changelog | Balsa terms (actual, expectation, outlook, plan, scenario) and the export format version | Text |
+| Breakdown | Statement by legal entity, when the company has more than one | Formula |
+| Scenarios | Side-by-side comparison of base and each scenario | Values, below |
+| Lineage | One row per figure group: line, month, account and node ids, journal line count, evidence ids, verification status | Values |
+| Checks | Balance sheet balances; cash ties; Excel results equal Balsa results for the active scenario; no unmapped accounts; no driver exceptions | Formula |
+| Glossary, Changelog | Balsa terms (actual, expectation, outlook, plan, scenario) and export format version | Text |
 
-Revenues, Hiring Plan, Key Metrics and Unit Economics are left out of the first version. Balsa forecasts from agreements and obligations, not from growth units, cohorts and churn, so those sheets would be empty shells. Key Metrics comes back when recurring-revenue recognition is verified (the goal-directed spec defers revenue goals for the same reason). Hiring Plan comes back if headcount becomes a model dimension that drivers read.
+Formatting follows the Standard model: inputs blue on a pale fill, formulas black, cross-sheet links green; monthly columns starting where the Standard model starts period 1; frozen label columns; period header rows (period number, date, fiscal year, actual/forecast flag, timeline flag) on every time-series sheet.
 
-Formatting follows the Standard model's conventions: inputs in blue on a pale fill, formulas in black, links to other sheets in green, one column per month starting at the same column the Standard model uses for period 1, frozen label columns, and period header rows (period number, date, fiscal year, actual/forecast flag) at the top of every time-series sheet.
+### Forecast sheet
 
-## The Forecast sheet
+**Driver rows.** One row per confirmed driver, grouped by mapped statement line, with Balsa columns on the left (driver id, label, direction, account, scenario) and the Standard driver columns to the right, filled from `pattern` (or from `cadence`, `effectiveFrom`, `effectiveTo` for a driver without one). The monthly cells are a single formula per row implementing the Standard driver logic, so editing any driver input in the spreadsheet changes the forecast the way it does in the Standard model. `pct_of` / `per_unit` references become references to the referenced row.
 
-This is where "editable model" is either true or not.
+**Rows written as values**, with the driver columns left blank and a note giving the reason:
 
-**Driver rows.** One row per confirmed driver (base, or base plus the chosen scenario), grouped by statement category. Columns carry the Standard model's meanings:
-
-| Column | Standard meaning | Balsa source |
-| --- | --- | --- |
-| K | Initial value | `amountMinor` in major units |
-| L | Starts in period # | Period index of `effectiveFrom` |
-| M | Repeats every N months | `cadence` → 0, 1, 3, 12 |
-| N–Q | Changing based on / by / driver | Empty in v1; Balsa drivers are flat unless they carry a formula |
-| R | Max N months | Months from `effectiveFrom` to `effectiveTo` |
-| U–X | Seasonality / event / custom / escalation flags | `false` |
-
-Plus Balsa columns to the left of K: driver id, label, direction, category, debit and credit account, and the statement line the template resolves to. The monthly columns are a single formula per row that reproduces `buildProjectedEntries`' expansion, so editing K, L, M or R in Excel changes the forecast the way the Standard model does.
-
-**Drivers Excel can't reproduce faithfully** are written as per-month values in the monthly columns with the K–X block left blank and a note naming the reason:
-
-- Formula drivers (`amountFormula` over model variables). Their resolved `amountByMonth` is exported; the formula text goes in a cell note. Translating Balsa's formula language (`sum`, `avg`, `min`, `max`, `prev`, `round` over dimensions) into Excel is possible and is a later phase.
-- Drivers whose recognition or settlement timing differs from the cash month (`recognitionStart`/`recognitionEnd`, `expectedDay` with settlement rules).
+- Formula drivers. The resolved `amountByMonth` is exported; the formula text goes in a cell note. Translating Balsa's formula language into spreadsheet formulas is a later phase.
+- Drivers whose recognition or settlement timing differs from the amount month (`recognitionStart`/`recognitionEnd`, `expectedDay` with settlement rules). The pattern's amounts stay live; the timing shift is values.
 - The open month, which combines month-to-date actuals with unresolved forecasted closes.
 
-**Actuals by Category** is values: posted actual journal lines summed by Standard statement line and month. **Actuals + Forecast** is a formula that picks actuals for periods at or before the as-of month and forecast after, the same rule as Balsa's `projected` view. Statements read only from that block, as in the Standard model.
+**Actuals by Category** is values: posted actual journal lines summed by `report_line` and month. **Actuals + Forecast** picks actuals at or before the as-of period and forecast after, Balsa's `projected` rule. Statements read only from that block.
 
-## Mapping accounts to Standard statement lines
+### Scenarios in one file
 
-This is the one piece of new modelling work. `statementLine` on chart accounts is free text today, and the Standard model has a fixed line set (Revenues, COGS, SG&A split into R&D / Sales / G&A / Misc, Depreciation, Interest, Taxes; Cash, AR, Inventory, Prepaid, PP&E, AP, Deferred Revenue, Accrued Liabilities, SAFEs, Debt, Equity Investment, Retained Earnings).
+Scenarios in Balsa are sets of driver changes against the base. The file mirrors that:
 
-Proposal: a `standardModelLine` classification resolved per account in this order:
+- Scenario changes are extra driver rows (added drivers) or override rows (changed drivers), each tagged with its scenario in a Balsa column. An `Active scenario` dropdown on Get Started lists Base and every exported scenario. Each row's monthly formula multiplies by an include flag: base rows are included unless the active scenario overrides them; scenario rows only when their scenario is active.
+- Changing the dropdown recalculates Forecast, Statements, Summary and everything else for that scenario, live, in both Excel and Sheets.
+- The **Scenarios** sheet holds Balsa's own results for every scenario side by side (ending cash, net income, runway, cash-out month, and delta to base, monthly and annual) as values, because a live side-by-side would need the whole model computed once per scenario. Checks compares the live model with the matching Scenarios column for whichever scenario is active.
 
-1. An explicit approved mapping on the account (a new nullable column, set in chart-account review, audited like other classifications).
-2. A deterministic default from fields Balsa already has: `accountType`, `statementSection`, `balanceTiming`, `cashFlowCategory` and `workingCapitalCategory` (`receivables` → Accounts Receivable, `deferred_revenue` → Deferred Revenue Liability, `prepaids` → Prepaid Expense, and so on).
-3. Otherwise the "Other" line for its section (Other Current Assets, Other Expense, and so on), and the account is listed on Checks as unmapped.
+### Google Sheets compatibility
 
-A model may suggest mappings, and they go through the existing review flow like any other mapping. Nothing is dropped: every account lands on some line, and the Checks sheet makes the defaulted and "Other" ones visible. The same mapping is reusable inside Balsa for a Standard-layout statement view, which is a reason to put it in company state rather than the exporter.
+The file is built for the intersection of Excel and Google Sheets:
+
+- Functions limited to a tested allowlist that behaves the same in both: `SUM`, `SUMIFS`, `SUMPRODUCT`, `INDEX`, `MATCH`, `IF`, `AND`, `OR`, `MIN`, `MAX`, `ROUND`, `EDATE`, `EOMONTH`, `YEAR`, `MONTH`, `MOD`, `LN`, `EXP`, `IFERROR`. No `LET`, `LAMBDA`, dynamic arrays, `XLOOKUP`, structured table references, macros or external links. The workbook builder rejects any formula outside the allowlist at build time.
+- Dropdowns as data validation against ranges on the same workbook; checkboxes as TRUE/FALSE validation, which Sheets renders and Excel accepts.
+- Named ranges for the global inputs (timeline, scenario, seasonality, flags), which import into Sheets.
+- Simple conditional formatting only (fill on a formula condition).
+- Sheet count and size within Sheets' limits; the timeline limit keeps the column count well under them.
 
 ## Parity and verification
 
-The export is only trustworthy if Excel recalculates to Balsa's numbers. Two guards:
+The export is only trustworthy if recalculation reproduces Balsa's numbers.
 
-- **In the file.** Checks compares Excel's ending cash, net income and total assets per month against hidden value rows holding Balsa's own results, and flags any difference. A user who edits a driver will see these go to "no", which is correct and is labelled as "differs from Balsa outlook", not as an error.
-- **In CI.** A test builds the workbook for the Company Zero fixture and a few synthetic companies (multi-cadence drivers, a scenario, a formula driver, an open month), recalculates it headlessly with LibreOffice (`soffice --headless --convert-to xlsx` recalculates on load), reads it back with ExcelJS, and asserts every Checks row is "yes" and every statement figure equals `buildJournalStatements` / `buildForecastRun` to the minor unit. This lives with `pnpm acceptance`, since it touches calculation output.
+- **In the file.** Checks compares the live model's ending cash, net income and total assets per month with Balsa's results for the active scenario. A user who edits a driver will see these go to "differs from Balsa outlook", which is labelled as a difference, not an error.
+- **Excel / LibreOffice in CI.** A test builds the workbook for Company Zero and synthetic companies (every driver basis, seasonality, escalation, flags, a cap, a `pct_of` chain, a formula driver, recognition timing, an open month, two scenarios), recalculates headlessly with LibreOffice (installed in the dev container), reads it back with ExcelJS, switches the active scenario, and asserts every Checks row and every statement figure equals the engine to the minor unit. Runs with `pnpm acceptance`.
+- **Google Sheets.** An opt-in job with a service account uploads the file with conversion to Sheets, sets the active scenario through the Sheets API, reads values back, and runs the same assertions. Skipped when credentials are absent; required before a release that changes the exporter. Until it exists, a written manual checklist covers the same cases.
+- **Driver parity.** The driver-pattern engine and the spreadsheet driver formula are tested against the same fixtures, so Balsa, Excel and Sheets agree on every basis.
 
-Excel works in floating point and Balsa in integer minor units. Monthly driver formulas round to cents with `ROUND(…, 2)` at the line level so totals match; the test is the proof.
+Balsa computes in integer minor units; spreadsheets in floating point. Driver formulas round with `ROUND(…, 2)` per period, matching the engine's per-period rounding; the parity tests are the proof.
 
 ## Where the code goes
 
-- `packages/model-export`, a new package depending on `finance-engine` and `exceljs` (already a dependency of `apps/web`). Pure input to bytes: it takes a `ForecastRun`, the selected journal lines, statements per month, accounts with their resolved Standard line, plans, scenarios and company settings, and returns a workbook. No database, auth or React, matching the finance-engine boundary. A sheet builder per sheet, plus a small cell-address helper so row numbers are named constants rather than literals scattered through formulas.
-- `apps/web/src/app/api/exports/standard-model/route.ts`, company-scoped and audited like every other route, taking `asOf`, `scenarioId` (optional, repeatable), and `horizon`. Writes an audit event naming who exported what.
-- A "Download model (.xlsx)" action on the outlook / reviews pages, and an agent tool so "send me the model" works in chat.
+- `packages/finance-engine`: `StandardLine`, `DriverPattern`, `driver-patterns.ts`, and the timeline type. Pure, no new dependencies.
+- `packages/database`: migrations for `report_line`, driver `pattern` and `initialValue`, and company model settings (timeline, seasonality, escalation, flags). Grant and company-scoping as every other table.
+- `packages/model-export`: new package depending on `finance-engine` and `exceljs`. Input is data, output is bytes: forecast run, selected journal lines, statements per month, mapped accounts, plans, scenarios and settings in; workbook out. One builder per sheet, row numbers as named constants, the formula allowlist check.
+- `apps/web`: report mapping page, timeline and model settings page, pattern section in the driver editor, `api/exports/standard-model` (company-scoped, audited, with `scenarioId` repeatable), a "Download model" action on the outlook and review pages, and an agent tool.
 
-The file never includes evidence contents, prompts or provider output. Lineage carries ids and labels, not source text.
+The file never includes evidence contents, prompts or provider output. Lineage carries ids and labels only.
 
 ## Phases
 
-1. **Values workbook.** Standard sheet layout with every line item as values from Balsa and only subtotals, totals and rollups as formulas. Statements, Summary, Snapshot, Budget, Scenarios, Lineage, Checks. Exact parity by construction, useful immediately to send to a board or an investor, and it settles the account mapping and the layout.
-2. **Live drivers.** The Forecast sheet's driver rows and category blocks become formulas, so editing a driver flows through to Statements and Summary like the Standard model. LibreOffice parity test in CI. Non-reproducible drivers stay as flagged values.
-3. **Formula drivers.** Translate Balsa's model formulas and dimensions into Excel (a Model sheet with one block per variable), removing the largest category of value-only rows.
-4. **Round trip.** Balsa already ingests XLSX as evidence. Re-uploading an edited export could be recognised by its README metadata, diffed against the drivers it was built from, and turned into proposed scenario changes for review. Edits never apply directly; they become proposals like any other evidence.
+1. **Mapping and timeline.** `report_line` with suggestions and the mapping page; model timeline setting replacing the bare horizon. Useful in Balsa before any export exists.
+2. **Values workbook.** Standard layout with line items as values from Balsa, totals and rollups as formulas, every exported scenario on the Scenarios sheet. Exact parity by construction; ready to send to a board. Opens in Excel and Sheets.
+3. **Driver patterns in Balsa.** Engine, settings, editor, agent proposals, parity fixtures against the Standard workbook.
+4. **Live drivers and scenario switching.** Forecast driver rows as formulas, the active-scenario selector, LibreOffice and Sheets parity jobs.
+5. **Formula drivers in the spreadsheet.** Translate Balsa's model variables and formulas into a Model sheet, removing most remaining value-only rows.
+6. **Round trip.** Balsa already ingests XLSX as evidence. A re-uploaded export is recognised by its README metadata, diffed against the drivers it was built from, and turned into proposed scenario or driver changes for review. Edits never apply directly.
+
+Phases 1 and 3 are independent of the export and can run in parallel with 2.
 
 ## Open questions
 
-- Fixed 72-month horizon like the Standard model, or the company's forecast horizon? Proposal: the actuals history plus the forecast horizon, padded to whole fiscal years so Summary columns are complete.
-- One file per scenario, or base plus scenarios in one file? Proposal: base drives Statements; scenarios are summarised on the Scenarios sheet, and the user can export a scenario as its own file.
-- Should the export also produce a Google Sheets copy? ExcelJS output opens in Sheets, but data validation and some formatting degrade; worth testing before promising it.
-- Licensing and naming: the export borrows the Standard model's structure, which is Apache 2.0. Credit it on README with a link to hemrock.com.
+- Seasonality per company or per driver group? Standard has one profile; v1 follows it.
+- Escalation compounding: monthly from the timeline start, or stepped each fiscal year? Check the Standard workbook's formula before choosing, and match it.
+- Should `report_line` revenue categories also drive a Standard-layout statement view inside Balsa, or stay export-only at first?
