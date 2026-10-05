@@ -243,3 +243,36 @@ preview/create, assignment, task updates, submission, refresh and signing.
 Creation uses a pinned preview and request UUID; updates require the current
 version and reason. Full reports are bounded to 24 MB; history lists return the
 latest 100 records, with complete reviews still retrievable by ID.
+
+## Visual cash outlook
+
+Open **Cash outlook & progress** from the workspace (`/progress#cash-outlook`).
+The month selector controls opening cash, cash in, cash out, net cash flow,
+ending cash, and the category breakdown. Ending-cash and cash-in/cash-out charts
+show six months at a time with exact value labels and explicit actual/forecast
+labels. Previous/next controls expose the remaining forecast horizon.
+
+**Show spreadsheet** opens a read-only category-by-month table across the entire
+horizon, including totals and opening/ending balances. Categories retain approved
+driver or expectation labels; actual journals use the counterpart account when
+unambiguous. Compound journals appear as “Other / split cash activity” rather
+than receiving an invented allocation. Cash transfers are netted per journal
+entry using the shared engine's cash-flow calculation.
+
+Every view uses the same captured forecast snapshot. Approved changes appear on
+refresh, on returning to the browser tab, or on revisiting the page; proposed and
+rejected decisions remain excluded. The current forecast month includes posted
+activity plus approved remaining expectations. Reconciliation mismatches,
+coverage limitations, and forecast exceptions remain visible. **Inspect
+calculation & sources** opens the existing month inspection with formulas,
+journals, source documents, expectations, and decisions. **Ask about this month**
+drafts a question in the live workspace assistant; the user sends it explicitly.
+Responses are generated using the product's existing tools, not prepared demo
+answers.
+
+The synthetic cash-explorer tests verify the marketing example: approving a
+$20,000 October agreement raises October ending cash from $80,000 to $100,000,
+adds $20,000 to subsequent month-end balances, and leaves historical months
+unchanged. A database integration test exercises the actual decision approval
+and financial-progress read path. No sample agreement or demo amounts are added
+to a user's company.

@@ -339,6 +339,7 @@ function Figure({ label, value, note, pencil, negative, onClick }: { label: stri
 }
 
 type AppShellProps = {
+  initialMessage?: string;
   company: { id: string; name: string; currency: string };
   companies: { id: string; name: string; baseCurrency: string; role: CompanyRole }[];
   /** The signed-in user's role in the active company, passed straight through to the account menu. */
@@ -459,8 +460,8 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
   }));
 }
 
-export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled }: AppShellProps) {
-  const [message, setMessage] = useState("");
+export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled, initialMessage = "" }: AppShellProps) {
+  const [message, setMessage] = useState(initialMessage);
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
   const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
   const [storedEffort, chooseEffort] = useStoredChoice("nevermodel.effort", "auto", (value) => efforts.some((option) => option.value === value));
@@ -1648,7 +1649,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <Link href="/knowledge" className={quietButton}>
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
-              <Link href="/progress" className={quietButton}>Financial progress</Link>
+              <Link href="/progress#cash-outlook" className={quietButton}>Cash outlook & progress</Link>
               <Link href="/reviews" className={quietButton}>Reports & sign-off</Link>
               <Link href="/goals" className={quietButton}>Goals & reviews</Link>
               <Link href="/goal-decisions" className={quietButton}>Decisions & outcomes</Link>

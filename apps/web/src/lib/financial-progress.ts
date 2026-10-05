@@ -1,4 +1,5 @@
 import "server-only";
+import { buildCashExplorer } from "./cash-explorer";
 import { recognitionJournalHash } from "./recognition-continuity";
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
@@ -53,7 +54,7 @@ export async function loadFinancialProgress(companyId: string, now = new Date())
     });
     const weekly = buildWeeklyCash({ throughDate: now.toISOString().slice(0, 10), currency: outlook.input.currency, actualLines: outlook.actualJournalLines, projectedLines: [...outlook.output.projectedLines, ...priorOverdueLines], reviewedEntryIds: reconciliation.settlement.occurrences.flatMap((item) => [item.key, `expectation:${item.id}`]), limitations: [...outlook.limitations.filter((item) => !item.includes("monthly. Month-end")), ...outlook.output.exceptions.map((item) => item.reason)], minimumCashMinor: outlook.input.minimumCashMinor });
     const current = summarizeActualCash(outlook.actualJournalLines, outlook.input.currency, now.toISOString().slice(0, 7)).months.at(-1)!;
-    return { companyId, review, guide, weekly, recognition, primaryGoalVersionId: primary?.id ?? null, planId: plan?.id ?? null, comparisons, actualCashMinor: current.endingCashMinor, throughDate: now.toISOString().slice(0, 10), actions: actions.sort((a, b) => a.priority - b.priority), recentDecisions: recentDecisions.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })) };
+    return { companyId, cashExplorer: buildCashExplorer(outlook.input, outlook.output, outlook.actualJournalLines, outlook.limitations), review, guide, weekly, recognition, primaryGoalVersionId: primary?.id ?? null, planId: plan?.id ?? null, comparisons, actualCashMinor: current.endingCashMinor, throughDate: now.toISOString().slice(0, 10), actions: actions.sort((a, b) => a.priority - b.priority), recentDecisions: recentDecisions.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })) };
   }, { isolationLevel: "repeatable read" });
 }
 
