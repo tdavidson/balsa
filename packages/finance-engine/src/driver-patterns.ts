@@ -68,16 +68,18 @@ const monthIndex = (month: string) => { const [year, number] = month.split("-").
 const toScaled = (minor: string) => BigInt(minor) * 10_000n;
 const toMinor = (scaled: bigint) => divideHalfAwayFromZero(scaled, 10_000n);
 
+/** A decimal rate as a percentage without floating-point noise: 0.07 is "7", not "7.000000000000001". */
+const percentText = (rate: number) => String(Number((rate * 100).toFixed(4)));
 /** Plain-language summary of a pattern, for editors and the agent. */
 export function describePattern(pattern: DriverPattern, refLabel?: string, options: { money?: boolean } = {}): string {
   const amount = (text: string) => options.money ? `$${Number(text).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : text;
   const every = (months: number) => months === 1 ? "every month" : months === 12 ? "every year" : `every ${months} months`;
   const repeat = pattern.repeatsEveryMonths === 0 ? "once" : every(pattern.repeatsEveryMonths);
   const change = pattern.change;
-  if (change?.basis === "pct_of") return `${Number(pattern.initialValue) * 100}% of ${refLabel ?? describeRef(change.ref)}, ${repeat}`;
+  if (change?.basis === "pct_of") return `${percentText(Number(pattern.initialValue))}% of ${refLabel ?? describeRef(change.ref)}, ${repeat}`;
   if (change?.basis === "per_unit") return `${amount(pattern.initialValue)} × ${(refLabel ?? describeRef(change.ref)).toLowerCase()}, ${repeat}`;
   const base = `${amount(pattern.initialValue)} ${repeat}`;
-  if (change?.basis === "pct_change") return `${base}, changing ${Number(change.by) * 100}% ${every(change.everyMonths)}`;
+  if (change?.basis === "pct_change") return `${base}, changing ${percentText(Number(change.by))}% ${every(change.everyMonths)}`;
   if (change?.basis === "abs_change") return `${base}, changing by ${amount(change.by)} ${every(change.everyMonths)}`;
   if (change?.basis === "log_change") return `${base}, growing logarithmically (exponent ${change.by}) ${every(change.everyMonths)}`;
   return base;
@@ -128,7 +130,7 @@ export function validateSeasonality(profile: SeasonalityProfile): string | null 
   const values = profile.deviations.map(parseDecimal);
   if (values.some((value) => value === null || value <= -modelScale)) return "Each month must be a number above -100%.";
   const total = values.reduce<bigint>((sum, value) => sum + value!, zero);
-  if (total !== zero) return `The twelve months must sum to zero so the year's total is unchanged; they sum to ${Number(total) / Number(modelScale) * 100}%.`;
+  if (total !== zero) return `The twelve months must sum to zero so the year's total is unchanged; they sum to ${percentText(Number(total) / Number(modelScale))}%.`;
   return null;
 }
 

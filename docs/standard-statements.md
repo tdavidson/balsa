@@ -55,6 +55,14 @@ Line and category figures are values Balsa calculated (blue). A forecast month o
 
 Formulas use only functions that behave the same in Excel, Google Sheets and LibreOffice (`allowedFunctions` in `packages/model-export`); building a workbook with any other function fails. The exporter's tests recalculate a generated workbook in LibreOffice and compare every check, the fiscal-year rollup, the budget and the scenario differences with the engine; a second fixture recalculates every driver basis, then edits an input and checks the change through the statements. They run in `pnpm acceptance` and skip when `soffice` is not installed; on Debian or Ubuntu, install `libreoffice-calc-nogui`. Opening the file in Google Sheets is not yet tested automatically.
 
+### Sending a workbook back
+
+Upload an edited export like any other file (Sources, upload). Balsa recognises its own export by a manifest on a very hidden sheet, which records the company, the export format and every editable cell with the value it was exported with. It compares the cells with the manifest and proposes each edit as a decision, citing the uploaded file: a driver's pattern (initial value, repeats, basis, change, maximums, seasonality, escalation) becomes a pattern change, a new end month ends the driver, a metric's pattern becomes a metric change, and edited months of a Model input become that variable's step inputs. Nothing is applied: review the proposals under Decisions and apply the ones you want, which recalculates the forecast as any decision does.
+
+Some edits are reported as notes on the upload instead of proposed, because a decision cannot express them or they belong elsewhere: a scenario's rows (change the scenario in Balsa), a driver that comes from a decision, a new start month, removing an end month, a formula driver's cadence, values typed over a formula variable on Model, a metric's start when it restarts from its last actuals, and edits to the seasonality profiles or the company escalation on Get Started. A cell that does not hold a number or date is reported and its row is skipped. Only the inputs are read: values typed over Forecast's monthly formulas, and edits to Balsa's figures elsewhere in the file such as Statements, are not.
+
+A workbook exported from another company is refused. The same file uploaded twice is recognised as a duplicate and proposes nothing new. A recognised export is not sent to a model for extraction.
+
 Downloads are recorded in the activity log. The file carries ids, account names and figures, never evidence contents or model output.
 
 ## Which accounts are cash

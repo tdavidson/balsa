@@ -73,7 +73,8 @@ describe("buildStandardWorkbook", () => {
   beforeAll(async () => { workbook = new ExcelJS.Workbook(); await workbook.xlsx.load((await buildStandardWorkbook(input)).buffer as ArrayBuffer); });
 
   it("follows the Standard model's sheet order", () => {
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Forecast", "Statements", "Plan", "Budget", "Scenarios", "Mapping", "Lineage", "Checks"]);
+    expect(workbook.getWorksheet("Balsa data")?.state).toBe("veryHidden");
+    expect(workbook.worksheets.filter((sheet) => sheet.state === "visible").map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Forecast", "Statements", "Plan", "Budget", "Scenarios", "Mapping", "Lineage", "Checks"]);
   });
 
   it("writes line items as Balsa values and totals as formulas", () => {
@@ -101,7 +102,7 @@ describe("buildStandardWorkbook", () => {
   it("omits Plan, Budget and Scenarios when there is nothing to show", async () => {
     const bare = new ExcelJS.Workbook();
     await bare.xlsx.load((await buildStandardWorkbook({ ...input, plan: null, scenarios: [], forecast: { ...input.forecast!, drivers: [], metrics: [] } })).buffer as ArrayBuffer);
-    expect(bare.worksheets.map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Statements", "Mapping", "Lineage", "Checks"]);
+    expect(bare.worksheets.filter((sheet) => sheet.state === "visible").map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Statements", "Mapping", "Lineage", "Checks"]);
   });
 });
 

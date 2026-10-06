@@ -147,6 +147,8 @@ describe("seasonality and escalation", () => {
   it("explains a pattern in plain words", () => {
     expect(describePattern({ initialValue: "1000", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 12, by: "0.05" } })).toBe("1000 every month, changing 5% every year");
     expect(describePattern({ initialValue: "0.04", repeatsEveryMonths: 1, change: { basis: "pct_of", ref: { kind: "report_line", line: "revenue" } } })).toBe("4% of total revenue, every month");
+    expect(describePattern({ initialValue: "100", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 1, by: "0.07" } })).toBe("100 every month, changing 7% every month");
+    expect(describePattern({ initialValue: "0.07", repeatsEveryMonths: 1, change: { basis: "pct_of", ref: { kind: "report_line", line: "revenue" } } })).toBe("7% of total revenue, every month");
   });
 });
 
