@@ -92,7 +92,7 @@ export async function buildStandardModelExport(companyId: string, now = new Date
 
   const categoryName = new Map(mapping.categories.map((category) => [category.id, category.name]));
   const input: StandardWorkbookInput = {
-    company: { name: company.name, currency: company.baseCurrency },
+    company: { id: companyId, name: company.name, currency: company.baseCurrency },
     generatedAt: now.toISOString(),
     versions: { layout: standardLayoutVersion, forecast: forecast?.run.formulaVersion ?? null },
     timeline: { firstPeriod: range.start, lastPeriod: range.end, asOfPeriod, fiscalYearEndMonth: timeline.fiscalYearEndMonth, isDefault: timeline.isDefault },

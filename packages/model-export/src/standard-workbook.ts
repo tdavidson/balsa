@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
 import { standardLines, type StandardLineDefinition, type StandardPeriodColumn, type StandardRow } from "@balsa/finance-engine";
+import { writeManifest, type ExportManifest } from "./round-trip";
 import { modelHeader, planModel, writeModelSheet, type ModelInput } from "./model-sheet";
-import { activeScenarioIndex, forecastColumns, planForecastLayout, simulateForecast, writeForecastInputs, writeForecastSheet, writeScenarioSelector, type ForecastInput } from "./forecast-sheet";
+import { activeScenarioIndex, driverKey, getStartedInputs, forecastColumns, planForecastLayout, simulateForecast, writeForecastInputs, writeForecastSheet, writeScenarioSelector, type ForecastInput } from "./forecast-sheet";
 
 export type { ExportBasis, ExportDriver, ExportEscalation, ExportLeg, ExportMetric, ExportPattern, ExportRef, ExportSeasonality, ForecastInput } from "./forecast-sheet";
 
@@ -18,7 +19,8 @@ export type ExportScenario = { id: string; name: string; description: string | n
 export type ExportAccount = { id: string; code: string; name: string; section: string | null; lineLabel: string | null; categoryName: string | null; status: string; reason: string };
 
 export type StandardWorkbookInput = {
-  company: { name: string; currency: string };
+  /** `id` goes in the round-trip manifest, so a returned file is matched to its company. */
+  company: { id?: string; name: string; currency: string };
   generatedAt: string;
   versions: { layout: string; forecast: string | null };
   timeline: { firstPeriod: string; lastPeriod: string; asOfPeriod: string; fiscalYearEndMonth: number; isDefault: boolean };
@@ -427,6 +429,17 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
     `Layout based on the Standard Financial Model by Hemrock (Apache 2.0), hemrock.com. Format ${exportFormatVersion}; layout ${input.versions.layout}${input.versions.forecast ? `; forecast ${input.versions.forecast}` : ""}.`,
   ];
   lines.forEach((text, index) => { const cell = readme.getCell(4 + index, 1); cell.value = text; cell.alignment = { wrapText: true, vertical: "top" }; if (text === "Sheets") cell.font = { bold: true }; });
+
+  // The round-trip manifest: every editable cell and the value written there.
+  const manifest: ExportManifest = {
+    format: "balsa-export-manifest-1", exportFormat: exportFormatVersion, companyId: input.company.id ?? null, exportedAt: input.generatedAt, asOfPeriod: input.timeline.asOfPeriod,
+    drivers: forecast && forecastPlan && forecastLayout ? forecast.drivers.filter((driver) => forecastPlan.live.get(driverKey(driver))).map((driver) => ({ key: driverKey(driver), id: driver.id, scenarioId: driver.scenarioId, label: driver.label, row: forecastLayout.driverRows.get(driverKey(driver))!, ...(driver.formula ? { kind: "formula" as const, formula: driver.formula } : { kind: "pattern" as const, pattern: driver.pattern! }) })) : [],
+    metrics: forecast && forecastPlan && forecastLayout ? forecast.metrics.filter((metric) => metric.pattern && !metric.variable && forecastPlan.live.get(`metric:${metric.name}`)).map((metric) => ({ name: metric.name, label: metric.label, row: forecastLayout.metricRows.get(`metric:${metric.name}`)!, pattern: metric.pattern! })) : [],
+    model: model ? { months: model.months, rows: model.variables.flatMap((variable) => variable.rows.map((candidate) => ({ variable: variable.name, key: candidate.key, coords: Object.fromEntries(variable.dims.map((dim, index) => [dim, candidate.items[index]!])), row: candidate.row, kind: variable.formula ? "formula" as const : "input" as const, values: model.engine.get(variable.name)!.get(candidate.key)! }))) } : null,
+    seasonality: forecast ? { firstRow: getStartedInputs.profileFirstRow, profiles: forecast.seasonality } : null,
+    escalation: forecast?.escalation ?? null,
+  };
+  writeManifest(workbook, manifest);
 
   // Every formula must be portable. A violation is a bug in this builder, so fail loudly.
   workbook.eachSheet((sheet) => sheet.eachRow((row) => row.eachCell((cell) => {

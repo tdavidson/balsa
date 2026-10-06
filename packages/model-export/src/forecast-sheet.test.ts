@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildStandardStatements, driverAmountsByMonth, monthRange, resolveFormulaDrivers, resolvePatternDrivers, type ForecastModel, standardLayoutVersion, type ForecastDriver, type ForecastEntryTemplate, type OperatingMetric, type PatternContext, type PostedJournalLine, type StandardLineId, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
+import { buildStandardStatements, driverAmountsByMonth, evaluateModel, monthRange, resolveFormulaDrivers, resolvePatternDrivers, type ForecastModel, standardLayoutVersion, type ForecastDriver, type ForecastEntryTemplate, type OperatingMetric, type PatternContext, type PostedJournalLine, type StandardLineId, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
 import { driverExportPattern, metricExportPattern } from "./export-patterns";
 import { forecastColumns, simulateForecast, type ExportDriver, type ForecastInput } from "./forecast-sheet";
 import { buildStandardWorkbook, type StandardWorkbookInput } from "./standard-workbook";
 import { modelHeader, planModel, type ModelPlan } from "./model-sheet";
+import { patternFromExport, readWorkbookEdits, stepInputs, type WorkbookEdit } from "./round-trip";
 
 // A synthetic company whose drivers exercise every basis and option the sheet implements.
 const periods = monthRange("2026-07", "2027-12");
@@ -291,5 +292,51 @@ describe.skipIf(!soffice)("live drivers recalculated in LibreOffice", () => {
       const delta = (key: string) => changed.values.get(key)![index]! - plan.values.get(key)![index]!;
       expect(cellNumber(statements.getCell(netIncome, 3 + index).value) - cellNumber(before.getCell(netIncome, 3 + index).value), period).toBeCloseTo(delta("driver:subs") - delta("driver:hosting") - delta("driver:commission"), 2);
     }
+  });
+});
+
+describe("round trip", () => {
+  const load = async (bytes: Uint8Array | ArrayBuffer) => { const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load((bytes instanceof Uint8Array ? bytes.buffer : bytes) as ArrayBuffer); return workbook; };
+  const rowWith = (sheet: ExcelJS.Worksheet, label: string, scenario: string | null = null) => { let found = 0; sheet.eachRow((row, number) => { if (!found && row.getCell(1).value === label && (scenario === null || row.getCell(forecastColumns.scenario).value === scenario)) found = number; }); return found; };
+
+  it("finds nothing to propose in an untouched export, and ignores files that are not exports", async () => {
+    const result = await readWorkbookEdits(await buildStandardWorkbook(input));
+    expect(result?.edits).toEqual([]); expect(result?.notes).toEqual([]);
+    expect(result?.manifest.drivers.map((driver) => driver.id)).toContain("modelled");
+    const other = new ExcelJS.Workbook(); other.addWorksheet("Sheet1").getCell("A1").value = "hello";
+    expect(await readWorkbookEdits(await other.xlsx.writeBuffer() as ArrayBuffer)).toBeNull();
+  });
+
+  it("reports each edit a reader makes, and notes what it cannot propose", async () => {
+    const workbook = await load(await buildStandardWorkbook(input));
+    const forecastSheet = workbook.getWorksheet("Forecast")!;
+    forecastSheet.getCell(rowWith(forecastSheet, "Subs", "Base"), forecastColumns.by).value = 0.05;
+    forecastSheet.getCell(rowWith(forecastSheet, "Rent"), forecastColumns.ends).value = new Date(Date.UTC(2027, 5, 30));
+    forecastSheet.getCell(rowWith(forecastSheet, "Services"), forecastColumns.seasonality).value = null;
+    forecastSheet.getCell(rowWith(forecastSheet, "Customers"), forecastColumns.by).value = 0.07;
+    forecastSheet.getCell(rowWith(forecastSheet, "Hosting", "Base"), forecastColumns.initial).value = "lots";
+    const modelSheet = workbook.getWorksheet("Model")!;
+    const eng = modelLink.variables.find((variable) => variable.name === "headcount")!.rows.find((candidate) => candidate.key === "eng")!.row;
+    modelMonths.forEach((month, index) => { if (month >= "2027-06") modelSheet.getCell(eng, 5 + index).value = 6; });
+    const payroll = modelLink.variables.find((variable) => variable.name === "payroll")!.rows[0]!.row;
+    modelSheet.getCell(payroll, 5).value = 12345;
+    workbook.getWorksheet("Get Started")!.getCell("S5").value = 0.04;
+    const result = (await readWorkbookEdits(await workbook.xlsx.writeBuffer() as ArrayBuffer))!;
+    expect(result.edits.map((edit) => `${edit.kind}:${"id" in edit ? edit.id : "name" in edit ? edit.name : `${edit.variable}[${edit.key}]`}`).sort()).toEqual(["driver_pattern:rent", "driver_pattern:services", "driver_pattern:subs", "metric_pattern:customers", "model_input:headcount[eng]"]);
+    const subs = result.edits.find((edit) => edit.kind === "driver_pattern" && edit.id === "subs")!;
+    expect(subs.kind === "driver_pattern" && subs.after.changingBy).toBe(0.05);
+    const proposed = patternFromExport((subs as Extract<WorkbookEdit, { kind: "driver_pattern" }>).after, () => null);
+    expect(proposed).toEqual({ pattern: { initialValue: "10000", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 1, by: "0.05" } } });
+    const rent = result.edits.find((edit) => edit.kind === "driver_pattern" && edit.id === "rent")! as Extract<WorkbookEdit, { kind: "driver_pattern" }>;
+    expect(rent.after.endsIn).toBe("2027-06"); expect(rent.after.escalation).toEqual({ rate: 0.03, everyMonths: 6, anchorMonth: null });
+    expect(result.notes.join(" ")).toMatch(/Hosting: not proposed, because the initial value is not a number/);
+    expect(result.notes.join(" ")).toMatch(/payroll .* is a formula variable/);
+    expect(result.notes.join(" ")).toMatch(/company escalation on Get Started was changed/);
+    const headcount = result.edits.find((edit) => edit.kind === "model_input")! as Extract<WorkbookEdit, { kind: "model_input" }>;
+    const inputs = stepInputs(model.variables.find((variable) => variable.name === "headcount")!.inputs, headcount.coords, headcount.months, headcount.after);
+    expect(inputs.filter((entry) => entry.coords.team === "eng")).toEqual([{ coords: { team: "eng" }, from: "2026-09", value: "2" }, { coords: { team: "eng" }, from: "2027-01", value: "3" }, { coords: { team: "eng" }, from: "2027-06", value: "6" }]);
+    // The rebuilt inputs reproduce the edited months exactly.
+    const evaluation = evaluateModel({ ...model, variables: model.variables.map((variable) => variable.name === "headcount" ? { ...variable, inputs } : variable) }, modelMonths);
+    expect(evaluation.ok && evaluation.cubes.get("headcount")!.cells.get("eng")!.map((value) => Number(value) / 1e6)).toEqual(headcount.after);
   });
 });

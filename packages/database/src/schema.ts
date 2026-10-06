@@ -494,6 +494,8 @@ export const decisions = pgTable(
     effect: text("effect"),
     status: text("status").default("applied").notNull(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The evidence the decision came from, such as a returned workbook whose edits were proposed. */
+    evidenceId: uuid("evidence_id").references((): AnyPgColumn => evidence.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [index("decisions_company_index").on(table.companyId, table.createdAt)],
