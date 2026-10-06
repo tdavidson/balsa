@@ -1630,6 +1630,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <Link href="/knowledge" className={quietButton}>
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
+              <Link href="/operating-models" className={quietButton}>Operating models</Link>
               <Link href="/progress#cash-outlook" className={quietButton}>Cash outlook & progress</Link>
               <Link href="/reviews" className={quietButton}>Reports & sign-off</Link>
               <Link href="/goals" className={quietButton}>Goals & reviews</Link>

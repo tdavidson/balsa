@@ -8,6 +8,7 @@ import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 import { findActiveScenarioByName, lockScenarioName } from "@/lib/scenario-name-lock";
 import { loadForecastBaseWith } from "@/lib/forecast-base";
 import { emptyModel, withVariable } from "@/lib/forecast-model-rows";
+import { assertOperatingScenarioCurrent } from "./operating-connection-state";
 
 export class ScenarioNotFound extends Error {}
 export class ScenarioConflict extends Error {}
@@ -148,9 +149,10 @@ export async function promoteScenario(companyId: string, scenarioId: string, act
   return getDatabase().transaction((tx) => promoteScenarioWith(tx, companyId, scenarioId, actorUserId));
 }
 
-export async function promoteScenarioWith(tx: DbTransaction, companyId: string, scenarioId: string, actorUserId: string | null, now = new Date()): Promise<{ decisionIds: string[]; skippedItems: number }> {
+export async function promoteScenarioWith(tx: DbTransaction, companyId: string, scenarioId: string, actorUserId: string | null, now = new Date(), reviewedOperating = false): Promise<{ decisionIds: string[]; skippedItems: number }> {
     const scenario = await loadActiveScenarioForMutation(tx, companyId, scenarioId);
     const base = await loadForecastBaseWith(tx, companyId, now);
+    await assertOperatingScenarioCurrent(tx, companyId, scenarioId, { reviewed: reviewedOperating, lock: true, now });
     let projected;
     try { projected = applyScenarioChanges(base, scenario.changes, scenario.id); }
     catch (error) { if (error instanceof ScenarioChangeInvalid) throw new ScenarioInvalid(error.message); throw error; }

@@ -139,7 +139,7 @@ async function postFileEvidence(target: Browser, filename: string) {
 }
 
 /** Every read surface the plan requires to stay company-scoped. */
-const scopedEndpoints = ["/api/evidence", "/api/state", "/api/conversations", "/api/knowledge", "/api/journals", "/api/calculations", "/api/usage", "/api/goal-review", "/api/goal-decisions", "/api/forecast-reconciliation", "/api/financial-progress", "/api/import-review", "/api/financial-reviews", "/api/banks", "/api/report-mapping", "/api/report-categories", "/api/standard-statements", "/api/driver-patterns", "/api/forecast-metrics", "/api/seasonality-profiles"] as const;
+const scopedEndpoints = ["/api/evidence", "/api/state", "/api/conversations", "/api/knowledge", "/api/journals", "/api/calculations", "/api/usage", "/api/goal-review", "/api/goal-decisions", "/api/forecast-reconciliation", "/api/financial-progress", "/api/import-review", "/api/financial-reviews", "/api/banks", "/api/operating-models", "/api/operating-connections", "/api/operating-outcomes", "/api/report-mapping", "/api/report-categories", "/api/standard-statements", "/api/driver-patterns", "/api/forecast-metrics", "/api/seasonality-profiles"] as const;
 
 async function readScopedSurfaces(target: Browser, expectedCompanyId: string) {
   const snapshot: Record<string, string> = {};
@@ -149,6 +149,10 @@ async function readScopedSurfaces(target: Browser, expectedCompanyId: string) {
     for (const id of companyIds(body)) assert(id === expectedCompanyId, `${path} returned companyId ${id} while ${expectedCompanyId} was active`);
     snapshot[path] = serialized;
   }
+  const triggerError = await expectJson(target, "/api/operating-triggers?predictionId=00000000-0000-4000-8000-000000000089", 404);
+  snapshot["/api/operating-triggers"] = JSON.stringify(triggerError);
+  snapshot["/api/operating-studies"] = JSON.stringify(await expectJson(target, "/api/operating-studies?id=00000000-0000-4000-8000-000000000091", 404));
+  snapshot["/api/operating-plan-revisions"] = JSON.stringify(await expectJson(target, "/api/operating-plan-revisions?reviewId=00000000-0000-4000-8000-000000000090", 404));
   return snapshot;
 }
 
@@ -181,6 +185,9 @@ async function deleteActiveCompany(target: Browser, expectedName: string) {
   return preview.company.id;
 }
 
+let cleanupBrowser: Browser | null = null;
+const cleanupCompanies: Company[] = [];
+
 async function main() {
   console.log(`Multi-company isolation acceptance — ${baseUrl} (ISOLATION_AUTH_MODE=${authMode})`);
   if (authMode === "better-auth" && signUpCode) {
@@ -199,12 +206,19 @@ async function main() {
   step("1. Two companies, creation selects the new one");
   const initial = await expectJson<{ companies: Company[]; activeCompanyId: string }>(one, "/api/companies", 200);
   assert(initial.companies.length >= 1, "The first user has no company");
-  const companyA = initial.companies[0]!;
+  const fallbackId = initial.companies[0]!.id;
+  // Never write probes into an existing user's company.
+  const nameA = `Isolation A ${token}`;
+  const createdA = await expectJson<{ company: Company }>(one, "/api/companies", 201, { method: "POST", json: { name: nameA, baseCurrency: "USD" } });
+  const companyA = createdA.company;
+  cleanupBrowser = one;
+  cleanupCompanies.push(companyA);
   assert(uuidPattern.test(companyA.id), `Company A id is not a UUID: ${companyA.id}`);
   pass(`company A is ${companyA.name} (${companyA.id})`);
   const nameB = `Isolation B ${token}`;
   const created = await expectJson<{ company: Company }>(one, "/api/companies", 201, { method: "POST", json: { name: nameB, baseCurrency: "EUR" } });
   const companyB = created.company;
+  cleanupCompanies.push(companyB);
   assert(companyB.id !== companyA.id, "POST /api/companies returned the existing company");
   assert(companyB.baseCurrency === "EUR", `Company B base currency is ${companyB.baseCurrency}, expected EUR`);
   assert(!("financialStateRevision" in (companyB as object)), "POST /api/companies leaked internal company columns");
@@ -256,12 +270,12 @@ async function main() {
   const forged = copyJar(one, "user1-forged");
   const guessedId = crypto.randomUUID();
   forged.jar.set("nevermodel_company", guessedId);
-  const forgedState = await expectJson<{ companyId: string }>(forged, "/api/state", 200);
-  assert(forgedState.companyId === companyA.id, `A guessed company UUID resolved to ${forgedState.companyId}, expected the fallback ${companyA.id}`);
+  const forgedState = { companyId: await activeCompanyId(forged) };
+  assert(forgedState.companyId === fallbackId, `A guessed company UUID resolved to ${forgedState.companyId}, expected the fallback ${fallbackId}`);
   pass("a guessed company UUID in the cookie falls back to the first company without erroring");
   forged.jar.set("nevermodel_company", "not-a-company");
-  const garbageState = await expectJson<{ companyId: string }>(forged, "/api/state", 200);
-  assert(garbageState.companyId === companyA.id, `A garbage cookie resolved to ${garbageState.companyId}, expected the fallback ${companyA.id}`);
+  const garbageState = { companyId: await activeCompanyId(forged) };
+  assert(garbageState.companyId === fallbackId, `A garbage cookie resolved to ${garbageState.companyId}, expected the fallback ${fallbackId}`);
   pass("a garbage cookie value falls back to the first company without erroring");
   const deniedSwitch = await json(forged, "/api/companies/active", { method: "PUT", json: { companyId: guessedId } });
   assert(deniedSwitch.status === 403, `PUT /api/companies/active with an unknown UUID returned ${deniedSwitch.status}, expected 403`);
@@ -326,8 +340,9 @@ async function main() {
   const remaining = await expectJson<{ companies: Company[]; activeCompanyId: string }>(one, "/api/companies", 200);
   assert(!remaining.companies.some((company) => company.id === companyB.id), "Company B is still listed after deletion");
   assert(remaining.companies.some((company) => company.id === companyA.id), "Deleting company B removed company A");
-  assert(remaining.activeCompanyId === companyA.id, `After deleting B the active company is ${remaining.activeCompanyId}, expected the fallback to A`);
-  pass("company B is gone and the selection falls back to company A");
+  assert(remaining.activeCompanyId === fallbackId, "Deleting B did not restore the original fallback selection");
+  await selectCompany(one, companyA.id);
+  pass("company B is gone, fallback is preserved, and synthetic company A remains selectable");
   const survivingA = await expectJson<{ companyId: string }>(one, "/api/state", 200);
   assert(survivingA.companyId === companyA.id, `Company A state reports ${survivingA.companyId} after the deletion`);
   const finalSnapshotA = await readScopedSurfaces(one, companyA.id);
@@ -340,7 +355,15 @@ async function main() {
   console.log(`\nMulti-company isolation passed: ${checks} checks in ${authMode} mode — two companies created and switched, blobs and every company-scoped read surface isolated, forged cookies rejected, selection persisted across a cookie-only request${installation} and deletion confined to one company.`);
 }
 
-main().catch((error: unknown) => {
+main().finally(async () => {
+  if (!cleanupBrowser) return;
+  const remaining = await expectJson<{ companies: Company[] }>(cleanupBrowser, "/api/companies", 200);
+  for (const company of cleanupCompanies.reverse()) {
+    if (!remaining.companies.some((row) => row.id === company.id)) continue;
+    await selectCompany(cleanupBrowser, company.id);
+    await deleteActiveCompany(cleanupBrowser, company.name);
+  }
+}).catch((error: unknown) => {
   console.error(`\nMulti-company isolation FAILED after ${checks} checks: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });

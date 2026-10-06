@@ -58,12 +58,14 @@ async function headForecastJob(companyId: string, revision: string, now: Date): 
  * wall time, so a cron tick never processes an unbounded backlog; the rest
  * are counted in `deferred` and picked up next tick.
  */
-export async function refreshRolledForecasts(now = new Date(), limit = 20, options: { budgetMs?: number } = {}): Promise<RolloverResult> {
+export async function refreshRolledForecasts(now = new Date(), limit = 20, options: { budgetMs?: number; companyIds?: string[] } = {}): Promise<RolloverResult> {
+  // An explicit empty scope means no companies, never a global scan.
+  if (options.companyIds?.length === 0) return { refreshed: [], retried: [], failed: [], deferred: 0 };
   const budgetMs = options.budgetMs ?? 30_000;
   const started = Date.now();
   const db = getDatabase();
   const latestRuns = await db.selectDistinctOn([calculationRuns.companyId], { companyId: calculationRuns.companyId, asOfMonth: calculationRuns.asOfMonth, revision: calculationRuns.financialStateRevision })
-    .from(calculationRuns).where(like(calculationRuns.engineVersion, forecastEngines))
+    .from(calculationRuns).where(and(like(calculationRuns.engineVersion, forecastEngines), ...(options.companyIds ? [inArray(calculationRuns.companyId, options.companyIds)] : [])))
     .orderBy(calculationRuns.companyId, desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt));
   const closures = latestRuns.length
     ? await db.select({ companyId: journalPeriodClosures.companyId, period: max(journalPeriodClosures.period) }).from(journalPeriodClosures)
