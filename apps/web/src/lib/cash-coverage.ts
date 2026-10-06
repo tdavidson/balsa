@@ -56,3 +56,17 @@ export async function loadCashCoverage(db: DbExecutor, companyId: string, lines:
     evidence: documents.filter((document) => document.status === "approved"),
   };
 }
+
+/** A preview represents a set of evidence and lines, not a database query's row order. */
+export function cashCoveragePreviewHash(input: {
+  throughDate: string; lines: PostedJournalLine[];
+  coverage: Awaited<ReturnType<typeof loadCashCoverage>>;
+  sourceState: Awaited<ReturnType<typeof loadCoverageSourceState>>;
+}) {
+  const byId = <T extends { id: string }>(rows: T[]) => [...rows].sort((a,b)=>a.id.localeCompare(b.id));
+  return createHash("sha256").update(stableJson({
+    ...input, lines: byId(input.lines),
+    coverage: {...input.coverage, accounts: byId(input.coverage.accounts).map(a=>({...a,assertions:byId(a.assertions)})), evidence:byId(input.coverage.evidence)},
+    sourceState: {rows:byId(input.sourceState.rows),documents:byId(input.sourceState.documents)},
+  })).digest("hex");
+}

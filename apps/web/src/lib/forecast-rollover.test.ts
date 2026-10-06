@@ -8,15 +8,16 @@ config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)) });
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 // Real Postgres: what is under test is which companies get picked up across a real revision and outbox pipeline.
-// refreshRolledForecasts scans every company with a forecast run, so this suite backdates only its own company's
-// run and calls it with the real clock — other test files' companies stay current for the real clock and are
-// never candidates, so this suite cannot race them even though vitest runs test files concurrently.
+// Restrict rollover to fixtures owned by this suite. Other suites deliberately use
+// historical clocks; a global real-clock scan would mutate those companies.
 describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
   if (!process.env.DATABASE_URL) return; // skipped suites still run their factory
   const { calculationOutbox, calculationRuns, chartAccounts, closeDatabase, companies, economicItems, financialStateRevisions, forecastEntryTemplates, forecastRecurrencePolicies, forecastOccurrences, getDatabase, journalBatches, journalEntries, journalLines } = await import("@finance/database");
   const { refreshCurrentCalculationRun } = await import("./refresh-calculation-run");
   const { refreshRolledForecasts } = await import("./forecast-rollover");
   const db = getDatabase();
+  const rolloverCompanyIds: string[] = [];
+  const roll = (now: Date, limit: number, options: { budgetMs?: number } = {}) => refreshRolledForecasts(now, limit, { ...options, companyIds: rolloverCompanyIds });
   let companyId = ""; let cashId = ""; let payrollId = "";
 
   const latestRun = async () => (await db.select({ id: calculationRuns.id, asOfMonth: calculationRuns.asOfMonth, revision: calculationRuns.financialStateRevision }).from(calculationRuns)
@@ -24,14 +25,14 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
     .orderBy(desc(sql`${calculationRuns.financialStateRevision}::bigint`), desc(calculationRuns.createdAt)).limit(1))[0]!;
   const companyRevision = async () => (await db.select({ revision: companies.financialStateRevision }).from(companies).where(eq(companies.id, companyId)))[0]!.revision;
   const rolledRevisionCount = async () => (await db.select({ id: financialStateRevisions.id }).from(financialStateRevisions).where(and(eq(financialStateRevisions.companyId, companyId), eq(financialStateRevisions.kind, "period_rolled")))).length;
-  // Backdate only this company's own latest run, so the real clock finds only it stale, not any concurrently running test's company.
+  // Backdate the fixture to exercise a real calendar rollover within the explicit scope.
   const backdateLatestRun = async () => { const run = await latestRun(); await db.update(calculationRuns).set({ asOfMonth: "2020-01" }).where(eq(calculationRuns.id, run.id)); return run; };
   const latestRevisionCause = async () => (await db.select({ kind: financialStateRevisions.kind }).from(financialStateRevisions)
     .where(eq(financialStateRevisions.companyId, companyId)).orderBy(desc(sql`${financialStateRevisions.revision}::bigint`)).limit(1))[0]!;
 
   beforeAll(async () => {
     const [company] = await db.insert(companies).values({ name: `Forecast rollover ${Date.now()}` }).returning({ id: companies.id });
-    companyId = company!.id;
+    companyId = company!.id; rolloverCompanyIds.push(companyId);
     const [cash, payroll] = await db.insert(chartAccounts).values([
       { companyId, code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
       { companyId, code: "6000", name: "Payroll", accountType: "expense", normalBalance: "debit" },
@@ -50,14 +51,14 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
 
   it("refreshes a company whose stored run fell behind the calendar, and does nothing on a repeat tick", async () => {
     const initial = await latestRun();
-    // Backdate only this company's own run, so the real clock finds only it stale, not any concurrently running test's company.
+    // Backdate this scoped fixture to exercise calendar rollover.
     await db.update(calculationRuns).set({ asOfMonth: "2020-01" }).where(eq(calculationRuns.id, initial.id));
 
     const now = new Date();
     const { loadForecastReconciliation } = await import("./forecast-reconciliation");
     const option = (await loadForecastReconciliation(companyId, now)).recurrence.options[0]!;
     await db.insert(forecastRecurrencePolicies).values({ companyId, driverId: option.driverId, status: "active", startMonth: now.toISOString().slice(0, 7), endMonth: now.toISOString().slice(0, 7), definition: option.definition, definitionHash: option.hash });
-    const first = await refreshRolledForecasts(now, 20);
+    const first = await roll(now, 20);
     expect(first.refreshed).toContain(companyId);
 
     const after = await latestRun();
@@ -65,19 +66,29 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
     expect(Number(after.revision) > Number(initial.revision)).toBe(true);
     expect((await latestRevisionCause()).kind).toBe("period_rolled");
 
-    const second = await refreshRolledForecasts(now, 20);
+    const second = await roll(now, 20);
     expect(second.refreshed).not.toContain(companyId);
     expect(await db.select().from(forecastOccurrences).where(eq(forecastOccurrences.companyId, companyId))).toHaveLength(1);
   });
 
   it("does not consider a company that has never had a forecast run", async () => {
     const [other] = await db.insert(companies).values({ name: `No forecast yet ${Date.now()}` }).returning({ id: companies.id });
+    rolloverCompanyIds.push(other!.id);
     try {
-      const result = await refreshRolledForecasts(new Date(), 20);
+      const result = await roll(new Date(), 20);
       expect(result.refreshed).not.toContain(other!.id);
     } finally {
       await db.delete(companies).where(eq(companies.id, other!.id));
     }
+  });
+
+  it("does not touch a stale company outside an explicit scope, including empty scope", async () => {
+    await backdateLatestRun();
+    const revision = await companyRevision();
+    expect(await refreshRolledForecasts(new Date(), 20, { companyIds: [] })).toEqual({ refreshed: [], retried: [], failed: [], deferred: 0 });
+    expect(await refreshRolledForecasts(new Date(), 20, { companyIds: ["00000000-0000-4000-8000-000000000000"] })).toEqual({ refreshed: [], retried: [], failed: [], deferred: 0 });
+    expect(await companyRevision()).toBe(revision);
+    expect((await roll(new Date(), 20)).refreshed).toContain(companyId);
   });
 
   it("does not rebuild journal graphs for a calendar roll", async () => {
@@ -90,7 +101,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
     ]);
     await backdateLatestRun();
 
-    const result = await refreshRolledForecasts(new Date(), 20);
+    const result = await roll(new Date(), 20);
     expect(result.refreshed).toContain(companyId);
     const revision = await companyRevision();
     expect((await latestRevisionCause()).kind).toBe("period_rolled");
@@ -111,7 +122,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
       let lastAttempt = (await jobAt()).updatedAt;
 
       for (let tick = 0; tick < 2; tick += 1) {
-        const result = await refreshRolledForecasts(new Date(), 20);
+        const result = await roll(new Date(), 20);
         expect(result.refreshed).not.toContain(companyId);
         expect(result.failed.map((entry) => entry.companyId)).toContain(companyId);
         expect(await companyRevision()).toBe(head);
@@ -123,7 +134,7 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
       }
 
       await db.update(companies).set({ minimumCashMinor: "0" }).where(eq(companies.id, companyId));
-      const recovered = await refreshRolledForecasts(new Date(), 20);
+      const recovered = await roll(new Date(), 20);
       expect(recovered.retried).toContain(companyId);
       expect(recovered.failed.map((entry) => entry.companyId)).not.toContain(companyId);
       expect((await jobAt()).status).toBe("completed");
@@ -140,23 +151,24 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast rollover", async () => {
   it("defers every candidate once the time budget is spent", async () => {
     await backdateLatestRun();
     const revision = await companyRevision();
-    const spent = await refreshRolledForecasts(new Date(), 20, { budgetMs: 0 });
+    const spent = await roll(new Date(), 20, { budgetMs: 0 });
     expect(spent.refreshed).not.toContain(companyId);
     expect(spent.deferred).toBeGreaterThanOrEqual(1);
     expect(await companyRevision()).toBe(revision);
-    expect((await refreshRolledForecasts(new Date(), 20)).refreshed).toContain(companyId);
+    expect((await roll(new Date(), 20)).refreshed).toContain(companyId);
   });
 
   it("isolates a company that throws so the others still refresh", async () => {
     // A second company whose refresh throws: its revision is not a number, so bumping it fails in Postgres.
     const [broken] = await db.insert(companies).values({ name: `Rollover failure ${Date.now()}` }).returning({ id: companies.id });
+    rolloverCompanyIds.push(broken!.id);
     try {
       await refreshCurrentCalculationRun(broken!.id, { cause: { kind: "entity_changed", subjectType: "company", subjectId: broken!.id, actorUserId: null, via: "worker" } });
       await db.update(calculationRuns).set({ asOfMonth: "2020-01" }).where(eq(calculationRuns.companyId, broken!.id));
       await db.update(companies).set({ financialStateRevision: "corrupt" }).where(eq(companies.id, broken!.id));
       await backdateLatestRun();
 
-      const result = await refreshRolledForecasts(new Date(), 20);
+      const result = await roll(new Date(), 20);
       expect(result.failed.find((entry) => entry.companyId === broken!.id)?.error).toBeTruthy();
       expect(result.refreshed).toContain(companyId);
       expect(result.refreshed).not.toContain(broken!.id);

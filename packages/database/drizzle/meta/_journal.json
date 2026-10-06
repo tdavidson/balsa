@@ -607,36 +607,78 @@
     {
       "idx": 86,
       "version": "7",
-      "when": 1790726400000,
-      "tag": "0086_standard_report_mapping",
+      "when": 1791158400000,
+      "tag": "0086_operating_experiments",
       "breakpoints": true
     },
     {
       "idx": 87,
       "version": "7",
-      "when": 1790812800000,
-      "tag": "0087_chart_cash_treatment",
+      "when": 1791158400001,
+      "tag": "0087_operating_connections",
       "breakpoints": true
     },
     {
       "idx": 88,
       "version": "7",
-      "when": 1790899200000,
-      "tag": "0088_driver_patterns",
+      "when": 1791158400002,
+      "tag": "0088_operating_outcomes",
       "breakpoints": true
     },
     {
       "idx": 89,
       "version": "7",
-      "when": 1790985600000,
-      "tag": "0089_metric_actuals",
+      "when": 1791158400003,
+      "tag": "0089_operating_triggers",
       "breakpoints": true
     },
     {
       "idx": 90,
       "version": "7",
-      "when": 1791072000000,
-      "tag": "0090_decision_evidence",
+      "when": 1791158400004,
+      "tag": "0090_operating_plan_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1791158400005,
+      "tag": "0091_operating_studies",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1791244800005,
+      "tag": "0092_standard_report_mapping",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1791331200005,
+      "tag": "0093_chart_cash_treatment",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1791417600005,
+      "tag": "0094_driver_patterns",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1791504000005,
+      "tag": "0095_metric_actuals",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791590400005,
+      "tag": "0096_decision_evidence",
       "breakpoints": true
     }
   ]
