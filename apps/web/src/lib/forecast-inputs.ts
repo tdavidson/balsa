@@ -107,7 +107,8 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const settlement = await loadSettlementInput(db, companyId, actualLines, throughDate);
   const recurrence = await loadRecurrenceReview(db, companyId, { drivers, templates, accounts, currency: company.baseCurrency }, throughDate, new Set(settlement.occurrences.map((item) => item.key)));
   const baseCurrencyLines = actualLines.filter((line) => line.currency === company.baseCurrency);
-  const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")) : [];
+  // In a stable order, like drivers and templates: the run, and every preview token hashed from it, must not depend on the order the database returns rows.
+  const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")).sort((left, right) => (left.postingDate ?? "").localeCompare(right.postingDate ?? "") || compareIds(left.entryId ?? "", right.entryId ?? "") || compareIds(left.id, right.id)) : [];
   const recognitionProofs = await loadRecognitionProofs(db, companyId, asOfMonth, company.baseCurrency, actualLines);
   return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonFor(asOfMonth, company.modelLastPeriod), minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}), ...(patterns ? { patterns } : {}) };
 }

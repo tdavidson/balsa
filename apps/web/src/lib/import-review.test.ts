@@ -53,6 +53,10 @@ describe.skipIf(!process.env.DATABASE_URL)("financial import reviews", async () 
   it("retains duplicates, reverses changed and removed rows, and preserves the saved comparison", async () => {
     const f = await seed(); const old = await f.file([["a", "100"], ["b", "200"], ["c", "300"]], true); const incoming = await f.file([["a", "100"], ["b", "250"], ["d", "400"]]);
     const view = await preview(f.id, incoming, old); expect(view.blockers).toEqual([]);
+    // The preview token hashes the outlook, so its open-month lines must not follow the database's row order.
+    const openLines = view.before?.input.openMonth?.actualLines ?? [];
+    expect(openLines.length).toBeGreaterThan(1);
+    expect(openLines.map((line) => `${line.postingDate}|${line.entryId}|${line.id}`)).toEqual(openLines.map((line) => `${line.postingDate}|${line.entryId}|${line.id}`).sort());
     expect(view.rows.map((row) => row.kind)).toEqual(["duplicate", "corrected", "removed", "new"]); expect(view.reversalCount).toBe(2); expect(view.postingCount).toBe(2);
     const [before] = await db.select().from(sources).where(eq(sources.id, old)); expect(JSON.parse(before!.metadata).financialReviewSupersededBy).toBeUndefined();
     const result = await execute(f.id, command(view), null, now) as { savedId: string }; const saved = await loadImportReview(f.id, result.savedId);
