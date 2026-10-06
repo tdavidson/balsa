@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { chartAccounts, getDatabase, journalLines, reportCategories } from "@finance/database";
-import { buildStandardStatements, isStandardLineId, monthRange, resolveStandardMapping, rollupStandardByFiscalYear, standardMappingComplete, type JournalStatementSelection, type ReportCategory, type ResolvedStandardMapping, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
+import { buildStandardStatements, isStandardLineId, monthRange, resolveStandardMapping, rollupStandardByFiscalYear, standardMappingComplete, type JournalStatementSelection, type PostedJournalLine, type ReportCategory, type ResolvedStandardMapping, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { loadReportLines } from "@/lib/journal-ledger";
 import type { LatestForecast } from "@/lib/forecast-read";
@@ -53,6 +53,15 @@ export async function loadStandardMapping(companyId: string, db: DbExecutor = ge
   return { rows: accounts, accounts: mappingAccounts, categories, resolved, inUseIds: new Set(inUse.map((row) => row.id)), summary: summarizeMapping(inUse.map((row) => resolved.get(row.id)!)) };
 }
 
+/** One Standard statement per month from a fixed set of lines and one selection. */
+export function standardColumns(input: { lines: PostedJournalLine[]; selection: JournalStatementSelection; mapping: Pick<Awaited<ReturnType<typeof loadStandardMapping>>, "accounts" | "categories">; start: string; end: string; currency: string; view: "actual" | "projected" | "scenario"; asOfPeriod: string; entityId?: string }): StandardPeriodColumn[] {
+  return monthRange(input.start, input.end).map((period) => {
+    const built = buildStandardStatements(input.lines, period, { accounts: input.mapping.accounts, categories: input.mapping.categories, currency: input.currency, selection: input.selection, ...(input.entityId ? { entityId: input.entityId } : {}) });
+    const basis = input.view === "actual" || period <= input.asOfPeriod ? "actual" : input.view === "scenario" ? "scenario" : "forecast";
+    return { period, basis, statement: built.byCurrency.find((candidate) => candidate.currency === input.currency)! };
+  });
+}
+
 const fiscalYearEndMonth = (stored: string | null) => { const month = Number(stored); return Number.isInteger(month) && month >= 1 && month <= 12 ? month : 12; };
 
 /**
@@ -65,11 +74,7 @@ export async function loadStandardStatementMonths(input: { companyId: string; st
   const selection: JournalStatementSelection = { view: input.view, asOfPeriod: input.asOfPeriod, ...(input.scenarioId ? { scenarioId: input.scenarioId } : {}) };
   const report = await loadReportLines(input.companyId, input.end, selection, { forecast: input.forecast });
   const asOf = report.selection?.asOfPeriod ?? input.asOfPeriod;
-  const columns: StandardPeriodColumn[] = monthRange(input.start, input.end).map((period) => {
-    const built = buildStandardStatements(report.lines, period, { accounts: mapping.accounts, categories: mapping.categories, currency: input.currency, ...(input.entityId ? { entityId: input.entityId } : {}), ...(report.selection ? { selection: report.selection } : {}) });
-    const basis = input.view === "actual" || period <= asOf ? "actual" : input.view === "scenario" ? "scenario" : "forecast";
-    return { period, basis, statement: built.byCurrency.find((candidate) => candidate.currency === input.currency)! };
-  });
+  const columns = standardColumns({ lines: report.lines, selection: report.selection ?? selection, mapping, start: input.start, end: input.end, currency: input.currency, view: input.view, asOfPeriod: asOf, ...(input.entityId ? { entityId: input.entityId } : {}) });
   const fiscalEnd = fiscalYearEndMonth(input.fiscalYearEnd);
   return {
     asOfPeriod: asOf,

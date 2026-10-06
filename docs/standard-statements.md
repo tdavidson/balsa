@@ -2,7 +2,7 @@
 
 Open **Accounting → Statements** and switch between **Ledger** and **Standard**.
 
-This is the first slice of the [Standard Financial Model export](superpowers/specs/2026-10-05-standard-model-export-design.md): the mapping, categories, timeline and in-app view the export will write. Nothing is exported yet.
+This is the first slice of the [Standard Financial Model export](superpowers/specs/2026-10-05-standard-model-export-design.md): the mapping, categories, timeline and in-app view, and the workbook export built on them.
 
 ## Two views of the same numbers
 
@@ -33,8 +33,35 @@ The mapping changes presentation only. Journals, balances and the ledger stateme
 - The forecast runs from the as-of month to the last month, up to 120 months. Changing the last month is a revision and recalculates the forecast.
 - Unset, the timeline is twelve months of history before the as-of month and the rolling 24-month forecast, with a December year end. **Use the rolling default** returns to it.
 
+## Export
+
+**Download model (.xlsx)** in the Standard view saves the outlook as a workbook in the Standard Financial Model's shape, over the model timeline:
+
+| Sheet | Contents |
+| --- | --- |
+| README | What the file is, the as-of month, versions and the colour key |
+| Get Started | Model structure (company, currency, periods, fiscal year end, actuals through, minimum cash, runway) and the check summary |
+| Summary | Annual totals by fiscal year, all formulas over Statements; balances take each fiscal year's last month |
+| Statements | Monthly Standard statements with actual and forecast months marked |
+| Plan, Budget | The pinned plan, and plan versus actuals over a month range the reader sets. Only when a plan has been pinned |
+| Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios |
+| Mapping | Each account's line, category and mapping status |
+| Lineage | The accounts behind every line figure, by month |
+| Checks | The workbook's totals against Balsa's, month by month, plus the balance check, the cash flow check and the mapping status |
+
+Line and category figures are values Balsa calculated (blue). Subtotals, totals, the Summary, Budget and every check are formulas (black, or green for a link to another sheet), so the file recalculates when a reader edits it. In the downloaded file every check reads "yes" except where Balsa itself reports a gap: an unconfirmed mapping, or a cash flow that does not explain the change in cash.
+
+Formulas use only functions that behave the same in Excel, Google Sheets and LibreOffice (`allowedFunctions` in `packages/model-export`); building a workbook with any other function fails. The exporter's tests recalculate a generated workbook in LibreOffice and compare every check, the fiscal-year rollup, the budget and the scenario differences with the engine. They run in `pnpm acceptance` and skip when `soffice` is not installed; on Debian or Ubuntu, install `libreoffice-calc-nogui`. Opening the file in Google Sheets is not yet tested automatically.
+
+Downloads are recorded in the activity log. The file carries ids, account names and figures, never evidence contents or model output.
+
+## Cash flow and the Cash line
+
+The ledger's cash flow finds cash accounts by "cash" in the account name or statement line. The Standard Cash line comes from the mapping, which also recognises a linked bank account. If an account mapped to Cash has neither word, the two disagree and net cash flow will not equal the change in cash. The Standard view and the workbook's Checks sheet both report it. Rename the account or give it a statement line containing "cash".
+
 ## Limits
 
 - The cash flow section is the ledger's operating, investing and financing summary, not the Standard model's indirect method.
 - The view shows the company's base currency and the consolidated company; entity and scenario selection are not in the Accounting modal yet.
 - Agent proposals for mappings and categories are not yet available.
+- The workbook's driver rows are not live yet: editing a forecast assumption means editing it in Balsa and exporting again. Live driver formulas are phase 4 of the spec.

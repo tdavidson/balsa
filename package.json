@@ -20,7 +20,7 @@
     "dev": "pnpm --filter @finance/web dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "acceptance": "pnpm --filter @balsa/ingestion test && pnpm --filter @balsa/finance-engine test && pnpm --filter @finance/database exec tsx ../../scripts/company-zero-smoke.ts",
+    "acceptance": "pnpm --filter @balsa/ingestion test && pnpm --filter @balsa/finance-engine test && pnpm --filter @balsa/model-export test && pnpm --filter @finance/database exec tsx ../../scripts/company-zero-smoke.ts",
     "isolation": "pnpm --filter @finance/database exec tsx ../../scripts/multi-company-isolation.ts",
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @finance/database db:generate",
