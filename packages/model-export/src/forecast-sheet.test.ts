@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildStandardStatements, driverAmountsByMonth, monthRange, resolvePatternDrivers, standardLayoutVersion, type ForecastDriver, type ForecastEntryTemplate, type OperatingMetric, type PatternContext, type PostedJournalLine, type StandardLineId, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
+import { buildStandardStatements, driverAmountsByMonth, monthRange, resolveFormulaDrivers, resolvePatternDrivers, type ForecastModel, standardLayoutVersion, type ForecastDriver, type ForecastEntryTemplate, type OperatingMetric, type PatternContext, type PostedJournalLine, type StandardLineId, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
 import { driverExportPattern, metricExportPattern } from "./export-patterns";
 import { forecastColumns, simulateForecast, type ExportDriver, type ForecastInput } from "./forecast-sheet";
 import { buildStandardWorkbook, type StandardWorkbookInput } from "./standard-workbook";
+import { modelHeader, planModel, type ModelPlan } from "./model-sheet";
 
 // A synthetic company whose drivers exercise every basis and option the sheet implements.
 const periods = monthRange("2026-07", "2027-12");
@@ -31,13 +32,14 @@ const accounts: Account[] = [
   { id: "software", type: "expense", name: "Software", line: "sga_misc" },
   { id: "legacy", type: "expense", name: "Legacy contract", line: "sga_misc" },
   { id: "modelled", type: "expense", name: "Modelled cost", line: "sga_misc" },
+  { id: "seat-licences", type: "expense", name: "Seat licences", line: "sga_misc" },
 ];
 const accountById = new Map(accounts.map((account) => [account.id, account]));
 const chart: StandardMappingAccount[] = accounts.map((account) => ({ accountId: account.id, accountCode: account.id, accountName: account.name, accountType: account.type, normalBalance: account.type === "asset" || account.type === "expense" ? "debit" : "credit", reportLine: account.line, ...(account.category ? { reportCategoryId: account.category } : {}), ...(account.timing ? { balanceTiming: account.timing } : {}), ...(account.id === "cash" ? { isCash: true } : {}) }));
 const categories = [{ id: "subs", line: "revenue" as const, name: "Subscriptions", sortOrder: 1 }];
 
 // One template per driver: receipts debit cash, spends credit cash, except the loan and the equipment purchase.
-const posting: Record<string, string> = { subs: "rev-subs", services: "rev-services", hosting: "cogs", commission: "sales", events: "events", rent: "rent", payroll: "payroll", software: "software", contractor: "contract", equipment: "ppe", loan: "debt", legacy: "legacy", modelled: "modelled" };
+const posting: Record<string, string> = { subs: "rev-subs", services: "rev-services", hosting: "cogs", commission: "sales", events: "events", rent: "rent", payroll: "payroll", software: "software", contractor: "contract", equipment: "ppe", loan: "debt", legacy: "legacy", modelled: "modelled", seats: "seat-licences" };
 const receipts = new Set(["subs", "services", "loan"]);
 const templates: ForecastEntryTemplate[] = Object.entries(posting).map(([id, account]) => receipts.has(id)
   ? { id: `t-${id}`, itemType: "agreement", direction: "receipt", category: id, debitAccountId: "cash", creditAccountId: account }
@@ -55,13 +57,26 @@ const drivers: ForecastDriver[] = [
   driver("equipment", { amountMinor: "2000000", cadence: "once", effectiveFrom: "2027-02" }),
   driver("loan", { amountMinor: "5000000", cadence: "once", effectiveFrom: "2026-11" }),
   driver("legacy", { pattern: { initialValue: "800", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 12, by: "0.05" } }, effectiveFrom: "2025-01" }),
-  driver("modelled", { amountFormula: "headcount * 120", amountByMonth: Object.fromEntries(forecastPeriods.map((period, index) => [period, String(240_000 + index * 12_000)])) }),
+  driver("modelled", { amountFormula: "sum(payroll) / 10 + avg(headcount) * 3.5 + ramp" }),
+  driver("seats", { pattern: { initialValue: "45", repeatsEveryMonths: 1, change: { basis: "per_unit", ref: { kind: "metric", name: "headcount" } } } }),
 ];
 const metrics: OperatingMetric[] = [{ name: "customers", label: "Customers", effectiveFrom: "2026-07", pattern: { initialValue: "100", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 1, by: "0.05" } }, actuals: { "2026-07": "100", "2026-08": "104", "2026-09": "110" } }];
 const retail = { id: "retail", name: "Retail", deviations: ["-0.2", "-0.2", "-0.1", "-0.1", "0", "0", "0", "0", "0", "0", "0.2", "0.4"] };
 const context: PatternContext = { metrics, seasonality: [retail], escalation: { rate: "0.025", everyMonths: 12, anchor: { calendarMonth: 1 } } };
 const accountLines = new Map(accounts.map((account) => [account.id, account.line as string]));
-const resolved = resolvePatternDrivers(drivers, { months: forecastPeriods, templates, accountLines, context, allMetrics: true });
+// A forecast model: step inputs by team, a reduction, a product, prev() and round().
+const model: ForecastModel = {
+  dimensions: [{ name: "team", items: ["eng", "sales"] }],
+  variables: [
+    { name: "headcount", kind: "number", dims: ["team"], inputs: [{ coords: { team: "eng" }, from: "2026-09", value: "2" }, { coords: { team: "eng" }, from: "2027-01", value: "3" }, { coords: { team: "sales" }, from: "2026-12", value: "1" }] },
+    { name: "salary", kind: "money", dims: ["team"], inputs: [{ coords: { team: "eng" }, from: "2026-01", value: "9000.5" }, { coords: { team: "sales" }, from: "2026-01", value: "6500" }] },
+    { name: "payroll", kind: "money", dims: ["team"], formula: "headcount * salary * 1.0725", inputs: [] },
+    { name: "ramp", kind: "money", dims: [], formula: "round(prev(sum(headcount)) * 33.333333, 2)", inputs: [] },
+  ],
+};
+const modelMonths = monthRange(asOf, periods.at(-1)!);
+const withFormulas = (set: ForecastDriver[]) => resolveFormulaDrivers(set, model, modelMonths).drivers;
+const resolved = resolvePatternDrivers(withFormulas(drivers), { months: forecastPeriods, templates, accountLines, model, context, allMetrics: true });
 if (resolved.exceptions.length) throw new Error(`fixture exceptions: ${JSON.stringify(resolved.exceptions)}`);
 const amounts = (item: ForecastDriver) => driverAmountsByMonth(resolved.drivers.find((candidate) => candidate.id === item.id)!, periods);
 const profileName = (id: string) => (id === retail.id ? retail.name : null);
@@ -71,14 +86,15 @@ const scenarioDrivers = [
   ...drivers.filter((item) => item.id !== "events").map((item) => item.id === "subs" ? { ...item, pattern: { ...item.pattern!, change: { basis: "pct_change" as const, everyMonths: 1, by: "0.06" } } } : item),
   driver("contractor", { amountMinor: "200000", effectiveFrom: "2026-12" }),
 ];
-const resolvedScenario = resolvePatternDrivers(scenarioDrivers, { months: forecastPeriods, templates, accountLines, context });
+const resolvedScenario = resolvePatternDrivers(withFormulas(scenarioDrivers), { months: forecastPeriods, templates, accountLines, model, context });
 const scenarioAmounts = (item: ForecastDriver) => driverAmountsByMonth(resolvedScenario.drivers.find((candidate) => candidate.id === item.id)!, periods);
 
 const exportDriver = (item: ForecastDriver, amountsByPeriod: Record<string, string>, scenarioId: string | null): ExportDriver => {
   const account = accountById.get(posting[item.id]!)!;
   return {
     id: item.id, label: item.label, direction: item.direction, lineLabel: account.line, referenceLine: account.line, scenarioId, excludedIn: [],
-    pattern: driverExportPattern(item, profileName), note: item.amountFormula ? `Formula in Balsa: ${item.amountFormula}` : null,
+    pattern: driverExportPattern(item, profileName), note: null,
+    formula: item.amountFormula ? { text: item.amountFormula, startsIn: item.effectiveFrom, endsIn: item.effectiveTo ?? null, repeatsEvery: 1 } : null,
     posting: { line: account.line, categoryId: account.category ?? null }, settlement: { line: "cash", categoryId: null },
     amountsByPeriod, exception: null,
   };
@@ -94,7 +110,10 @@ for (const item of scenarioDrivers) {
 for (const item of exportDrivers) if (item.scenarioId === null && !scenarioDrivers.some((candidate) => candidate.id === item.id)) item.excludedIn.push("growth");
 const forecast: ForecastInput = {
   forecastPeriods, drivers: exportDrivers, scenarios: [{ id: "growth", name: "Faster growth" }],
-  metrics: metrics.map((metric) => ({ name: metric.name, label: metric.label!, unit: "customers", pattern: metricExportPattern(metric, profileName), actuals: metric.actuals!, valuesByPeriod: resolved.metrics[metric.name]! })),
+  metrics: [
+    ...metrics.map((metric) => ({ name: metric.name, label: metric.label!, unit: "customers", pattern: metricExportPattern(metric, profileName), actuals: metric.actuals!, valuesByPeriod: resolved.metrics[metric.name]! })),
+    { name: "headcount", label: "headcount (model variable)", unit: null, pattern: null, variable: true, actuals: {}, valuesByPeriod: resolved.metrics.headcount! },
+  ],
   seasonality: [{ name: retail.name, deviations: retail.deviations.map(Number) }], escalation: { rate: 0.025, everyMonths: 12, anchorMonth: 1 },
 };
 
@@ -127,14 +146,17 @@ const input: StandardWorkbookInput = {
   timeline: { firstPeriod: periods[0]!, lastPeriod: periods.at(-1)!, asOfPeriod: asOf, fiscalYearEndMonth: 12, isDefault: false }, minimumCashMinor: "0",
   base, baseRunway: null, plan: null, scenarios: [{ id: "growth", name: "Faster growth", description: null, months: scenario, runway: { runwayMonths: null, cashOutMonth: null } }],
   accounts: chart.map((item) => ({ id: item.accountId, code: item.accountCode, name: item.accountName, section: item.accountType, lineLabel: null, categoryName: null, status: "confirmed", reason: "" })),
-  mapping: { confirmed: chart.length, total: chart.length, complete: true }, forecast,
+  mapping: { confirmed: chart.length, total: chart.length, complete: true }, forecast, model: { definition: model, months: modelMonths },
 };
+
+const modelLink = planModel({ definition: model, months: modelMonths }, modelHeader.labels + 2) as ModelPlan;
 
 describe("simulateForecast", () => {
   it("reproduces the engine's amounts for every basis, and says why the rest are values", () => {
-    const plan = simulateForecast(forecast, periods);
+    const plan = simulateForecast(forecast, periods, { model: modelLink });
     const valueRows = [...plan.live.entries()].filter(([, live]) => !live).map(([key]) => [key, plan.reasons.get(key) ?? null]);
-    expect(valueRows).toEqual([["driver:legacy", "It starts before the first month in this file"], ["driver:modelled", null]]);
+    expect(valueRows).toEqual([["driver:legacy", "It starts before the first month in this file"]]);
+    expect(plan.live.get("driver:modelled")).toBe(true); expect(plan.live.get("metric:headcount")).toBe(true); expect(plan.live.get("driver:seats")).toBe(true);
     expect(plan.live.get("metric:customers")).toBe(true);
     // Spot checks against the engine, independent of the simulator's own comparison.
     const at = (key: string, period: string) => plan.values.get(key)![periods.indexOf(period)];
@@ -147,7 +169,7 @@ describe("simulateForecast", () => {
   });
 
   it("reproduces each scenario's amounts with only that scenario's rows in use", () => {
-    const plan = simulateForecast(forecast, periods);
+    const plan = simulateForecast(forecast, periods, { model: modelLink });
     expect(plan.live.get("driver:subs@growth")).toBe(true);
     expect(plan.live.get("driver:hosting@growth")).toBe(true);
     const inScenario = plan.byScenario[1]!;
@@ -160,7 +182,7 @@ describe("simulateForecast", () => {
 
   it("demotes a row whose formula would not reproduce Balsa", () => {
     const tampered = { ...forecast, drivers: forecast.drivers.map((item) => item.id === "rent" ? { ...item, amountsByPeriod: { ...item.amountsByPeriod, "2027-05": "300001" } } : item) };
-    const plan = simulateForecast(tampered, periods);
+    const plan = simulateForecast(tampered, periods, { model: modelLink });
     expect(plan.live.get("driver:rent")).toBe(false);
     expect(plan.reasons.get("driver:rent")).toMatch(/would not reproduce/);
   });
@@ -182,7 +204,7 @@ const monthCell = (period: string) => forecastColumns.firstMonth + periods.index
 
 describe.skipIf(!soffice)("live drivers recalculated in LibreOffice", () => {
   let exported: ExcelJS.Workbook; let edited: ExcelJS.Workbook;
-  const plan = simulateForecast(forecast, periods);
+  const plan = simulateForecast(forecast, periods, { model: modelLink });
   beforeAll(async () => {
     const bytes = await buildStandardWorkbook(input);
     exported = await recalculate(bytes);
@@ -223,8 +245,37 @@ describe.skipIf(!soffice)("live drivers recalculated in LibreOffice", () => {
     expect(figure(scenario, periods.length - 1, "net_income")).not.toBeCloseTo(figure(base, periods.length - 1, "net_income"), 0);
   });
 
+  it("writes the forecast model as rows that recalculate to the engine's values", () => {
+    const sheet = exported.getWorksheet("Model")!;
+    let checked = 0;
+    for (const variable of modelLink.variables) for (const candidate of variable.rows) for (const [index] of modelMonths.entries()) {
+      const expected = modelLink.engine.get(variable.name)!.get(candidate.key)![index]!;
+      expect(cellNumber(sheet.getCell(candidate.row, 5 + index).value), `${variable.name}[${candidate.key}] ${modelMonths[index]}`).toBeCloseTo(expected, 6); checked += 1;
+    }
+    expect(checked).toBeGreaterThan(50);
+    expect(modelLink.live.get("payroll")).toBe(true); expect(modelLink.live.get("ramp")).toBe(true);
+  });
+
+  it("matches Balsa's own engine after an input on the Model sheet is edited", async () => {
+    // Engineering grows to 5 from March: edit the file, and make the same change in the engine.
+    const source = new ExcelJS.Workbook(); await source.xlsx.load((await buildStandardWorkbook(input)).buffer as ArrayBuffer);
+    const engRow = modelLink.variables.find((variable) => variable.name === "headcount")!.rows.find((candidate) => candidate.key === "eng")!.row;
+    modelMonths.forEach((month, index) => { if (month >= "2027-03") source.getWorksheet("Model")!.getCell(engRow, 5 + index).value = 5; });
+    const edited = await recalculate(await source.xlsx.writeBuffer() as ArrayBuffer);
+    const changedModel: ForecastModel = { ...model, variables: model.variables.map((variable) => variable.name === "headcount" ? { ...variable, inputs: [...variable.inputs, { coords: { team: "eng" }, from: "2027-03", value: "5" }] } : variable) };
+    const engineAfter = resolvePatternDrivers(resolveFormulaDrivers(drivers, changedModel, modelMonths).drivers, { months: forecastPeriods, templates, accountLines, model: changedModel, context });
+    const sheet = edited.getWorksheet("Forecast")!;
+    for (const id of ["modelled", "seats"]) {
+      const after = driverAmountsByMonth(engineAfter.drivers.find((item) => item.id === id)!, periods);
+      expect(after["2027-06"], `${id} moves with the edit`).not.toBe(amounts(drivers.find((item) => item.id === id)!)["2027-06"]);
+      const row = rowOf(sheet, id[0]!.toUpperCase() + id.slice(1));
+      for (const period of forecastPeriods) expect(cellNumber(sheet.getCell(row, monthCell(period)).value), `${id} ${period}`).toBeCloseTo(Number(after[period] ?? "0") / 100, 2);
+    }
+    expect(checksOf(edited)).toMatchObject({ "Balance sheet balances every month": "yes", "Cash flow explains the change in cash": "yes", "Driver formulas reproduce Balsa's driver amounts": "no" });
+  });
+
   it("flows an edited input through the drivers that depend on it and keeps the statements whole", () => {
-    const changed = simulateForecast({ ...forecast, drivers: forecast.drivers.map((item) => item.id === "subs" ? { ...item, pattern: { ...item.pattern!, initialValue: 12_000 } } : item) }, periods, { compare: false });
+    const changed = simulateForecast({ ...forecast, drivers: forecast.drivers.map((item) => item.id === "subs" ? { ...item, pattern: { ...item.pattern!, initialValue: 12_000 } } : item) }, periods, { compare: false, model: modelLink });
     const sheet = edited.getWorksheet("Forecast")!;
     for (const label of ["Subs", "Hosting", "Commission"]) {
       const key = `driver:${label.toLowerCase()}`;

@@ -43,6 +43,7 @@ The mapping changes presentation only. Journals, balances and the ledger stateme
 | Get Started | Model structure (company, currency, periods, fiscal year end, actuals through, minimum cash, runway), the check summary, and the seasonality profiles and company escalation the drivers read |
 | Summary | Annual totals by fiscal year, all formulas over Statements; balances take each fiscal year's last month |
 | Forecast | Operating metrics and drivers in the Standard model's driver columns, each month a live formula, with Balsa's own amounts below ([forecast drivers](forecast-drivers.md#in-the-workbook)). Only when there are drivers or metrics |
+| Model | Balsa's forecast model, one row per variable and coordinate: inputs to edit, formulas compiled from Balsa's. Only when the company has a forecast model |
 | Statements | Monthly Standard statements with actual and forecast months marked |
 | Plan, Budget | The pinned plan, and plan versus actuals over a month range the reader sets. Only when a plan has been pinned |
 | Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios; Get Started's Active scenario dropdown switches the whole model to one ([forecast drivers](forecast-drivers.md#in-the-workbook)) |
