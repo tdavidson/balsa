@@ -13,6 +13,8 @@ import { applyDecisionIfEffectiveWith } from "./decision-effects";
 import { enqueueCalculationRefreshWith, processEnqueuedCalculationRefresh, type CalculationRefreshReceipt } from "./refresh-calculation-run";
 import { decisionSelection, goalDecisionCommand, type DecisionSelection, type GoalDecisionHistory, type GoalDecisionOutcome, type GoalDecisionPreview, type GoalDecisionSnapshot } from "./goal-decisions-contract";
 import type { DbExecutor } from "./db-executor";
+import { preserveOperatingPredictionWith } from "./operating-outcomes";
+import { assertOperatingScenarioCurrent } from "./operating-connection-state";
 
 const hash = (value: unknown) => createHash("sha256").update(stableJson(value)).digest("hex");
 const history = (row: Omit<typeof goalDecisionReviews.$inferSelect, "snapshot" | "requestKey" | "requestHash" | "previewToken" | "actorUserId" | "companyId" | "planId" >): GoalDecisionHistory => ({ id: row.id, name: row.name, kind: row.kind, scenarioId: row.scenarioId, goalVersionId: row.goalVersionId, parentId: row.parentId, createdAt: row.createdAt.toISOString() });
@@ -41,6 +43,7 @@ export async function previewGoalDecisionWith(db: DbExecutor, companyId: string,
   if (!plan) throw new GoalReviewError("Approved plan not found for this company.", 404);
   if (!goals.some((goal) => goal.id === plan.goalVersionId)) throw new GoalReviewError("The plan's goal version is no longer active. Approve a baseline for the current goal first.", 409);
   const base = await captureOutlook(db, companyId, now);
+  await assertOperatingScenarioCurrent(db, companyId, scenario.id, { reviewed: true, forecastStart: base.output.horizon.start, now });
   const { drivers } = await loadScenarioDriversWith(db, companyId, scenario.id);
   const scenarioInput = applyScenarioChanges({ ...base.input, drivers: [...base.input.drivers, ...drivers] }, scenario.changes, scenario.id);
   scenarioInput.recurrence = (await loadRecurrenceReview(db, companyId, scenarioInput, now.toISOString().slice(0, 10), new Set(scenarioInput.settlement?.occurrences.map((item) => item.key) ?? []))).states;
@@ -102,6 +105,8 @@ export async function executeGoalDecision(companyId: string, raw: unknown, actor
     await tx.execute(sql`select pg_advisory_xact_lock(7407, hashtext(${companyId}))`);
     await tx.execute(sql`select pg_advisory_xact_lock(7405, hashtext(${companyId}))`);
     await tx.execute(sql`select pg_advisory_xact_lock(7406, hashtext(${companyId}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(7413, hashtext(${companyId}))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(7414, hashtext(${companyId}))`);
     const requestHash = hash(command);
     const [prior] = await tx.select().from(goalDecisionReviews).where(and(eq(goalDecisionReviews.companyId, companyId), eq(goalDecisionReviews.requestKey, command.requestKey)));
     if (prior) { if (prior.requestHash !== requestHash) throw new GoalReviewError("Request key already used for another decision review.", 409); return { result: { saved: history(prior), reused: true }, receipt: null }; }
@@ -118,7 +123,7 @@ export async function executeGoalDecision(companyId: string, raw: unknown, actor
       snapshot = { type: command.action === "approve" ? "applied" : "evaluation", preview, decisionIds: [], reason: command.reason };
       if (command.action === "approve") {
         if (preview.blockers.length) throw new GoalReviewError("Resolve all manual conditions, cash-floor breaches and unsupported calculations before approving.", 422);
-        const promoted = await promoteScenarioWith(tx, companyId, scenarioId, actorUserId, now);
+        const promoted = await promoteScenarioWith(tx, companyId, scenarioId, actorUserId, now, true);
         if (promoted.skippedItems || !promoted.decisionIds.length) throw new GoalReviewError("The complete scenario cannot be applied. No changes were saved.", 422);
         for (const id of promoted.decisionIds) {
           const application = await applyDecisionIfEffectiveWith(tx, companyId, id, actorUserId);
@@ -142,6 +147,7 @@ export async function executeGoalDecision(companyId: string, raw: unknown, actor
     }
     if (Buffer.byteLength(JSON.stringify(snapshot)) > 24_000_000) throw new GoalReviewError("This decision review exceeds the saved snapshot limit.", 422);
     const [saved] = await tx.insert(goalDecisionReviews).values({ companyId, goalVersionId, scenarioId, planId, parentId, kind: snapshot.type, name: command.name, requestKey: command.requestKey, requestHash, previewToken: command.previewToken, snapshot: JSON.parse(JSON.stringify(snapshot)), actorUserId }).returning();
+    if (snapshot.type === "applied") await preserveOperatingPredictionWith(tx, companyId, saved!.id, now);
     await recordAudit(tx, { companyId, actorUserId, via: "ui", action: `goal_decision.${snapshot.type}`, entityType: "goal_decision_review", entityId: saved!.id, summary: command.reason, after: { scenarioId, planId, goalVersionId, parentId } });
     return { result: { saved: history(saved!), reused: false }, receipt };
   }, { isolationLevel: "repeatable read" });

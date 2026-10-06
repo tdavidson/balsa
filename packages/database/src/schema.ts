@@ -460,7 +460,7 @@ export const scenarios = pgTable("scenarios", {
   /** Hypothetical driver changes (ScenarioChange[], apps/web/src/lib/scenario-changes.ts), applied in order over the base forecast. Read with parseStoredChanges. */
   changes: jsonb("changes").$type<unknown>().default([]).notNull(),
   active: char("active", { length: 1 }).default("Y").notNull(), ...timestamps,
-}, (table) => [index("scenarios_company_index").on(table.companyId, table.active)]);
+}, (table) => [index("scenarios_company_index").on(table.companyId, table.active), uniqueIndex("scenarios_company_id").on(table.companyId, table.id)]);
 
 export const knowledgeDocuments = pgTable(
   "knowledge_documents",
@@ -1038,3 +1038,90 @@ export const bankConnectSessions = pgTable("bank_connect_sessions", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), nonce: text("nonce").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), ...timestamps,
 });
+
+/** Immutable operating-model inputs and selected calculation, linked to a reviewable scenario. */
+export const operatingExperiments = pgTable("operating_experiments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  scenarioId: uuid("scenario_id").notNull(),
+  name: text("name").notNull(),
+  requestKey: uuid("request_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex("operating_experiments_company_id").on(table.companyId, table.id), uniqueIndex("operating_experiments_request").on(table.companyId, table.requestKey), index("operating_experiments_company").on(table.companyId, table.createdAt), foreignKey({ columns: [table.companyId, table.scenarioId], foreignColumns: [scenarios.companyId, scenarios.id] })]);
+
+/** Explicit, immutable subscriptions to reviewed source facts. Revisions remain experiments. */
+export const operatingConnections = pgTable("operating_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  experimentId: uuid("experiment_id").notNull(),
+  bindings: jsonb("bindings").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("operating_connections_company_id").on(t.companyId, t.id), uniqueIndex("operating_connections_experiment").on(t.companyId, t.experimentId), foreignKey({ columns: [t.companyId, t.experimentId], foreignColumns: [operatingExperiments.companyId, operatingExperiments.id] }).onDelete("cascade")]);
+
+export const operatingRevisions = pgTable("operating_revisions", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  connectionId: uuid("connection_id").notNull(),
+  experimentId: uuid("experiment_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.companyId, t.experimentId] }), foreignKey({ columns: [t.companyId, t.connectionId], foreignColumns: [operatingConnections.companyId, operatingConnections.id] }).onDelete("cascade"), foreignKey({ columns: [t.companyId, t.experimentId], foreignColumns: [operatingExperiments.companyId, operatingExperiments.id] }).onDelete("cascade")]);
+
+/** Prediction vintages are pinned to the immutable reviewed application. */
+export const operatingPredictions = pgTable("operating_predictions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  experimentId: uuid("experiment_id").notNull(), reviewId: uuid("review_id").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("operating_predictions_company_id").on(t.companyId,t.id), uniqueIndex("operating_predictions_review").on(t.companyId,t.reviewId), index("operating_predictions_experiment").on(t.companyId,t.experimentId), foreignKey({columns:[t.companyId,t.experimentId],foreignColumns:[operatingExperiments.companyId,operatingExperiments.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.reviewId],foreignColumns:[goalDecisionReviews.companyId,goalDecisionReviews.id]}).onDelete("cascade")]);
+
+/** Corrections append a new version; source snapshots remain inspectable. */
+export const operatingObservations = pgTable("operating_observations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  predictionId: uuid("prediction_id").notNull(), nodeId: text("node_id").notNull(), month: text("month").notNull(),
+  supersedesId: uuid("supersedes_id"), definition: jsonb("definition").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("operating_observations_company_id").on(t.companyId,t.id), uniqueIndex("operating_observations_request").on(t.companyId,t.requestKey), uniqueIndex("operating_observations_successor").on(t.companyId,t.supersedesId), uniqueIndex("operating_observations_first").on(t.companyId,t.predictionId,t.nodeId,t.month).where(sql`${t.supersedesId} IS NULL`), index("operating_observations_metric").on(t.companyId,t.predictionId,t.nodeId,t.month), foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.supersedesId],foreignColumns:[t.companyId,t.id]})]);
+
+export const operatingOutcomeReviews = pgTable("operating_outcome_reviews", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  predictionId: uuid("prediction_id").notNull(), snapshot: jsonb("snapshot").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [uniqueIndex("operating_outcome_reviews_request").on(t.companyId,t.requestKey), index("operating_outcome_reviews_prediction").on(t.companyId,t.predictionId), foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade")]);
+
+/** Versioned review rules and append-only evaluations; never financial instructions. */
+export const operatingTriggerRules = pgTable("operating_trigger_rules", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, {onDelete:"cascade"}),
+  predictionId: uuid("prediction_id").notNull(), supersedesId: uuid("supersedes_id"), name: text("name").notNull(), definition: jsonb("definition").notNull(), reason: text("reason").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(), actorUserId: uuid("actor_user_id").references(() => users.id, {onDelete:"set null"}), createdAt: timestamp("created_at", {withTimezone:true}).defaultNow().notNull(),
+}, t => [uniqueIndex("operating_trigger_rules_company_id").on(t.companyId,t.id), uniqueIndex("operating_trigger_rules_request").on(t.companyId,t.requestKey), uniqueIndex("operating_trigger_rules_successor").on(t.companyId,t.supersedesId), index("operating_trigger_rules_prediction").on(t.companyId,t.predictionId), foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.supersedesId],foreignColumns:[t.companyId,t.id]})]);
+export const operatingTriggerEvaluations = pgTable("operating_trigger_evaluations", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, {onDelete:"cascade"}), ruleId: uuid("rule_id").notNull(), sequence: integer("sequence").notNull(), fingerprint: text("fingerprint").notNull(), snapshot: jsonb("snapshot").notNull(), reviewId: uuid("review_id"),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(), actorUserId: uuid("actor_user_id").references(() => users.id, {onDelete:"set null"}), createdAt: timestamp("created_at", {withTimezone:true}).defaultNow().notNull(),
+}, t => [uniqueIndex("operating_trigger_evaluations_company_id").on(t.companyId,t.id), uniqueIndex("operating_trigger_evaluations_request").on(t.companyId,t.requestKey), uniqueIndex("operating_trigger_evaluations_sequence").on(t.companyId,t.ruleId,t.sequence), index("operating_trigger_evaluations_review").on(t.companyId,t.reviewId), foreignKey({columns:[t.companyId,t.ruleId],foreignColumns:[operatingTriggerRules.companyId,operatingTriggerRules.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.reviewId],foreignColumns:[t.companyId,t.id]})]);
+export const operatingTriggerEvents = pgTable("operating_trigger_events", {
+  id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, {onDelete:"cascade"}), reviewId: uuid("review_id").notNull(), evaluationId: uuid("evaluation_id").notNull(), supersedesId: uuid("supersedes_id"), status: text("status").notNull(), snoozeUntil: text("snooze_until"), reason: text("reason").notNull(),
+  requestKey: uuid("request_key").notNull(), requestHash: text("request_hash").notNull(), actorUserId: uuid("actor_user_id").references(() => users.id, {onDelete:"set null"}), createdAt: timestamp("created_at", {withTimezone:true}).defaultNow().notNull(),
+}, t => [uniqueIndex("operating_trigger_events_company_id").on(t.companyId,t.id), uniqueIndex("operating_trigger_events_request").on(t.companyId,t.requestKey), uniqueIndex("operating_trigger_events_successor").on(t.companyId,t.supersedesId), uniqueIndex("operating_trigger_events_first").on(t.companyId,t.reviewId).where(sql`${t.supersedesId} IS NULL`), index("operating_trigger_events_review").on(t.companyId,t.reviewId), index("operating_trigger_events_evaluation").on(t.companyId,t.evaluationId), foreignKey({columns:[t.companyId,t.reviewId],foreignColumns:[operatingTriggerEvaluations.companyId,operatingTriggerEvaluations.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.evaluationId],foreignColumns:[operatingTriggerEvaluations.companyId,operatingTriggerEvaluations.id]}).onDelete("cascade"), foreignKey({columns:[t.companyId,t.supersedesId],foreignColumns:[t.companyId,t.id]})]);
+
+/** A review-linked proposal remains an ordinary, unapproved operating experiment. */
+export const operatingPlanRevisions = pgTable("operating_plan_revisions", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, {onDelete:"cascade"}),
+  experimentId: uuid("experiment_id").notNull(), predictionId: uuid("prediction_id").notNull(), triggerReviewId: uuid("trigger_review_id").notNull(),
+  createdAt: timestamp("created_at", {withTimezone:true}).defaultNow().notNull(),
+}, t=>[primaryKey({columns:[t.companyId,t.experimentId]}),index("operating_plan_revisions_prediction").on(t.companyId,t.predictionId),index("operating_plan_revisions_trigger").on(t.companyId,t.triggerReviewId),foreignKey({columns:[t.companyId,t.experimentId],foreignColumns:[operatingExperiments.companyId,operatingExperiments.id]}).onDelete("cascade"),foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade"),foreignKey({columns:[t.companyId,t.triggerReviewId],foreignColumns:[operatingTriggerEvaluations.companyId,operatingTriggerEvaluations.id]}).onDelete("cascade")]);
+
+/** Read-only analytical studies preserve assumptions, cutoffs and reproducible results. */
+export const operatingStudies = pgTable("operating_studies", {
+ id:uuid("id").defaultRandom().primaryKey(),companyId:uuid("company_id").notNull().references(()=>companies.id,{onDelete:"cascade"}),
+ kind:text("kind").notNull(),name:text("name").notNull(),predictionId:uuid("prediction_id"),snapshot:jsonb("snapshot").notNull(),requestKey:uuid("request_key").notNull(),requestHash:text("request_hash").notNull(),actorUserId:uuid("actor_user_id").references(()=>users.id,{onDelete:"set null"}),createdAt:timestamp("created_at",{withTimezone:true}).defaultNow().notNull(),
+},t=>[uniqueIndex("operating_studies_company_id").on(t.companyId,t.id),uniqueIndex("operating_studies_request").on(t.companyId,t.requestKey),index("operating_studies_prediction").on(t.companyId,t.predictionId),index("operating_studies_kind").on(t.companyId,t.kind,t.createdAt),foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade")]);

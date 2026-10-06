@@ -603,6 +603,48 @@
       "when": 1790640000000,
       "tag": "0085_teller_banking",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1791158400000,
+      "tag": "0086_operating_experiments",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791158400001,
+      "tag": "0087_operating_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1791158400002,
+      "tag": "0088_operating_outcomes",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1791158400003,
+      "tag": "0089_operating_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1791158400004,
+      "tag": "0090_operating_plan_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1791158400005,
+      "tag": "0091_operating_studies",
+      "breakpoints": true
     }
   ]
 }

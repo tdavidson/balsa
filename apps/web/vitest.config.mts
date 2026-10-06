@@ -9,6 +9,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Bound worker startup and database pressure while retaining parallel suites.
+    maxWorkers: 4,
     exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**"],
   },
 });

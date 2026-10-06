@@ -43,9 +43,9 @@ function Outcome({ value }: { value: GoalDecisionOutcome }) {
   return <div className="flex flex-col gap-3"><h3 className="text-xl font-semibold">Outcome review: {value.goal.definition.name}</h3><p>{value.notice}</p><p>Applied outlook {money(bridge.beforeMinor, bridge.currency)} → current outlook {money(bridge.afterMinor, bridge.currency)}</p><p>Change {money(bridge.deltaMinor, bridge.currency)} · headroom {money(bridge.headroomAfterMinor, bridge.currency)} · {bridge.status}</p><ul className="list-disc pl-5">{bridge.steps.map((step) => <li key={step.category}>{step.label}: {money(step.deltaMinor, bridge.currency)}<details><summary className="cursor-pointer text-sm">Supporting changes</summary><p className="text-sm">{step.changes.join("; ")}</p><p className="break-all text-xs">{step.references.join(", ")}</p></details></li>)}</ul><p>Unexplained residual: {money(bridge.residualMinor, bridge.currency)}</p><ul className="list-disc pl-5 text-sm">{[...new Set([...bridge.reasons, ...value.outlook.limitations])].map((reason) => <li key={reason}>{reason}</li>)}</ul></div>;
 }
 
-export function GoalDecisions({ company, initialData, initialError }: { company: { id: string; name: string; currency: string }; initialData: Workspace | null; initialError: string }) {
+export function GoalDecisions({ company, initialData, initialError, initialScenarioId = "" }: { company: { id: string; name: string; currency: string }; initialData: Workspace | null; initialError: string; initialScenarioId?: string }) {
   const [data, setData] = useState(initialData); const [error, setError] = useState(initialError); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState("");
-  const [scenarioId, setScenarioId] = useState(""); const [planId, setPlanId] = useState("");
+  const [scenarioId, setScenarioId] = useState(initialScenarioId); const [planId, setPlanId] = useState("");
   const [conditionReviews, setConditions] = useState<DecisionSelection["conditionReviews"]>([]);
   const [preview, setPreview] = useState<GoalDecisionPreview | null>(null); const [outcome, setOutcome] = useState<GoalDecisionOutcome | null>(null);
   const [inspected, setInspected] = useState<{ name: string; snapshot: GoalDecisionSnapshot } | null>(null);

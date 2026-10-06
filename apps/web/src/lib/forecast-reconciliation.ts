@@ -8,7 +8,7 @@ import { loadRecurrenceReview } from "./forecast-recurrence";
 import type { DbExecutor } from "./db-executor";
 import { loadForecastInputs } from "./forecast-inputs";
 import { loadPostedJournalLines } from "./journal-ledger";
-import { cashCoverageHash, loadCashCoverage, loadCoverageSourceState } from "./cash-coverage";
+import { cashCoveragePreviewHash, cashCoverageHash, loadCashCoverage, loadCoverageSourceState } from "./cash-coverage";
 import { enqueueCalculationRefreshWith, processEnqueuedCalculationRefresh } from "./refresh-calculation-run";
 import { reconciliationCommand, type ForecastReconciliationData, type OccurrenceCandidate } from "./forecast-reconciliation-contract";
 
@@ -59,7 +59,7 @@ export async function loadForecastReconciliationWith(db: DbExecutor, companyId: 
     return [{ driverId: driver.id, label: driver.label, reason: state.reason ?? "The approved schedule changed.", startMonth, oldAmountMinor: state.policy.definition.driver.amountMinor, currentAmountMinor: driver.amountMinor, oldSourceLineIds, currentSourceLines, preservedOccurrenceIds: preserved.map((item) => item.id), hash: hash({ input, driver, state, startMonth, currentSourceLines, preserved }) }];
   });
   const coverage = await loadCashCoverage(db, companyId, lines, `${input.asOfMonth}-01`, settlement.throughDate);
-  return { recovery, matchSuggestions: suggestCashMatches(settlement, run.settlements ?? []), recurrence, companyId, currency: input.currency, throughDate: settlement.throughDate, asOfMonth: input.asOfMonth, candidates, settlement, results: run.settlements ?? [], exceptions: run.exceptions, coverage, coveragePreviewHash: hash({ throughDate: settlement.throughDate, lines, coverage, sourceState: await loadCoverageSourceState(db, companyId) }) };
+  return { recovery, matchSuggestions: suggestCashMatches(settlement, run.settlements ?? []), recurrence, companyId, currency: input.currency, throughDate: settlement.throughDate, asOfMonth: input.asOfMonth, candidates, settlement, results: run.settlements ?? [], exceptions: run.exceptions, coverage, coveragePreviewHash: cashCoveragePreviewHash({ throughDate: settlement.throughDate, lines, coverage, sourceState: await loadCoverageSourceState(db, companyId) }) };
 }
 
 export function loadForecastReconciliation(companyId: string, now = new Date()) {
