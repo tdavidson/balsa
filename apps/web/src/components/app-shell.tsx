@@ -2,7 +2,8 @@
 
 import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, FlaskConical, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useStoredChoice } from "@/lib/use-stored-choice";
 import type { CompanyRole } from "@finance/auth";
 import type { ForecastRunway } from "@balsa/finance-engine";
 import { AccountMenu } from "@/components/account-menu";
@@ -103,26 +104,6 @@ function suggestedWorkbookSheetRole(name: string, sampleLabels: string[]): Workb
   if (/income\s*statement|profit\s*(and|&)\s*loss|\bp\s*&\s*l\b|balance\s*sheet|cash\s*flow|historical|actual/.test(content)) return "historical_statement";
   if (/dashboard|cover|summary|output|presentation|board/.test(content)) return "presentation";
   return "reference_only";
-}
-
-/** A choice remembered per browser. Server renders the fallback; the client reads storage on hydration. */
-const storageListeners = new Set<() => void>();
-function subscribeStorage(listener: () => void) {
-  storageListeners.add(listener);
-  window.addEventListener("storage", listener);
-  return () => { storageListeners.delete(listener); window.removeEventListener("storage", listener); };
-}
-function readStored(key: string) {
-  try { return window.localStorage.getItem(key); } catch { return null; }
-}
-function writeStored(key: string, value: string) {
-  try { window.localStorage.setItem(key, value); } catch { /* storage unavailable */ }
-  storageListeners.forEach((listener) => listener());
-}
-function useStoredChoice(key: string, fallback: string, allowed: (value: string) => boolean) {
-  const stored = useSyncExternalStore(subscribeStorage, () => readStored(key), () => null);
-  const value = stored && allowed(stored) ? stored : fallback;
-  return [value, (next: string) => writeStored(key, next)] as const;
 }
 
 function uniqueById<T extends { id: string }>(items: T[]) {

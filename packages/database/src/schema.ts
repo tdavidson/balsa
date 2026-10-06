@@ -231,7 +231,10 @@ export const companies = pgTable("companies", {
   faviconStorageReference: text("favicon_storage_reference"),
   faviconMime: text("favicon_mime"),
   faviconHash: text("favicon_hash"),
+  /** Fiscal year end month as two digits, "01" through "12"; null means December. */
   fiscalYearEnd: text("fiscal_year_end"),
+  /** The model timeline the user sets: first and last month shown and forecast, as YYYY-MM. */
+  modelFirstPeriod: text("model_first_period"), modelLastPeriod: text("model_last_period"),
   /** Monotonic revision of included financial state; calculation runs name the revision they reproduce. */
   financialStateRevision: text("financial_state_revision").default("0").notNull(),
   /** CFO-set cash floor for the forecast's cash-out month, in base-currency minor units. */
@@ -662,8 +665,18 @@ export const chartAccounts = pgTable("chart_accounts", {
   statementSection: text("statement_section"), statementLine: text("statement_line"), /** Explicit current/non-current classification for balance-sheet presentation. */ balanceTiming: text("balance_timing"), /** Exact bank/brokerage account identifier for statement cash reconciliation. */ bankAccountIdentifier: text("bank_account_identifier"), cashFlowCategory: text("cash_flow_category"), workingCapitalCategory: text("working_capital_category"), /** Only an explicitly configured monetary account may be remeasured at closing FX rates. */ fxMonetary: char("fx_monetary", { length: 1 }).default("N").notNull(),
   entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
   activeFrom: text("active_from"), activeTo: text("active_to"), active: char("active", { length: 1 }).default("Y").notNull(),
+  /** User-confirmed Standard statement line (presentation only); null means the deterministic suggestion applies. */
+  reportLine: text("report_line"), reportCategoryId: uuid("report_category_id"),
   ...timestamps,
 }, (table) => [uniqueIndex("chart_accounts_company_id").on(table.companyId, table.id), uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
+
+/** A user-defined category under one Standard statement line, such as Subscriptions under Revenues. */
+export const reportCategories = pgTable("report_categories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  line: text("line").notNull(), name: text("name").notNull(), sortOrder: integer("sort_order").default(0).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("report_categories_company_line_name").on(table.companyId, table.line, sql`lower(${table.name})`), uniqueIndex("report_categories_company_id").on(table.companyId, table.id)]);
 
 /** Approved reciprocal account pair for one intercompany relationship. */
 export const intercompanyAccountMappings = pgTable("intercompany_account_mappings", {

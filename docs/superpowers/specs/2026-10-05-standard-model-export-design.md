@@ -1,7 +1,7 @@
 # Standard Financial Model export and driver extensions
 
 Date: 2026-10-05
-Status: design; nothing implemented. Rulings from review on 2026-10-05 are marked **Ruling**.
+Status: phase 1 (mapping, categories, Standard view and timeline) implemented; see [Standard statements](../../standard-statements.md). Phases 2–6 not started. Rulings from review on 2026-10-05 are marked **Ruling**.
 Audience: product and engineering.
 Builds on: [driver formulas](2026-09-18-driver-formulas-design.md), [forecast scenarios](2026-09-18-forecast-scenarios-design.md), [goal-directed financial model](2026-09-25-goal-directed-financial-model-design.md).
 
@@ -26,7 +26,7 @@ Balsa stays the system of record and its engine stays the calculator for every r
 - **Ruling: log change** is logarithmic growth, defined by the Standard formula below.
 - **Ruling: escalation** runs on whatever cycle the user sets.
 - **Ruling: seasonality** is per driver, not one company profile.
-- **Ruling: statement views.** The statements page offers both the ledger-native view and the Standard layout, and the user swaps between them.
+- **Ruling: statement views.** The statements page offers both the ledger-native view and the Standard layout, and the user swaps between them. Ledger is the default until the mapping has no unmapped accounts; the user's own choice always wins once made.
 - **Ruling: categories** live in Balsa: revenue and expense categories and the Standard line layout are a statement view inside Balsa, not only an export format.
 - **Ruling: timeline.** Not fixed. The user sets the model timeline in Balsa, and the export uses it.
 - **Ruling: scenarios.** One file holds the base and every exported scenario.
@@ -141,7 +141,7 @@ The Standard model has a fixed statement line set. Balsa's `statementLine` on ch
 
 **Categories.** Under each line, the user can define named categories: revenue categories (Standard has Rev Cat 1–3; Balsa allows as many as the user wants, such as Subscriptions, Services, Hardware) and expense categories under COGS and each SG&A bucket (Hosting, Contractors, Rent). An account maps to a line and optionally a category; a category rolls up to its line for totals. Categories are company state, created and renamed in Balsa, audited, and usable as `% of` / `# per` references ("payment fees at 3% of Subscriptions").
 
-**Where it's stored.** A nullable `report_line` column on chart accounts, plus `report_line_source` (`user` / `suggested`). Migration, audit event on change, company-scoped like every chart-account field.
+**Where it's stored.** A nullable `report_line` column on chart accounts holding only the user-confirmed line (suggestions are computed, never stored), and a nullable `report_category_id` with a same-company foreign key to `report_categories`. Migration, audit event on change, company-scoped like every chart-account field.
 
 **How it's set.** A "Report mapping" page under the chart of accounts: one row per account, its current balance, a dropdown of `StandardLine`, and the suggestion shown beside it. Bulk accept for suggestions. The agent can propose mappings through the existing mapping review flow; nothing is applied without approval.
 
@@ -250,4 +250,3 @@ Phases 1 and 3 are independent of the export and can run in parallel with 2.
 
 ## Open questions
 
-- Default view for a new company: Ledger until the mapping has no unmapped accounts, then Standard? Proposal: yes, with the user's own choice always winning once made.
