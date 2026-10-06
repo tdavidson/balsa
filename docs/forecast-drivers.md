@@ -73,6 +73,10 @@ The agent proposes; Balsa calculates. It reads the drivers, metrics and their re
 
 One-off events (a fundraise, an office move, a price change in March) are ordinary decisions with a start month, so the Standard model's event and custom flags are not implemented: the agent proposing a dated decision does the same job with lineage.
 
+## Drivers a scenario adds
+
+A receipt or expense a scenario adds posts the way any driver does: through the posting template for its category, or through the accounts it names. In the scenario editor, **Posts to** picks the income or expense account and **Paid from** (or **Received into**) the asset that settles it, cash accounts first; the agent passes the same two accounts. When the category has no template, or more than one, the accounts are required, and a scenario with an added driver that could not post is refused when it is saved, with the driver named, instead of becoming a forecast exception. Promoting the scenario carries the accounts into the decision, which approves a template for them when it is applied.
+
 ## Rules that protect the forecast
 
 - A driver has a pattern or a formula, never both.
