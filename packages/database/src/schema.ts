@@ -1176,3 +1176,15 @@ export const operatingStudies = pgTable("operating_studies", {
  id:uuid("id").defaultRandom().primaryKey(),companyId:uuid("company_id").notNull().references(()=>companies.id,{onDelete:"cascade"}),
  kind:text("kind").notNull(),name:text("name").notNull(),predictionId:uuid("prediction_id"),snapshot:jsonb("snapshot").notNull(),requestKey:uuid("request_key").notNull(),requestHash:text("request_hash").notNull(),actorUserId:uuid("actor_user_id").references(()=>users.id,{onDelete:"set null"}),createdAt:timestamp("created_at",{withTimezone:true}).defaultNow().notNull(),
 },t=>[uniqueIndex("operating_studies_company_id").on(t.companyId,t.id),uniqueIndex("operating_studies_request").on(t.companyId,t.requestKey),index("operating_studies_prediction").on(t.companyId,t.predictionId),index("operating_studies_kind").on(t.companyId,t.kind,t.createdAt),foreignKey({columns:[t.companyId,t.predictionId],foreignColumns:[operatingPredictions.companyId,operatingPredictions.id]}).onDelete("cascade")]);
+
+/** Editable decision work in progress, separate from immutable experiments and approvals. */
+export const operatingDrafts = pgTable("operating_drafts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  revision: integer("revision").notNull().default(1),
+  definition: jsonb("definition").notNull(),
+  experimentId: uuid("experiment_id"),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [index("operating_drafts_company_updated").on(t.companyId, t.updatedAt), index("operating_drafts_experiment").on(t.companyId, t.experimentId), foreignKey({ columns: [t.companyId, t.experimentId], foreignColumns: [operatingExperiments.companyId, operatingExperiments.id] }).onDelete("cascade")]);

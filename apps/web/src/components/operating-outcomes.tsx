@@ -194,7 +194,7 @@ function Choice({
     </Field>
   );
 }
-export function OperatingOutcomes({ companyId }: { companyId: string }) {
+export function OperatingOutcomes({ companyId, experimentId }: { companyId: string; experimentId?: string | undefined }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [view, setView] = useState<OperatingOutcomeView | null>(null);
   const [nodeId, setNodeId] = useState("");
@@ -319,8 +319,11 @@ export function OperatingOutcomes({ companyId }: { companyId: string }) {
             disabled={busy}
             onClick={() =>
               act(async () => {
-                setWorkspace(await read());
-                if (view) await load(view.predictionId);
+                const loaded = await read<Workspace>(experimentId ? `?experiment=${experimentId}` : "");
+                const scoped = experimentId ? { ...loaded, predictions: loaded.predictions.filter(item => item.experimentId === experimentId), legacyReviews: [] } : loaded;
+                setWorkspace(scoped);
+                if (view && scoped.predictions.some(item => item.id === view.predictionId)) await load(view.predictionId);
+                else if (scoped.predictions[0]) await load(scoped.predictions[0].id);
               })
             }
           >

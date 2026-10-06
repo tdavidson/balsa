@@ -680,6 +680,13 @@
       "when": 1791590400005,
       "tag": "0096_decision_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1791590400006,
+      "tag": "0097_operating_drafts",
+      "breakpoints": true
     }
   ]
 }

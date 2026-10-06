@@ -4,7 +4,10 @@ For the observation, review, adaptive-plan, and simulation implementation histor
 [operating decision roadmap](superpowers/plans/2026-10-05-operating-decision-roadmap.md).
 The sections below describe current behavior.
 
-Open **Operating models** from the workspace or cash progress page, at
+See the [decision workspace guide](decision-workspace.md) for saved drafts, guided
+hiring inputs, comparisons, approval handoffs, and outcome tracking.
+
+Open **Decision workspace** from the workspace or cash progress page, at
 `/operating-models`. Describe a decision and the mechanics that matter. The AI
 returns a proposed model rather than choosing from a catalog of hard-coded
 business workflows. Follow-up instructions revise the current draft.

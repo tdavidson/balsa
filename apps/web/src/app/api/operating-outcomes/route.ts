@@ -14,9 +14,11 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const id = params.get("id");
   const review = params.get("review");
+  const experiment = params.get("experiment");
   if (
     (id && !z.uuid().safeParse(id).success) ||
-    (review && !z.uuid().safeParse(review).success)
+    (review && !z.uuid().safeParse(review).success) ||
+    (experiment && !z.uuid().safeParse(experiment).success)
   )
     return NextResponse.json(
       { error: "Invalid outcome selection." },
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
         ? await loadOperatingOutcomeReview(context.company.id, review)
         : id
           ? await loadOperatingOutcome(context.company.id, id)
-          : await loadOperatingOutcomeWorkspace(context.company.id),
+          : experiment ? await loadOperatingOutcomeWorkspace(context.company.id, experiment) : await loadOperatingOutcomeWorkspace(context.company.id),
     );
   } catch (error) {
     return goalDecisionErrorResponse(error);
