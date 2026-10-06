@@ -45,7 +45,7 @@ The mapping changes presentation only. Journals, balances and the ledger stateme
 | Forecast | Operating metrics and drivers in the Standard model's driver columns, each month a live formula, with Balsa's own amounts below ([forecast drivers](forecast-drivers.md#in-the-workbook)). Only when there are drivers or metrics |
 | Statements | Monthly Standard statements with actual and forecast months marked |
 | Plan, Budget | The pinned plan, and plan versus actuals over a month range the reader sets. Only when a plan has been pinned |
-| Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios |
+| Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios; Get Started's Active scenario dropdown switches the whole model to one ([forecast drivers](forecast-drivers.md#in-the-workbook)) |
 | Mapping | Each account's line, category and mapping status |
 | Lineage | The accounts behind every line figure, by month |
 | Checks | The workbook's totals against Balsa's, month by month, plus the balance check, the cash flow check, the mapping status, whether the driver formulas reproduce Balsa's amounts and whether any driver has an exception |
