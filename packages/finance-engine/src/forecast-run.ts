@@ -8,7 +8,7 @@ import { resolvePatternDrivers, type PatternContext } from "./driver-patterns";
 import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
 
-export const forecastFormulaVersion = "forecast-run-2026-10-06.1";
+export const forecastFormulaVersion = "forecast-run-2026-10-07.1";
 
 export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory" | "isCash"> & { /** Resolved Standard statement line, for drivers that reference a line such as total revenue. */ reportLine?: string };
 export type ForecastOpenMonth = { month: string; throughDate: string; actualLines: PostedJournalLine[]; forecastedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[] };

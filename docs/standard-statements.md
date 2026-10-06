@@ -40,19 +40,19 @@ The mapping changes presentation only. Journals, balances and the ledger stateme
 | Sheet | Contents |
 | --- | --- |
 | README | What the file is, the as-of month, versions and the colour key |
-| Get Started | Model structure (company, currency, periods, fiscal year end, actuals through, minimum cash, runway) and the check summary |
+| Get Started | Model structure (company, currency, periods, fiscal year end, actuals through, minimum cash, runway), the check summary, and the seasonality profiles and company escalation the drivers read |
 | Summary | Annual totals by fiscal year, all formulas over Statements; balances take each fiscal year's last month |
-| Forecast | Each driver in the Standard model's driver columns with Balsa's monthly amounts, and the operating metrics ([forecast drivers](forecast-drivers.md)). Only when there are drivers or metrics |
+| Forecast | Operating metrics and drivers in the Standard model's driver columns, each month a live formula, with Balsa's own amounts below ([forecast drivers](forecast-drivers.md#in-the-workbook)). Only when there are drivers or metrics |
 | Statements | Monthly Standard statements with actual and forecast months marked |
 | Plan, Budget | The pinned plan, and plan versus actuals over a month range the reader sets. Only when a plan has been pinned |
 | Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios |
 | Mapping | Each account's line, category and mapping status |
 | Lineage | The accounts behind every line figure, by month |
-| Checks | The workbook's totals against Balsa's, month by month, plus the balance check, the cash flow check and the mapping status |
+| Checks | The workbook's totals against Balsa's, month by month, plus the balance check, the cash flow check, the mapping status, whether the driver formulas reproduce Balsa's amounts and whether any driver has an exception |
 
-Line and category figures are values Balsa calculated (blue). Subtotals, totals, the Summary, Budget and every check are formulas (black, or green for a link to another sheet), so the file recalculates when a reader edits it. In the downloaded file every check reads "yes" except where Balsa itself reports a gap: an unconfirmed mapping, or a cash flow that does not explain the change in cash.
+Line and category figures are values Balsa calculated (blue). A forecast month of a line a driver moves is Balsa's figure plus that driver's change on Forecast (green), which is zero in the downloaded file. Subtotals, totals, the Summary, Budget and every check are formulas (black, or green for a link to another sheet), so the file recalculates when a reader edits it. In the downloaded file every check reads "yes" except where Balsa itself reports a gap: an unconfirmed mapping, or a cash flow that does not explain the change in cash.
 
-Formulas use only functions that behave the same in Excel, Google Sheets and LibreOffice (`allowedFunctions` in `packages/model-export`); building a workbook with any other function fails. The exporter's tests recalculate a generated workbook in LibreOffice and compare every check, the fiscal-year rollup, the budget and the scenario differences with the engine. They run in `pnpm acceptance` and skip when `soffice` is not installed; on Debian or Ubuntu, install `libreoffice-calc-nogui`. Opening the file in Google Sheets is not yet tested automatically.
+Formulas use only functions that behave the same in Excel, Google Sheets and LibreOffice (`allowedFunctions` in `packages/model-export`); building a workbook with any other function fails. The exporter's tests recalculate a generated workbook in LibreOffice and compare every check, the fiscal-year rollup, the budget and the scenario differences with the engine; a second fixture recalculates every driver basis, then edits an input and checks the change through the statements. They run in `pnpm acceptance` and skip when `soffice` is not installed; on Debian or Ubuntu, install `libreoffice-calc-nogui`. Opening the file in Google Sheets is not yet tested automatically.
 
 Downloads are recorded in the activity log. The file carries ids, account names and figures, never evidence contents or model output.
 

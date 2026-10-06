@@ -1,8 +1,8 @@
 import "server-only";
 import { eq } from "drizzle-orm";
 import { companies, forecastMetrics, getDatabase, seasonalityProfiles } from "@finance/database";
-import { describePattern, driverAmountsByMonth, matchingForecastTemplates, resolvePatternDrivers, standardLayoutVersion, standardLines, type DriverRef, type EscalationRule, type JournalStatementSelection } from "@balsa/finance-engine";
-import { buildStandardWorkbook, type ExportDriver, type ExportMetric, type StandardWorkbookInput } from "@balsa/model-export";
+import { driverAmountsByMonth, matchingForecastTemplates, resolvePatternDrivers, standardLayoutVersion, standardLines, type JournalStatementSelection, type StandardLineId } from "@balsa/finance-engine";
+import { buildStandardWorkbook, driverExportPattern, metricExportPattern, type ExportDriver, type ExportLeg, type ExportMetric, type StandardWorkbookInput } from "@balsa/model-export";
 import { loadForecastBase } from "@/lib/forecast-base";
 import { forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastModel, loadPatternContext } from "@/lib/forecast-inputs";
 import { loadLatestForecast } from "@/lib/forecast-read";
@@ -45,32 +45,35 @@ export async function buildStandardModelExport(companyId: string, now = new Date
     scenarios.push({ id: summary.id, name: summary.name, description: summary.description, months: columns([...posted, ...run.projectedLines], { view: "scenario", scenarioId: summary.id, asOfPeriod: run.asOfMonth }, "scenario", run.asOfMonth), runway: { runwayMonths: run.runway.runwayMonths, cashOutMonth: run.runway.cashOutMonth } });
   }
 
-  // Drivers in the Standard model's columns, with the amounts the forecast resolved; operating metrics alongside.
-  const [{ templates }, forecastAccounts, model, patternContext, metricRows, profiles] = await Promise.all([loadForecastDrivers(companyId), loadForecastAccounts(companyId), loadForecastModel(companyId), loadPatternContext(companyId), db.select().from(forecastMetrics).where(eq(forecastMetrics.companyId, companyId)), db.select({ id: seasonalityProfiles.id, name: seasonalityProfiles.name }).from(seasonalityProfiles).where(eq(seasonalityProfiles.companyId, companyId))]);
+  // Drivers in the Standard model's columns, as live formulas where the workbook can reproduce Balsa's amounts; operating metrics alongside.
+  const [{ templates }, forecastAccounts, model, patternContext, metricRows, profiles] = await Promise.all([loadForecastDrivers(companyId), loadForecastAccounts(companyId), loadForecastModel(companyId), loadPatternContext(companyId), db.select().from(forecastMetrics).where(eq(forecastMetrics.companyId, companyId)), db.select({ id: seasonalityProfiles.id, name: seasonalityProfiles.name, deviations: seasonalityProfiles.deviations }).from(seasonalityProfiles).where(eq(seasonalityProfiles.companyId, companyId))]);
   const periods = base.map((month) => month.period);
   const forecastAccountById = new Map(forecastAccounts.map((account) => [account.accountId, account]));
   const runDrivers = forecast?.run.drivers ?? [];
   const exceptionById = new Map((forecast?.run.exceptions ?? []).map((exception) => [exception.driverId, exception.reason]));
-  const percent = (decimal: string) => `${Number((Number(decimal) * 100).toFixed(4))}%`;
-  const refLabel = (ref: DriverRef) => ref.kind === "driver" ? runDrivers.find((driver) => driver.id === ref.driverId)?.label ?? "another driver" : ref.kind === "metric" ? metricRows.find((metric) => metric.name === ref.name)?.label ?? ref.name : `Total ${(lineLabel.get(ref.line) ?? ref.line).toLowerCase()}`;
-  const escalationText = (rule: EscalationRule) => `${percent(rule.rate)} every ${rule.everyMonths} months from ${rule.anchor === "driver_start" ? "start" : `month ${rule.anchor.calendarMonth}`}`;
+  const profileName = (id: string) => profiles.find((profile) => profile.id === id)?.name ?? null;
+  const leg = (accountId: string | undefined): ExportLeg | null => { const resolved = accountId ? mapping.resolved.get(accountId) : undefined; return resolved?.line ? { line: resolved.line as StandardLineId, categoryId: resolved.categoryId } : null; };
   const drivers: ExportDriver[] = runDrivers.map((driver) => {
-    const pattern = driver.pattern; const change = pattern?.change;
     const template = matchingForecastTemplates(driver, templates);
-    const account = template.length === 1 ? forecastAccountById.get(driver.direction === "receipt" ? template[0]!.creditAccountId : template[0]!.debitAccountId) : undefined;
-    const step = { once: 0, monthly: 1, quarterly: 3, annual: 12 }[driver.cadence];
-    const columns = pattern ? {
-      initialValue: change?.basis === "pct_of" ? percent(pattern.initialValue) : pattern.initialValue, startsIn: driver.effectiveFrom, repeatsEvery: String(pattern.repeatsEveryMonths),
-      changingBasedOn: change ? { pct_change: "% change", abs_change: "# change", log_change: "log change", pct_of: "% of", per_unit: "# per" }[change.basis] : "",
-      changesEvery: change && "everyMonths" in change ? String(change.everyMonths) : "", changingBy: change && "by" in change ? (change.basis === "pct_change" ? percent(change.by) : change.by) : "",
-      usingDriver: change && "ref" in change ? refLabel(change.ref) : "", maxMonths: pattern.maxMonths ? String(pattern.maxMonths) : "", maxValue: pattern.maxValue ?? "",
-      seasonality: pattern.seasonalityProfileId ? profiles.find((profile) => profile.id === pattern.seasonalityProfileId)?.name ?? "" : "",
-      escalation: pattern.escalation === "company" ? (patternContext?.escalation ? `Company: ${escalationText(patternContext.escalation)}` : "Company (not set)") : pattern.escalation ? escalationText(pattern.escalation) : "",
-    } : { initialValue: driver.amountFormula ? "" : (Number(driver.amountMinor) / 100).toFixed(2), startsIn: driver.effectiveFrom, repeatsEvery: String(step), changingBasedOn: driver.amountFormula ? `formula: ${driver.amountFormula}` : "", changesEvery: "", changingBy: "", usingDriver: "", maxMonths: "", maxValue: "", seasonality: "", escalation: "" };
-    return { label: driver.label, direction: driver.direction, lineLabel: account?.reportLine ? lineLabel.get(account.reportLine) ?? null : null, columns, amountsByPeriod: driverAmountsByMonth(driver, periods), exception: exceptionById.get(driver.id) ?? null };
+    const single = template.length === 1 ? template[0]! : null;
+    const postingId = single ? (driver.direction === "receipt" ? single.creditAccountId : single.debitAccountId) : undefined;
+    const settlementId = single ? (driver.direction === "receipt" ? single.debitAccountId : single.creditAccountId) : undefined;
+    const referenceLine = postingId ? forecastAccountById.get(postingId)?.reportLine ?? null : null;
+    const pattern = driverExportPattern(driver, profileName);
+    const note = driver.amountFormula ? `Formula in Balsa: ${driver.amountFormula}` : !pattern ? "Dated amounts in Balsa" : null;
+    return { id: driver.id, label: driver.label, direction: driver.direction, lineLabel: referenceLine ? lineLabel.get(referenceLine) ?? null : null, referenceLine, pattern, note, posting: leg(postingId), settlement: leg(settlementId), amountsByPeriod: driverAmountsByMonth(driver, periods), exception: exceptionById.get(driver.id) ?? null };
   });
-  const metricValues = resolvePatternDrivers([], { months: periods, templates, ...(model ? { model } : {}), ...(patternContext ? { context: patternContext } : {}), allMetrics: true });
-  const metrics: ExportMetric[] = metricRows.map((metric) => ({ label: metric.label, unit: metric.unit, summary: patternContext?.metrics?.find((item) => item.name === metric.name) ? describePattern(patternContext.metrics.find((item) => item.name === metric.name)!.pattern) : "", valuesByPeriod: metricValues.metrics[metric.name] ?? {} }));
+  const metricValues = resolvePatternDrivers(runDrivers, { months: periods, templates, ...(model ? { model } : {}), ...(patternContext ? { context: patternContext } : {}), allMetrics: true });
+  const metrics: ExportMetric[] = metricRows.map((metric) => {
+    const resolved = patternContext?.metrics?.find((item) => item.name === metric.name);
+    return { name: metric.name, label: metric.label, unit: metric.unit, pattern: resolved ? metricExportPattern(resolved, profileName) : null, actuals: resolved?.actuals ?? {}, valuesByPeriod: metricValues.metrics[metric.name] ?? {} };
+  });
+  // A driver that uses a model variable sees it as a row of Balsa's values.
+  for (const name of new Set(runDrivers.flatMap((driver) => driver.pattern?.change && "ref" in driver.pattern.change && driver.pattern.change.ref.kind === "metric" ? [driver.pattern.change.ref.name] : []))) {
+    if (!metrics.some((metric) => metric.name === name) && metricValues.metrics[name]) metrics.push({ name, label: `${name} (model variable)`, unit: null, pattern: null, note: "A forecast model variable; its formula stays in Balsa", actuals: {}, valuesByPeriod: metricValues.metrics[name]! });
+  }
+  const forecastPeriods = (forecast?.run.months ?? []).filter((month) => month.basis === "forecast" && periods.includes(month.month)).map((month) => month.month);
+  const escalation = patternContext?.escalation ? { rate: Number(patternContext.escalation.rate), everyMonths: patternContext.escalation.everyMonths, anchorMonth: patternContext.escalation.anchor === "driver_start" ? null : patternContext.escalation.anchor.calendarMonth } : null;
 
   const categoryName = new Map(mapping.categories.map((category) => [category.id, category.name]));
   const input: StandardWorkbookInput = {
@@ -88,8 +91,7 @@ export async function buildStandardModelExport(companyId: string, now = new Date
       return { id: row.id, code: row.code, name: row.name, section: mapping.accounts.find((account) => account.accountId === row.id)?.accountType ?? null, lineLabel: resolved.line ? lineLabel.get(resolved.line) ?? resolved.line : null, categoryName: resolved.categoryId ? categoryName.get(resolved.categoryId) ?? null : null, status: statusLabel[resolved.status] ?? resolved.status, reason: resolved.reason };
     }),
     mapping: mapping.summary,
-    drivers,
-    metrics,
+    forecast: { forecastPeriods, drivers, metrics, seasonality: profiles.map((profile) => ({ name: profile.name, deviations: (profile.deviations as string[]).map(Number) })), escalation },
   };
   const bytes = await buildStandardWorkbook(input);
   const safeName = company.name.replace(/[^A-Za-z0-9 _-]+/g, "").trim() || "Company";

@@ -138,6 +138,12 @@ describe("seasonality and escalation", () => {
     expect(amounts(result, "company", "2027-06", "2027-07", "2028-01")).toEqual(["100000", "110000", "121000"]);
   });
 
+  it("compounds escalation exactly and rounds once, as a spreadsheet does", () => {
+    // Rounding each step to six places would give 1.001200 after six steps; the exact power rounds to 1.001201.
+    const result = resolve([driver("tiny", { initialValue: "1000000", repeatsEveryMonths: 1, escalation: { rate: "0.0002", everyMonths: 1, anchor: "driver_start" } }, { effectiveFrom: "2027-01" })]);
+    expect(amounts(result, "tiny", "2027-07")).toEqual(["100120100"]);
+  });
+
   it("explains a pattern in plain words", () => {
     expect(describePattern({ initialValue: "1000", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 12, by: "0.05" } })).toBe("1000 every month, changing 5% every year");
     expect(describePattern({ initialValue: "0.04", repeatsEveryMonths: 1, change: { basis: "pct_of", ref: { kind: "report_line", line: "revenue" } } })).toBe("4% of total revenue, every month");

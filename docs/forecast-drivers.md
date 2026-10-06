@@ -83,4 +83,14 @@ One-off events (a fundraise, an office move, a price change in March) are ordina
 
 ## In the workbook
 
-The export's **Forecast** sheet lists each driver in the Standard model's driver columns, with the amount Balsa calculated for each forecast month, and the operating metrics. The amounts are values; making the driver rows live spreadsheet formulas is phase 4 of the spec.
+The export's **Forecast** sheet lists the operating metrics and then each driver, grouped by statement line, in the Standard model's driver columns: initial value, starts in, ends in, repeats every N months, changing based on, changes every N months, changing by, using, a maximum number of months, a maximum value, seasonality and escalation (rate, cycle, and the calendar month it is counted from, blank for the driver's own start).
+
+Each monthly cell is a formula over those columns implementing the same rules as the engine, so the blue inputs on a pale fill can be edited: change a growth rate, a start month or a seasonality profile and the driver, everything that refers to it, Statements, Summary and Checks recalculate. A helper row per driver, lower on the sheet, holds the value before seasonality, escalation and caps, because growth compounds on the unseasoned value. Seasonality profiles and the company escalation are inputs on Get Started; a driver picks its profile by name.
+
+How an edit reaches the statements: each statement row a driver moves (its income or expense line and category, the account that settles it, net income not yet closed, and the cash flow section) gets a row under **Changes from Balsa**, the sum of each driver's live amount less Balsa's, cumulative for balances. A forecast month on Statements is Balsa's figure plus that change, so the downloaded file matches Balsa exactly and an edit settles the way the driver's entry does, in the same month. Balsa's own driver amounts are kept under **Balsa's driver amounts**, and Checks reports whether the formulas still reproduce them.
+
+What "using" points at is fixed in the file: a `% of` or `# per` driver refers directly to the row it multiplies, shown by name in the Using column. Repoint it in Balsa and export again. (A spreadsheet lookup over rows that include the formula's own row is a circular reference in Excel and LibreOffice, which is why this one input is not editable in the file.)
+
+Some rows are written as Balsa's values, with the reason in the Source column: a formula driver or one with dated amounts, a driver Balsa reports an exception for, a growing driver that starts before the first month in the file, and any row whose formula would not reproduce Balsa's amounts to the cent. The exporter evaluates every formula the way a spreadsheet does before writing it (`simulateForecast` in `packages/model-export`), so a live row always matches Balsa when the file is downloaded. A model variable a driver uses is a values row beside the metrics.
+
+Escalation compounds exactly and rounds once to six places, as `ROUND((1 + rate)^n, 6)` does in a spreadsheet, so the engine and the file agree.

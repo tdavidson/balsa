@@ -9,7 +9,7 @@ import { matchingForecastTemplates, type ForecastDriver, type ForecastEntryTempl
  * unchanged. Arithmetic is in the model's scaled decimals and every money
  * period is rounded to cents, half away from zero, as a spreadsheet's ROUND does.
  */
-export const driverPatternVersion = "driver-patterns-2026-10-06.1";
+export const driverPatternVersion = "driver-patterns-2026-10-07.1";
 
 /** What a `pct_of` or `per_unit` driver multiplies. */
 export type DriverRef =
@@ -141,7 +141,8 @@ export function escalationSteps(rule: EscalationRule, start: string, month: stri
   return Math.max(0, cycles(monthIndex(month)) - cycles(monthIndex(start)));
 }
 
-const power = (base: bigint, steps: number) => { let result = modelScale; for (let index = 0; index < steps; index += 1) result = multiplyDecimal(result, base); return result; };
+/** base^steps for a six-place decimal, compounded exactly and rounded once, as a spreadsheet's ROUND((1+rate)^n, 6) does. */
+const power = (base: bigint, steps: number) => steps <= 0 ? modelScale : divideHalfAwayFromZero(base ** BigInt(steps), modelScale ** BigInt(steps - 1));
 /** n^p for a whole n ≥ 1 and a decimal exponent, rounded to the model's six places. */
 function wholePower(n: number, exponent: bigint) {
   const value = Math.pow(n, Number(exponent) / Number(modelScale));
