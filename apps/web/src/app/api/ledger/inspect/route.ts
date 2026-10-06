@@ -4,6 +4,7 @@ import { requireCompanyAccess } from "@/lib/auth";
 import { loadJournalReport } from "@/lib/journal-ledger";
 import { loadJournalReconciliation } from "@/lib/journal-reconciliation";
 import { effectiveAsOfPeriod, loadLatestForecast } from "@/lib/forecast-read";
+import { cashFlag } from "@balsa/finance-engine";
 
 const validMonth = (value: string | null): value is string => Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 const sections = ["revenue", "expenses", "income_statement", "assets", "liabilities", "equity", "balance_sheet", "cash_flow", "cash_to_bank"] as const;
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   const { statements, trialBalance } = actualReconciliation ?? report;
   const currency = statements.byCurrency.find((item) => item.currency === context.company.baseCurrency) ?? statements.byCurrency[0];
   if (!currency) return NextResponse.json({ period, section, key, lines: [], accounts: [], verification: "unverified_no_posted_entries", verificationReasons: ["No posted journal entries are available for this period."] });
-  const cashAccounts = trialBalance.lines.filter((line) => /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`));
+  const cashAccounts = trialBalance.lines.filter((line) => cashFlag(line, () => /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`)));
   const lines = selectedSection === "cash_to_bank"
     ? actualReconciliation!.report.controls.cashToStatement.flatMap((tie) => [
       { key: `${tie.currency}:journal`, label: `${tie.currency} journal ending cash`, amountMinor: tie.journalCashMinor, accountIds: cashAccounts.filter((account) => account.currency === tie.currency).map((account) => account.accountId), lineIds: cashAccounts.filter((account) => account.currency === tie.currency).flatMap((account) => account.lineIds), provenance: [] },

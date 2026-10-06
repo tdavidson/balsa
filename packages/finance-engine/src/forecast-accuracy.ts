@@ -1,3 +1,4 @@
+import { cashFlag } from "./cash-flag";
 import { cashMovement, compatibleCashMovement, settleForecastLines, type CashOccurrence, type CashSettlementInput } from "./forecast-settlement";
 export type ForecastAccuracyInput = { baselineId: string; capturedAt: string; expectations: CashOccurrence[]; current: CashSettlementInput; currency: string; limitations: string[] };
 /** Only preserved pre-event identities and explicitly allocated actuals form scored observations. */
@@ -16,7 +17,7 @@ export function assessForecastAccuracy(input: ForecastAccuracyInput) {
     const measurable = reasons.length === 0 && result?.state === "settled";
     const actualMinor = payments.reduce((sum, payment) => sum + BigInt(payment.amountMinor), 0n);
     const amountErrorMinor = measurable ? String(actualMinor - BigInt(baseline.amountMinor)) : null;
-    const expectedMovement = cashMovement(baseline.lines); const cash = baseline.lines.find((line) => line.accountType === "asset" && /cash/i.test(line.statementLine ?? line.accountName));
+    const expectedMovement = cashMovement(baseline.lines); const cash = baseline.lines.find((line) => line.accountType === "asset" && cashFlag(line, () => /cash/i.test(line.statementLine ?? line.accountName)));
     const receipt = expectedMovement?.debitAccountId === cash?.accountId;
     const lastPayment = payments.at(-1)?.date ?? null;
     const timingErrorDays = measurable && lastPayment ? Math.round((Date.parse(lastPayment) - Date.parse(baseline.expectedDate)) / 86400000) : null;

@@ -2,7 +2,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { cashCoverageRecords, economicItems, forecastEntryTemplates, evidence, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, forecastSettlementAllocations, getDatabase, recordAudit, setCompanyScopeSql } from "@finance/database";
-import { addMonths, suggestCashMatches, buildForecastedCloses, buildForecastRun, cashMovement, compatibleCashMovement, stableJson, recurrenceDefinition, type CashOccurrence } from "@balsa/finance-engine";
+import { addMonths, cashFlag, suggestCashMatches, buildForecastedCloses, buildForecastRun, cashMovement, compatibleCashMovement, stableJson, recurrenceDefinition, type CashOccurrence } from "@balsa/finance-engine";
 import { historyRuleVersion, historySourceHash } from "./forecast-history";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import type { DbExecutor } from "./db-executor";
@@ -109,7 +109,7 @@ export async function executeForecastReconciliation(companyId: string, raw: unkn
       const startMonth = candidate.capturedOccurrenceId ? addMonths(month, 1) : month;
       if (command.endMonth < startMonth || command.endMonth > addMonths(month, 23)) throw new ReconciliationError("Approve a history schedule for up to 24 months.");
       const movement = cashMovement(definition.lines)!;
-      const cash = definition.lines.find((line) => line.accountType === "asset" && /cash/i.test(line.statementLine ?? line.accountName))!;
+      const cash = definition.lines.find((line) => line.accountType === "asset" && cashFlag(line, () => /cash/i.test(line.statementLine ?? line.accountName)))!;
       const direction = movement.debitAccountId === cash.accountId ? "receipt" as const : "spend" as const;
       const itemType = direction === "receipt" ? "agreement" as const : "obligation" as const;
       const driverId = randomUUID();

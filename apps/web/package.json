@@ -15,6 +15,7 @@
     "@finance/database": "workspace:*",
     "@finance/model-providers": "workspace:*",
     "@balsa/finance-engine": "workspace:*",
+    "@balsa/model-export": "workspace:*",
     "@balsa/ingestion": "workspace:*",
     "better-auth": "1.7.4",
     "class-variance-authority": "^0.7.1",

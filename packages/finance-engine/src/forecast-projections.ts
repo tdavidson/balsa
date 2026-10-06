@@ -1,7 +1,10 @@
+import type { DriverPattern } from "./driver-patterns";
+import { cashFlag } from "./cash-flag";
 import type { EntryBasis, PostedJournalLine } from "./ledger";
 
 export type RecognitionProof = { driverId: string; currency: string; throughMonth: string; lines: PostedJournalLine[]; valid: boolean };
-export type ForecastDriver = { expectedDay?: number; accountingTreatment?: string; recognitionStart?: string; recognitionEnd?: string; templateId?: string; id: string; label: string; itemType: "agreement" | "obligation"; direction: "receipt" | "spend"; category?: string; amountMinor: string; /** A formula over the forecast model, in major units; when set, `amountMinor` is a display fallback only. */ amountFormula?: string; /** Resolved per-month minor units for a formula driver (set by resolveFormulaDrivers, never stored). */ amountByMonth?: Record<string, string>; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; scenarioId?: string; decisionId?: string; policyId?: string; /** Lineage back to the evidence and fact behind the economic item. */ evidenceId?: string; factId?: string; counterpartyEntityId?: string };
+/** `pattern`: the Standard model's driver columns, resolved into `amountByMonth` before projection (driver-patterns.ts). */
+export type ForecastDriver = { pattern?: DriverPattern; expectedDay?: number; accountingTreatment?: string; recognitionStart?: string; recognitionEnd?: string; templateId?: string; id: string; label: string; itemType: "agreement" | "obligation"; direction: "receipt" | "spend"; category?: string; amountMinor: string; /** A formula over the forecast model, in major units; when set, `amountMinor` is a display fallback only. */ amountFormula?: string; /** Resolved per-month minor units for a formula driver (set by resolveFormulaDrivers, never stored). */ amountByMonth?: Record<string, string>; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; scenarioId?: string; decisionId?: string; policyId?: string; /** Lineage back to the evidence and fact behind the economic item. */ evidenceId?: string; factId?: string; counterpartyEntityId?: string };
 export type ForecastEntryTemplate = { id: string; itemType: ForecastDriver["itemType"]; direction: ForecastDriver["direction"]; category?: string; debitAccountId: string; creditAccountId: string; decisionId?: string; policyId?: string };
 /** An explicit approved mapping is narrower than a generic direction/category rule. */
 export const matchingForecastTemplates = (driver: ForecastDriver, templates: ForecastEntryTemplate[]) => templates.filter((template) => template.itemType === driver.itemType && template.direction === driver.direction && (driver.templateId ? template.id === driver.templateId : !template.category || template.category === driver.category));
@@ -21,13 +24,15 @@ const projectionVersion = (template: ForecastEntryTemplate, amountMinor: string)
  * a missing or zero month is skipped, and a negative or non-integer month makes the
  * whole driver an exception. The cadence still chooses which months emit.
  */
-export function buildProjectedEntries(drivers: ForecastDriver[], templates: ForecastEntryTemplate[], horizon: { start: string; end: string }, scenarioId?: string, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string }[] = [], proofs: RecognitionProof[] = []): { entries: ProjectedEntry[]; exceptions: { driverId: string; reason: string }[] } {
+export function buildProjectedEntries(drivers: ForecastDriver[], templates: ForecastEntryTemplate[], horizon: { start: string; end: string }, scenarioId?: string, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string; isCash?: boolean }[] = [], proofs: RecognitionProof[] = []): { entries: ProjectedEntry[]; exceptions: { driverId: string; reason: string }[] } {
   const entries: ProjectedEntry[] = []; const exceptions: { driverId: string; reason: string }[] = [];
   for (const driver of drivers) {
     const monthly = driver.amountByMonth;
     if (driver.expectedDay !== undefined && (!Number.isInteger(driver.expectedDay) || driver.expectedDay < 1 || driver.expectedDay > 31)) { exceptions.push({ driverId: driver.id, reason: "Expected payment day must be between 1 and 31." }); continue; }
     if (!validMonth(driver.effectiveFrom) || !validMonth(horizon.start) || !validMonth(horizon.end) || (monthly === undefined && driver.amountFormula === undefined && !/^\d+$/.test(driver.amountMinor))) { exceptions.push({ driverId: driver.id, reason: "Driver needs a valid monthly schedule and minor-unit amount." }); continue; }
     if (monthly === undefined && driver.amountFormula !== undefined) { exceptions.push({ driverId: driver.id, reason: "Formula driver was not resolved against the forecast model." }); continue; }
+    // An unresolved pattern must never post its initial value as if it were a fixed amount.
+    if (monthly === undefined && driver.pattern !== undefined) { exceptions.push({ driverId: driver.id, reason: "Pattern driver was not resolved for this window." }); continue; }
     const matches = matchingForecastTemplates(driver, templates);
     if (matches.length !== 1) { exceptions.push({ driverId: driver.id, reason: matches.length ? "Driver matches multiple forecast-entry templates." : "Driver has no approved forecast-entry template." }); continue; }
     const template = matches[0]!;
@@ -56,7 +61,7 @@ export function buildProjectedEntries(drivers: ForecastDriver[], templates: Fore
 }
 
 /** Fixed single payments with an explicit recognition interval use the same balanced journals. */
-function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTemplate, horizon: { start: string; end: string }, scenarioId: string | undefined, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string }[], proof?: RecognitionProof): ProjectedEntry[] | string {
+function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTemplate, horizon: { start: string; end: string }, scenarioId: string | undefined, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string; isCash?: boolean }[], proof?: RecognitionProof): ProjectedEntry[] | string {
   const treatment = driver.accountingTreatment;
   const start = driver.recognitionStart; const end = driver.recognitionEnd;
   if (!["accrual", "prepaid"].includes(treatment ?? "") || driver.cadence !== "once" || driver.amountFormula || !start || !end || !validMonth(start) || !validMonth(end) || start > end || !/^[1-9]\d*$/.test(driver.amountMinor)) return "Non-cash treatment requires one fixed payment and an explicit recognition interval.";
@@ -65,7 +70,7 @@ function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTempl
   const receipt = driver.direction === "receipt";
   const cashId = receipt ? template.debitAccountId : template.creditAccountId; const incomeId = receipt ? template.creditAccountId : template.debitAccountId;
   const cash = accounts.find((account) => account.accountId === cashId); const income = accounts.find((account) => account.accountId === incomeId);
-  if (!cash || cash.accountType !== "asset" || !/cash/i.test(cash.statementLine ?? cash.accountName) || income?.accountType !== (receipt ? "revenue" : "expense")) return "Recognition needs an approved cash-to-revenue or expense-to-cash template.";
+  if (!cash || cash.accountType !== "asset" || !cashFlag(cash, () => /cash/i.test(cash.statementLine ?? cash.accountName)) || income?.accountType !== (receipt ? "revenue" : "expense")) return "Recognition needs an approved cash-to-revenue or expense-to-cash template.";
   const category = treatment === "prepaid" ? receipt ? "deferred_revenue" : "prepaids" : receipt ? "receivables" : "payables";
   const expectedType = category === "prepaids" || category === "receivables" ? "asset" : "liability";
   const matching = accounts.filter((account) => account.workingCapitalCategory === category && account.accountType === expectedType && account.accountId !== cashId && account.accountId !== incomeId);

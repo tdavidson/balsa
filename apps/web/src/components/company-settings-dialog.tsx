@@ -14,6 +14,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
   // The stored value, or null until the GET succeeds. Without it, saving must not touch minimum cash.
   const [loadedMinimumCash, setLoadedMinimumCash] = useState<string | null>(null);
   const [minimumCashUnavailable, setMinimumCashUnavailable] = useState(false);
+  // Model timeline: the months the model shows, the last of which ends the forecast. Null until loaded.
+  const [timeline, setTimeline] = useState<{ firstPeriod: string; lastPeriod: string; fiscalYearEndMonth: string } | null>(null);
+  const [loadedTimeline, setLoadedTimeline] = useState<{ value: string; isDefault: boolean; asOfMonth: string } | null>(null);
+  const [resetTimeline, setResetTimeline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -28,6 +32,10 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
       .then((response) => (response.ok ? response.json() : null))
       .then((result) => {
         if (cancelled) return;
+        if (result?.timeline) {
+          const value = { firstPeriod: result.timeline.firstPeriod, lastPeriod: result.timeline.lastPeriod, fiscalYearEndMonth: String(result.timeline.fiscalYearEndMonth) };
+          setTimeline(value); setLoadedTimeline({ value: JSON.stringify(value), isDefault: result.timeline.isDefault, asOfMonth: result.timeline.asOfMonth }); setResetTimeline(false);
+        }
         if (result && typeof result.minimumCash === "number") {
           setMinimumCash(String(result.minimumCash));
           setLoadedMinimumCash(String(result.minimumCash));
@@ -59,6 +67,11 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
       const response = await fetch("/api/company", { method: "PATCH", body: payload });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Unable to save company settings");
+      const timelineChanged = timeline && loadedTimeline && (resetTimeline ? !loadedTimeline.isDefault : JSON.stringify(timeline) !== loadedTimeline.value);
+      if (timelineChanged) {
+        const settings = await fetch("/api/forecast/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ timeline: resetTimeline ? null : { firstPeriod: timeline.firstPeriod, lastPeriod: timeline.lastPeriod, fiscalYearEndMonth: Number(timeline.fiscalYearEndMonth) } }) });
+        if (!settings.ok) throw new Error((await settings.json().catch(() => ({}))).error ?? "Unable to save the model timeline");
+      }
       if (minimumCashChanged) {
         const settings = await fetch("/api/forecast/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ minimumCash: floor }) });
         if (!settings.ok) throw new Error((await settings.json().catch(() => ({}))).error ?? "Unable to save the minimum cash setting");
@@ -115,6 +128,17 @@ export function CompanySettingsDialog({ open, onOpenChange, company, baseCurrenc
             <Input value={minimumCash} onChange={(event) => setMinimumCash(event.target.value)} inputMode="decimal" className="max-w-[160px]" disabled={loadedMinimumCash === null} placeholder={minimumCashUnavailable ? "Unavailable" : "Loading…"} />
             {minimumCashUnavailable && <span className="text-[12px] text-ink-3">Couldn’t load the current minimum cash, so saving leaves it unchanged.</span>}
           </label>
+          <fieldset className="grid gap-2 text-[13px] text-ink-2" disabled={!timeline}>
+            <legend className="mb-1.5">Model timeline</legend>
+            {timeline ? <>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-[12px]">First month<Input type="month" value={timeline.firstPeriod} onChange={(event) => { setTimeline({ ...timeline, firstPeriod: event.target.value }); setResetTimeline(false); }} /></label>
+                <label className="grid gap-1 text-[12px]">Last month<Input type="month" value={timeline.lastPeriod} onChange={(event) => { setTimeline({ ...timeline, lastPeriod: event.target.value }); setResetTimeline(false); }} /></label>
+                <label className="col-span-2 grid gap-1 text-[12px] sm:col-span-1">Fiscal year ends<select className="h-9 rounded-md border border-input bg-transparent px-2 text-[13px]" value={timeline.fiscalYearEndMonth} onChange={(event) => { setTimeline({ ...timeline, fiscalYearEndMonth: event.target.value }); setResetTimeline(false); }}>{Array.from({ length: 12 }, (_, index) => <option key={index} value={String(index + 1)}>{new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, index, 1)))}</option>)}</select></label>
+              </div>
+              <span className="text-[12px] text-ink-3">{resetTimeline ? "Saving returns to the rolling default: twelve months of history and a 24-month forecast." : loadedTimeline?.isDefault && JSON.stringify(timeline) === loadedTimeline.value ? "Using the rolling default. Set the months to fix the timeline; the forecast runs to the last month." : `The forecast runs from ${loadedTimeline ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${loadedTimeline.asOfMonth}-01T00:00:00Z`)) : "the as-of month"} to the last month.`}{!loadedTimeline?.isDefault && !resetTimeline && <> <button className="underline underline-offset-2" onClick={() => setResetTimeline(true)} type="button">Use the rolling default</button></>}</span>
+            </> : <span className="text-[12px] text-ink-3">Loading…</span>}
+          </fieldset>
           <label className="grid gap-1.5 text-[13px] text-ink-2">
             Browser icon
             <Input type="file" accept="image/x-icon,image/vnd.microsoft.icon,image/png" onChange={(event) => setFavicon(event.target.files?.[0] ?? null)} />

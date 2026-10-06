@@ -645,6 +645,41 @@
       "when": 1791158400005,
       "tag": "0091_operating_studies",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1791244800005,
+      "tag": "0092_standard_report_mapping",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1791331200005,
+      "tag": "0093_chart_cash_treatment",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1791417600005,
+      "tag": "0094_driver_patterns",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1791504000005,
+      "tag": "0095_metric_actuals",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791590400005,
+      "tag": "0096_decision_evidence",
+      "breakpoints": true
     }
   ]
 }
