@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { standardLines, type StandardLineDefinition, type StandardPeriodColumn, type StandardRow } from "@balsa/finance-engine";
+import { modelHeader, planModel, writeModelSheet, type ModelInput } from "./model-sheet";
 import { activeScenarioIndex, forecastColumns, planForecastLayout, simulateForecast, writeForecastInputs, writeForecastSheet, writeScenarioSelector, type ForecastInput } from "./forecast-sheet";
 
 export type { ExportBasis, ExportDriver, ExportEscalation, ExportLeg, ExportMetric, ExportPattern, ExportRef, ExportSeasonality, ForecastInput } from "./forecast-sheet";
@@ -31,6 +32,8 @@ export type StandardWorkbookInput = {
   mapping: { confirmed: number; total: number; complete: boolean };
   /** Forecast drivers, operating metrics and their inputs; the Forecast sheet is omitted when there are no drivers or metrics. */
   forecast?: ForecastInput;
+  /** Balsa's forecast model over the months the run evaluates it (as-of month to horizon); the Model sheet and live formula drivers come from it. */
+  model?: ModelInput | null;
 };
 
 /** Functions every formula may use: identical in Excel, Google Sheets and LibreOffice. */
@@ -187,11 +190,14 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
   const summary = workbook.addWorksheet("Summary", { views: [{ state: "frozen", xSplit: 2, ySplit: 5 }] });
   const forecast = input.forecast && (input.forecast.drivers.length || input.forecast.metrics.length) ? input.forecast : null;
   const forecastSheet = forecast ? workbook.addWorksheet("Forecast") : null;
+  const modelPlan = input.model?.definition.variables.length ? planModel(input.model, modelHeader.labels + 2) : null;
+  const model = modelPlan && !("unsupported" in modelPlan) ? modelPlan : null;
+  const modelSheet = model ? workbook.addWorksheet("Model") : null;
   // The forecast is planned before any sheet is written, so Statements can link to its changes.
   const periods = input.base.map((month) => month.period);
   const statementRows = [...input.base[0]!.statement.incomeStatement, ...input.base[0]!.statement.balanceSheet, ...input.base[0]!.statement.cashFlow];
   const statementKeys = new Set(statementRows.map((row) => row.key));
-  const forecastPlan = forecast ? simulateForecast(forecast, periods) : null;
+  const forecastPlan = forecast ? simulateForecast(forecast, periods, { model }) : null;
   const forecastLayout = forecast && forecastPlan ? planForecastLayout(forecast, forecastPlan, periods, statementKeys) : null;
   if (forecast && forecast.scenarios.map((scenario) => scenario.id).join() !== input.scenarios.map((scenario) => scenario.id).join()) throw new Error("The forecast's scenarios must match the workbook's, in the same order.");
   const variants = input.scenarios.map((scenario) => scenario.months);
@@ -291,8 +297,9 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
   if (forecastSheet && forecast && forecastPlan && forecastLayout) {
     title(forecastSheet, "Forecast", "Each forecast driver in the Standard model's driver columns. Blue cells on a pale fill are inputs: change one and the driver, Statements, Summary and Checks recalculate. Rows marked Balsa's values say why they are not formulas.");
     const profileRange = writeForecastInputs(getStarted, forecast, { ...colors, money: moneyFormat, date: dateFormat });
-    writeForecastSheet(forecastSheet, forecast, forecastPlan, forecastLayout, new Map(statementRows.map((row) => [row.key, row.label])), statementKeys, profileRange, { ...colors, money: moneyFormat, date: dateFormat });
+    writeForecastSheet(forecastSheet, forecast, forecastPlan, forecastLayout, new Map(statementRows.map((row) => [row.key, row.label])), statementKeys, profileRange, { ...colors, money: moneyFormat, date: dateFormat }, model);
   }
+  if (modelSheet && model) writeModelSheet(modelSheet, input.model!, model, { ...colors, date: dateFormat });
 
   // Mapping and lineage: where every figure comes from.
   const mappingSheet = workbook.addWorksheet("Mapping");
@@ -410,6 +417,7 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
     "Get Started: the model's structure and the check summary.",
     "Summary: annual totals by fiscal year.",
     ...(forecast ? ["Forecast: operating metrics and forecast drivers in the Standard model's driver columns (initial value, starts, repeats, changing based on, using, maximums, seasonality, escalation). Each driver is a formula: change a blue input and the driver, Statements, Summary and Checks recalculate. An edited amount settles the way the driver's entry does, in the same month. Balsa's own amounts are kept below for comparison. A driver Balsa computes another way (a formula, dated amounts) is written as Balsa's values with the reason. Seasonality profiles and the company escalation are inputs on Get Started."] : []),
+    ...(model ? ["Model: Balsa's forecast model, one row per variable and coordinate. Inputs are blue cells you can change by month; formula variables are formulas compiled from Balsa's formula language, and formula drivers on Forecast read them."] : modelPlan && "unsupported" in modelPlan ? [`Model: not included because ${modelPlan.unsupported}; formula drivers are Balsa's values.`] : []),
     "Statements: monthly income statement, balance sheet and cash flow, with actual and forecast months marked.",
     ...(input.plan ? ["Plan and Budget: the pinned plan, and plan versus actuals over a month range you choose."] : []),
     ...(input.scenarios.length ? ["Scenarios: each scenario's net income and cash beside the base outlook. Choose a scenario under Active scenario on Get Started and Forecast, Statements, Summary and Checks recalculate for it: a scenario's changed and added drivers are their own rows on Forecast, in use only while that scenario is active."] : []),

@@ -36,6 +36,8 @@ export type ExportDriver = {
   referenceLine: string | null;
   /** Null for a driver Balsa computes another way (a formula, dated amounts); `note` says how. */
   pattern: ExportPattern | null; note: string | null;
+  /** A formula driver: Balsa's formula over the forecast model, emitted on its cadence. Live against the Model sheet. */
+  formula?: { text: string; startsIn: string; endsIn: string | null; repeatsEvery: number } | null;
   /** The account the amount posts to (income or expense, or a balance for capex and financing) and the account that settles it. */
   posting: ExportLeg | null; settlement: ExportLeg | null;
   /** Minor units by period, as Balsa resolved them. */
@@ -43,7 +45,7 @@ export type ExportDriver = {
   exception: string | null;
 };
 /** An operating metric, or a model variable a driver uses (pattern null, values only). */
-export type ExportMetric = { name: string; label: string; unit: string | null; pattern: ExportPattern | null; note?: string | null; actuals: Record<string, string>; valuesByPeriod: Record<string, string> };
+export type ExportMetric = { name: string; label: string; unit: string | null; pattern: ExportPattern | null; note?: string | null; /** A forecast model variable a driver uses: its total across coordinates, read from the Model sheet. */ variable?: boolean; actuals: Record<string, string>; valuesByPeriod: Record<string, string> };
 export type ExportSeasonality = { name: string; deviations: number[] };
 export type ForecastInput = {
   /** Months Balsa forecast: after the as-of month, within the run's horizon. */
@@ -71,7 +73,9 @@ export function spreadsheetRound(value: number, places: number) {
 }
 const linked = (basis: ExportBasis) => basis === "% of" || basis === "# per";
 
-type Row = { key: string; money: boolean; pattern: ExportPattern | null; balsa: number[]; actuals: (number | null)[]; ref: string | null; members: string[]; inUse: boolean[] };
+type Row = { key: string; money: boolean; pattern: ExportPattern | null; balsa: number[]; actuals: (number | null)[]; ref: string | null; members: string[]; inUse: boolean[]; formula?: ExportDriver["formula"]; variable?: string };
+/** What the Forecast sheet needs from the Model sheet. */
+export type ModelLink = { months: string[]; evaluateFormula(text: string): (number | null)[] | null; compileFormula(text: string, monthIndex: number, sheetPrefix: string): string | null; totalCells(name: string, monthIndex: number, sheetPrefix: string): string[]; values: Map<string, Map<string, (number | null)[]>> };
 /** `values` are the base outlook's; `byScenario[i]` the values while scenario i is active (0 = base). */
 export type ForecastPlan = { live: Map<string, boolean>; reasons: Map<string, string>; values: Map<string, number[]>; byScenario: Map<string, number[]>[] };
 /** What a reference resolves to: a metric's row, the drivers on a line, or every row of a driver (only one is in use at a time). */
@@ -83,7 +87,9 @@ export const refKey = (ref: ExportRef | null) => !ref ? null : ref.kind === "dri
  * row written as values see Balsa's values, exactly as the sheet does.
  */
 /** `compare: false` evaluates the rows as written without checking them against Balsa, as the sheet would after an edit. */
-export function simulateForecast(input: ForecastInput, periods: string[], options: { compare?: boolean } = {}): ForecastPlan {
+export function simulateForecast(input: ForecastInput, periods: string[], options: { compare?: boolean; model?: ModelLink | null } = {}): ForecastPlan {
+  const model = options.model ?? null;
+  const modelIndex = (period: string) => model ? model.months.indexOf(period) : -1;
   const flags = periods.map((period) => input.forecastPeriods.includes(period));
   const profiles = new Map(input.seasonality.map((profile) => [profile.name, profile.deviations]));
   const rows = new Map<string, Row>();
@@ -91,8 +97,8 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
   const scenarioIndexes = [0, ...input.scenarios.map((_, index) => index + 1)];
   const always = scenarioIndexes.map(() => true);
   const aggregate = (key: string, members: string[]) => rows.set(key, { key, money: true, pattern: null, balsa: periods.map(() => 0), actuals: periods.map(() => null), ref: null, members, inUse: always });
-  for (const metric of input.metrics) rows.set(`metric:${metric.name}`, { key: `metric:${metric.name}`, money: false, pattern: metric.pattern, balsa: series(metric.valuesByPeriod, 1), actuals: periods.map((period) => metric.actuals[period] !== undefined ? Number(metric.actuals[period]) : null), ref: refKey(metric.pattern?.using ?? null), members: [], inUse: always });
-  for (const driver of input.drivers) rows.set(driverKey(driver), { key: driverKey(driver), money: true, pattern: driver.pattern, balsa: series(driver.amountsByPeriod, 100), actuals: periods.map(() => null), ref: refKey(driver.pattern?.using ?? null), members: [], inUse: scenarioIndexes.map((index) => driverInUse(driver, input, index)) });
+  for (const metric of input.metrics) rows.set(`metric:${metric.name}`, { key: `metric:${metric.name}`, money: false, pattern: metric.pattern, balsa: series(metric.valuesByPeriod, 1), actuals: periods.map((period) => metric.actuals[period] !== undefined ? Number(metric.actuals[period]) : null), ref: refKey(metric.pattern?.using ?? null), members: [], inUse: always, ...(metric.variable ? { variable: metric.name } : {}) });
+  for (const driver of input.drivers) rows.set(driverKey(driver), { key: driverKey(driver), money: true, pattern: driver.pattern, balsa: series(driver.amountsByPeriod, 100), actuals: periods.map(() => null), ref: refKey(driver.pattern?.using ?? null), members: [], inUse: scenarioIndexes.map((index) => driverInUse(driver, input, index)), formula: driver.formula ?? null });
   for (const line of new Set(input.drivers.map((driver) => driver.referenceLine).filter((line): line is string => Boolean(line)))) aggregate(`line:${line}`, input.drivers.filter((driver) => driver.referenceLine === line).map(driverKey));
   for (const id of new Set(input.drivers.map((driver) => driver.id))) aggregate(`all:${id}`, input.drivers.filter((driver) => driver.id === id).map(driverKey));
 
@@ -100,6 +106,15 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
   const exceptions = new Set(input.drivers.filter((driver) => driver.exception).map(driverKey));
   for (const row of rows.values()) {
     if (row.key.startsWith("line:") || row.key.startsWith("all:")) continue;
+    if (row.formula || row.variable) {
+      const reason = exceptions.has(row.key) ? "Balsa reports an exception for this driver"
+        : !model ? "The forecast model is not in this file"
+        : row.formula && (!model.evaluateFormula(row.formula.text) || model.months.some((_, index) => model.compileFormula(row.formula!.text, index, "") === null)) ? "Its formula could not be written for a spreadsheet"
+        : row.variable && !model.values.has(row.variable) ? "The model variable is not in this file"
+        : null;
+      live.set(row.key, !reason); if (reason) reasons.set(row.key, reason);
+      continue;
+    }
     const pattern = row.pattern;
     const reason = !pattern ? null
       : exceptions.has(row.key) ? "Balsa reports an exception for this driver"
@@ -123,8 +138,20 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
       if (!row.inUse[scenario]) out = periods.map(() => 0);
       else if (row.members.length || row.key.startsWith("line:") || row.key.startsWith("all:")) { const parts = row.members.map(resolve); out = periods.map((_, index) => parts.reduce((sum, part) => sum + part[index]!, 0)); }
       else if (!live.get(key)) out = row.balsa.map((value, index) => row.actuals[index] ?? value);
+      else if (row.formula) out = evaluateFormulaRow(row);
+      else if (row.variable) out = periods.map((period, index) => { const at = modelIndex(period); if (!flags[index] || at < 0) return 0; let total: number | null = 0; for (const cells of model!.values.get(row.variable!)!.values()) { const value = cells[at]!; total = total === null || value === null ? null : total + value; } return total ?? Number.NaN; });
       else out = evaluateRow(row, row.ref ? resolve(row.ref) : null);
       visiting.delete(key); values.set(key, out); return out;
+    };
+    /** A formula driver: the model's value for the month, in cents, on its cadence and never below zero. */
+    const evaluateFormulaRow = (row: Row) => {
+      const formula = row.formula!; const start = monthNumber(formula.startsIn); const series = model!.evaluateFormula(formula.text)!;
+      return periods.map((period, index) => {
+        const offset = monthNumber(period) - start; const at = modelIndex(period);
+        if (!flags[index] || offset < 0 || (formula.endsIn && period > formula.endsIn) || (formula.repeatsEvery > 0 ? offset % formula.repeatsEvery !== 0 : offset !== 0) || at < 0) return 0;
+        const value = series[at]!;
+        return value === null ? Number.NaN : Math.max(0, spreadsheetRound(value, 2));
+      });
     };
     const evaluateRow = (row: Row, reference: number[] | null) => {
       const pattern = row.pattern!; const start = monthNumber(pattern.startsIn);
@@ -176,7 +203,7 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
       if (!isLive) continue;
       const row = rows.get(key)!;
       const tolerance = row.money ? 0.005 : 0.0000005;
-      const differs = scenarioIndexes.some((scenario) => row.inUse[scenario] && byScenario[scenario]!.get(key)!.some((value, index) => flags[index] && Math.abs(value - (row.actuals[index] ?? row.balsa[index]!)) >= tolerance));
+      const differs = scenarioIndexes.some((scenario) => row.inUse[scenario] && byScenario[scenario]!.get(key)!.some((value, index) => flags[index] && !(Math.abs(value - (row.actuals[index] ?? row.balsa[index]!)) < tolerance)));
       if (differs) { live.set(key, false); reasons.set(key, "Its formula would not reproduce Balsa's amounts exactly"); changed = true; }
     }
     if (!changed) return { live, reasons, values: byScenario[0]!, byScenario };
@@ -373,7 +400,8 @@ export function writeScenarioSelector(sheet: ExcelJS.Worksheet, scenarios: { nam
   sheet.getColumn(18).width = 40; sheet.getColumn(19).width = 24;
 }
 
-export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInput, plan: ForecastPlan, layout: ForecastLayout, statementLabels: Map<string, string>, statementKeys: Set<string>, profileRange: { names: string; values: string }, styles: ForecastStyles) {
+export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInput, plan: ForecastPlan, layout: ForecastLayout, statementLabels: Map<string, string>, statementKeys: Set<string>, profileRange: { names: string; values: string }, styles: ForecastStyles, model: ModelLink | null = null) {
+  const modelPrefix = "'Model'!";
   const { periods } = layout;
   const first = C.firstMonth; const lastColumn = first + periods.length - 1;
   const muted = { color: { argb: styles.muted }, size: 9 };
@@ -437,9 +465,32 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
   const writeValues = (row: number, values: number[], money: boolean, inUseRow: number | null = null) => periods.forEach((_, index) => Object.assign(sheet.getCell(row, first + index), { value: !values[index] ? null : inUseRow ? { formula: `${values[index]}*${col(C.inUse, inUseRow)}` } : values[index], numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.input } } }));
   const sourceText = (key: string, note: string | null, exception: string | null) => [plan.live.get(key) ? "Formula" : plan.reasons.get(key) ? `Balsa's values: ${plan.reasons.get(key)}` : "Balsa's values", note, exception ? `Exception: ${exception}` : null].filter(Boolean).join(". ");
 
+  /** A formula driver's months: Balsa's formula over the Model sheet, emitted on the row's start, end and repeat inputs. */
+  const writeFormulaRow = (row: number, formula: NonNullable<ExportDriver["formula"]>, rowScaled: boolean) => {
+    const inputStyle = { font: { color: { argb: styles.input } }, fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: styles.inputFill } } };
+    Object.assign(sheet.getCell(row, C.starts), { value: monthEnd(formula.startsIn), numFmt: styles.date, ...inputStyle });
+    Object.assign(sheet.getCell(row, C.ends), { value: formula.endsIn ? monthEnd(formula.endsIn) : null, numFmt: styles.date, ...inputStyle });
+    Object.assign(sheet.getCell(row, C.repeats), { value: formula.repeatsEvery, ...inputStyle });
+    Object.assign(sheet.getCell(row, C.basis), { value: "model formula", font: { color: { argb: styles.muted } } });
+    Object.assign(sheet.getCell(row, C.using), { value: formula.text, font: { italic: true, color: { argb: styles.muted } } });
+    periods.forEach((period, index) => {
+      const at = col; const X = L(first + index); const date = `${X}$${forecastHeader.labels}`;
+      const offset = `((YEAR(${date})*12+MONTH(${date}))-(YEAR(${at(C.starts, row)})*12+MONTH(${at(C.starts, row)})))`;
+      const monthIndex = model!.months.indexOf(period);
+      const expression = monthIndex < 0 ? null : model!.compileFormula(formula.text, monthIndex, modelPrefix);
+      const body = expression === null ? "0" : `IF(OR(${X}$${forecastHeader.flag}=0,${offset}<0,AND(${at(C.ends, row)}<>"",${date}>${at(C.ends, row)}),IF(${at(C.repeats, row)}>0,MOD(${offset},${at(C.repeats, row)})<>0,${offset}<>0)),0,MAX(0,ROUND(${expression},2)))`;
+      Object.assign(sheet.getCell(row, first + index), { value: { formula: rowScaled && body !== "0" ? `${at(C.inUse, row)}*${body}` : body }, numFmt: styles.money, font: { color: { argb: styles.formula } } });
+    });
+  };
+
   for (const metric of input.metrics) {
     const key = `metric:${metric.name}`; const row = layout.metricRows.get(key)!;
     sheet.getCell(row, C.label).value = metric.label; sheet.getCell(row, C.unit).value = metric.unit ?? "";
+    if (metric.variable && plan.live.get(key)) {
+      Object.assign(sheet.getCell(row, C.source), { value: "Formula: the model variable's total on the Model sheet", font: muted });
+      periods.forEach((period, index) => { const monthIndex = model!.months.indexOf(period); const cells = monthIndex < 0 || !input.forecastPeriods.includes(period) ? [] : model!.totalCells(metric.name, monthIndex, modelPrefix); Object.assign(sheet.getCell(row, first + index), { value: { formula: cells.length ? `SUM(${cells.join(",")})` : "0" }, numFmt: "#,##0.0", font: { color: { argb: styles.link } } }); });
+      continue;
+    }
     if (metric.pattern) writePattern(row, metric.pattern, Boolean(plan.live.get(key)));
     Object.assign(sheet.getCell(row, C.source), { value: sourceText(key, metric.note ?? null, null), font: muted });
     if (plan.live.get(key)) writeLiveRow(key, row, false, metric.pattern!, metric.actuals, false);
@@ -460,7 +511,8 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
     const unlinked = driverEffects(driver, statementKeys) ? null : "Not linked to Statements: one side of its entry has no Standard line";
     Object.assign(sheet.getCell(row, C.source), { value: sourceText(key, [driver.note, unlinked].filter(Boolean).join(". ") || null, driver.exception), font: { color: { argb: driver.exception ? "FFB00020" : styles.muted }, size: 9 } });
     const balsa = periods.map((period) => input.forecastPeriods.includes(period) && driver.amountsByPeriod[period] !== undefined ? Number(BigInt(driver.amountsByPeriod[period]!)) / 100 : 0);
-    if (plan.live.get(key)) writeLiveRow(key, row, true, driver.pattern!, {}, scaled);
+    if (plan.live.get(key) && driver.formula) writeFormulaRow(row, driver.formula, scaled);
+    else if (plan.live.get(key)) writeLiveRow(key, row, true, driver.pattern!, {}, scaled);
     else writeValues(row, balsa, true, scaled ? row : null);
     sheet.getCell(balsaRow, C.label).value = driver.label;
     writeValues(balsaRow, balsa, true, scaled ? row : null);
