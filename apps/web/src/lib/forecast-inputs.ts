@@ -1,8 +1,8 @@
 import "server-only";
 import { loadRecognitionProofs } from "./recognition-continuity";
 import { and, desc, eq } from "drizzle-orm";
-import { chartAccounts, companies, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
-import { addMonths, isValidMonth, monthRange, resolveFormulaDrivers, summarizeActualCash, type ForecastDriver, type ForecastModel, type ForecastRunInput } from "@balsa/finance-engine";
+import { chartAccounts, companies, forecastMetrics, seasonalityProfiles, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
+import { addMonths, isStandardLineId, isValidMonth, monthRange, resolveFormulaDrivers, resolveStandardMapping, summarizeActualCash, resolvePatternDrivers, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type ForecastModel, type ForecastRunInput, type PatternContext, type StandardLineId } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
 import { rowsToModel } from "@/lib/forecast-model-rows";
@@ -10,6 +10,7 @@ import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import { loadSettlementInput } from "./forecast-settlement-load";
 import { forecastHorizonFor } from "./model-timeline";
+import { parseStoredEscalation, parseStoredPattern } from "./driver-pattern-schema";
 import { loadBankLinkedAccountIds } from "./cash-accounts";
 
 
@@ -36,7 +37,10 @@ export const compareIds = (left: string, right: string) => (left < right ? -1 : 
 /** The company's active chart accounts as forecast accounts, in id order. */
 export async function loadForecastAccounts(companyId: string, db: DbExecutor = getDatabase()) {
   const [rows, linkedIds] = await Promise.all([db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))), loadBankLinkedAccountIds(companyId, db)]);
-  return rows.map((row) => chartAccountToForecastAccount(row, linkedIds)).sort((left, right) => compareIds(left.accountId, right.accountId));
+  // Each account's Standard line (confirmed, or the suggestion), so a driver can reference "total revenue".
+  const forecastAccounts = rows.map((row) => chartAccountToForecastAccount(row, linkedIds));
+  const lines = resolveStandardMapping(forecastAccounts.map((account, index) => ({ ...account, reportLine: rows[index]!.reportLine && isStandardLineId(rows[index]!.reportLine!) ? rows[index]!.reportLine as StandardLineId : null })), []);
+  return forecastAccounts.map((account) => { const line = lines.get(account.accountId)?.line; return line ? { ...account, reportLine: line } : account; }).sort((left, right) => compareIds(left.accountId, right.accountId));
 }
 
 /** The company's active forecast model in canonical order, or undefined when it has none. */
@@ -48,12 +52,15 @@ export async function loadForecastModel(companyId: string, db: DbExecutor = getD
   return rowsToModel(dimensions, variables);
 }
 
-/** Resolve formula drivers for a projection window, including one base month for prev(). */
-export function resolveDriversForWindow(drivers: ForecastDriver[], model: ForecastModel | undefined, window: { start: string; end: string }) {
+/** Resolve formula and pattern drivers for a projection window, including one base month for prev(). */
+export function resolveDriversForWindow(drivers: ForecastDriver[], model: ForecastModel | undefined, window: { start: string; end: string }, patterns?: { templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; context?: PatternContext }) {
   if (!isValidMonth(window.start) || !isValidMonth(window.end) || window.start > window.end) return { drivers, exceptions: [] as { driverId: string; reason: string }[] };
-  const resolution = resolveFormulaDrivers(drivers, model, monthRange(addMonths(window.start, -1), window.end));
-  const failed = new Set(resolution.exceptions.map((exception) => exception.driverId));
-  return { drivers: resolution.drivers.filter((driver) => !failed.has(driver.id)), exceptions: resolution.exceptions };
+  const months = monthRange(addMonths(window.start, -1), window.end);
+  const resolution = resolveFormulaDrivers(drivers, model, months);
+  const patterned = resolvePatternDrivers(resolution.drivers, { months, templates: patterns?.templates ?? [], accountLines: new Map((patterns?.accounts ?? []).flatMap((account) => account.reportLine ? [[account.accountId, account.reportLine] as const] : [])), ...(model ? { model } : {}), ...(patterns?.context ? { context: patterns.context } : {}) });
+  const exceptions = [...resolution.exceptions, ...patterned.exceptions];
+  const failed = new Set(exceptions.map((exception) => exception.driverId));
+  return { drivers: patterned.drivers.filter((driver) => !failed.has(driver.id)), exceptions };
 }
 
 /**
@@ -61,6 +68,22 @@ export function resolveDriversForWindow(drivers: ForecastDriver[], model: Foreca
  * lines, with drivers, templates, and accounts in id order so the stored input
  * hash does not depend on the order Postgres returns rows in.
  */
+/** Operating metrics, seasonality profiles and the default escalation; undefined when the company has none. */
+export async function loadPatternContext(companyId: string, db: DbExecutor = getDatabase()): Promise<PatternContext | undefined> {
+  const [metrics, profiles, [company]] = await Promise.all([
+    db.select().from(forecastMetrics).where(eq(forecastMetrics.companyId, companyId)),
+    db.select().from(seasonalityProfiles).where(eq(seasonalityProfiles.companyId, companyId)),
+    db.select({ escalation: companies.defaultEscalation }).from(companies).where(eq(companies.id, companyId)).limit(1),
+  ]);
+  const escalation = parseStoredEscalation(company?.escalation);
+  if (!metrics.length && !profiles.length && !escalation) return undefined;
+  return {
+    metrics: metrics.sort((left, right) => compareIds(left.name, right.name)).map((metric) => ({ name: metric.name, label: metric.label, effectiveFrom: metric.effectiveFrom, ...(metric.effectiveTo ? { effectiveTo: metric.effectiveTo } : {}), pattern: parseStoredPattern(metric.pattern)! })),
+    seasonality: profiles.sort((left, right) => compareIds(left.id, right.id)).map((profile) => ({ id: profile.id, name: profile.name, deviations: profile.deviations })),
+    escalation,
+  };
+}
+
 export async function loadForecastInputs(companyId: string, options: { now?: Date; db?: DbExecutor } = {}): Promise<ForecastRunInput> {
   const db = options.db ?? getDatabase();
   const now = options.now ?? new Date();
@@ -69,11 +92,12 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const asOfMonth = await forecastAsOfMonth(companyId, now, db);
   const currentMonth = now.toISOString().slice(0, 7);
   const openMonth = addMonths(asOfMonth, 1) === currentMonth ? currentMonth : null;
-  const [{ drivers, templates }, loadedActualLines, accounts, model] = await Promise.all([
+  const [{ drivers, templates }, loadedActualLines, accounts, model, patterns] = await Promise.all([
     loadForecastDrivers(companyId, {}, db),
     loadPostedJournalLines(companyId, openMonth ?? asOfMonth, db),
     loadForecastAccounts(companyId, db),
     loadForecastModel(companyId, db),
+    loadPatternContext(companyId, db),
   ]);
   const throughDate = now.toISOString().slice(0, 10);
   const actualLines = loadedActualLines.filter((line) => !line.postingDate || line.postingDate <= throughDate);
@@ -82,5 +106,5 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const baseCurrencyLines = actualLines.filter((line) => line.currency === company.baseCurrency);
   const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")) : [];
   const recognitionProofs = await loadRecognitionProofs(db, companyId, asOfMonth, company.baseCurrency, actualLines);
-  return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonFor(asOfMonth, company.modelLastPeriod), minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}) };
+  return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonFor(asOfMonth, company.modelLastPeriod), minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}), ...(patterns ? { patterns } : {}) };
 }

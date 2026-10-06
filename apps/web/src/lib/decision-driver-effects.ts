@@ -1,4 +1,4 @@
-import { addMonths, type ForecastDriver, type ForecastRunInput } from "@balsa/finance-engine";
+import { addMonths, patternAfterAmountChange, type ForecastDriver, type ForecastRunInput } from "@balsa/finance-engine";
 import type { DecisionEffect } from "@/lib/decision-effects";
 import { amountToMinor } from "@/lib/forecast-drivers";
 import { emptyModel, withDimension, withVariable } from "@/lib/forecast-model-rows";
@@ -26,9 +26,10 @@ export function projectDecisionEffectOnDrivers(drivers: ForecastDriver[], effect
   if (effect.kind === "change_amount") {
     const original = drivers.find((driver) => driver.id === effect.itemId);
     if (!original) return drivers;
-    const { effectiveTo: _previousEnd, ...copy } = original;
-    void _previousEnd;
-    return [...drivers.map((driver) => (driver.id === original.id ? { ...driver, effectiveTo: addMonths(effect.effectiveFrom, -1) } : driver)), { ...copy, id: `decision:${decisionId}`, amountMinor: amountToMinor(String(effect.amount)), effectiveFrom: effect.effectiveFrom, decisionId }];
+    const { effectiveTo: _previousEnd, pattern: _previousPattern, ...copy } = original;
+    void _previousEnd; void _previousPattern;
+    const pattern = patternAfterAmountChange(original.pattern, effect.amount);
+    return [...drivers.map((driver) => (driver.id === original.id ? { ...driver, effectiveTo: addMonths(effect.effectiveFrom, -1) } : driver)), { ...copy, id: `decision:${decisionId}`, amountMinor: amountToMinor(String(effect.amount)), ...(pattern ? { pattern } : {}), effectiveFrom: effect.effectiveFrom, decisionId }];
   }
   if (effect.kind === "set_category") return drivers.map((driver) => (driver.counterpartyEntityId === effect.entityId ? { ...driver, category: effect.category } : driver));
   if (effect.kind === "set_item_formula") return drivers.map((driver) => driver.id === effect.itemId ? { ...driver, amountFormula: effect.amountFormula, decisionId } : driver);

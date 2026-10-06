@@ -34,3 +34,4 @@ export * from "./forecast-match-suggestions";
 export * from "./weekly-cash";
 export * from "./forecast-accuracy";
 export * from "./standard-layout";
+export * from "./driver-patterns";

@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, gte, inArray, like, lte } from "drizzle-orm";
 import { buildProjectedEntries } from "@balsa/finance-engine";
 import { getDatabase, journalBatches, journalEntries, journalLines, scenarios } from "@finance/database";
-import { loadForecastDrivers, loadForecastModel, resolveDriversForWindow } from "@/lib/forecast-inputs";
+import { loadForecastAccounts, loadForecastDrivers, loadForecastModel, loadPatternContext, resolveDriversForWindow } from "@/lib/forecast-inputs";
 import { postApprovedJournal, type JournalPostingRequest } from "@/lib/journal-posting";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 
@@ -14,7 +14,8 @@ export async function pinForecastAsPlan(companyId: string, input: { start: strin
   const db = getDatabase();
   if (input.scenarioId && !(await db.select({ id: scenarios.id }).from(scenarios).where(and(eq(scenarios.id, input.scenarioId), eq(scenarios.companyId, companyId))).limit(1))[0]) throw new Error("Scenario not found");
   const { drivers: loaded, templates } = await loadForecastDrivers(companyId, input.scenarioId ? { scenarioId: input.scenarioId } : {});
-  const formulas = resolveDriversForWindow(loaded, await loadForecastModel(companyId), { start: input.start, end: input.end });
+  const [accounts, patternContext] = await Promise.all([loadForecastAccounts(companyId), loadPatternContext(companyId)]);
+  const formulas = resolveDriversForWindow(loaded, await loadForecastModel(companyId), { start: input.start, end: input.end }, { templates, accounts, ...(patternContext ? { context: patternContext } : {}) });
   const projection = buildProjectedEntries(formulas.drivers, templates, { start: input.start, end: input.end }, input.scenarioId);
   const templateById = new Map(templates.map((template) => [template.id, template]));
   const results = [];

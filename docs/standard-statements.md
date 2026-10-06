@@ -42,6 +42,7 @@ The mapping changes presentation only. Journals, balances and the ledger stateme
 | README | What the file is, the as-of month, versions and the colour key |
 | Get Started | Model structure (company, currency, periods, fiscal year end, actuals through, minimum cash, runway) and the check summary |
 | Summary | Annual totals by fiscal year, all formulas over Statements; balances take each fiscal year's last month |
+| Forecast | Each driver in the Standard model's driver columns with Balsa's monthly amounts, and the operating metrics ([forecast drivers](forecast-drivers.md)). Only when there are drivers or metrics |
 | Statements | Monthly Standard statements with actual and forecast months marked |
 | Plan, Budget | The pinned plan, and plan versus actuals over a month range the reader sets. Only when a plan has been pinned |
 | Scenarios | Each active scenario's net income and cash beside the base, the differences as formulas, and its runway. Only when there are scenarios |
@@ -55,9 +56,11 @@ Formulas use only functions that behave the same in Excel, Google Sheets and Lib
 
 Downloads are recorded in the activity log. The file carries ids, account names and figures, never evidence contents or model output.
 
-## Cash flow and the Cash line
+## Which accounts are cash
 
-The ledger's cash flow finds cash accounts by "cash" in the account name or statement line. The Standard Cash line comes from the mapping, which also recognises a linked bank account. If an account mapped to Cash has neither word, the two disagree and net cash flow will not equal the change in cash. The Standard view and the workbook's Checks sheet both report it. Rename the account or give it a statement line containing "cash".
+One rule decides which accounts are cash, everywhere: the ledger's cash flow and balances, runway, the forecast, reconciliation, coverage, and the Standard Cash line. An asset counts as cash when it is linked to a bank account (a bank identifier or a connected bank account), or when its name or statement line says "cash". **Chart of accounts → Counts as cash** overrides that default per account: Cash, Not cash, or back to the default. The change is audited and recalculates the books and the forecast; it never changes a journal.
+
+The Standard view and the workbook's Checks sheet still verify that net cash flow equals the change in the Cash line, and report it if a mapping and the cash rule ever disagree.
 
 ## Limits
 

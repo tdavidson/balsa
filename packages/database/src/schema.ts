@@ -235,6 +235,8 @@ export const companies = pgTable("companies", {
   fiscalYearEnd: text("fiscal_year_end"),
   /** The model timeline the user sets: first and last month shown and forecast, as YYYY-MM. */
   modelFirstPeriod: text("model_first_period"), modelLastPeriod: text("model_last_period"),
+  /** Default escalation drivers opt into (finance-engine EscalationRule); null when unset. */
+  defaultEscalation: jsonb("default_escalation").$type<unknown>(),
   /** Monotonic revision of included financial state; calculation runs name the revision they reproduce. */
   financialStateRevision: text("financial_state_revision").default("0").notNull(),
   /** CFO-set cash floor for the forecast's cash-out month, in base-currency minor units. */
@@ -672,6 +674,23 @@ export const chartAccounts = pgTable("chart_accounts", {
   ...timestamps,
 }, (table) => [uniqueIndex("chart_accounts_company_id").on(table.companyId, table.id), uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
 
+/** An operating metric (customers, headcount): a forecast series drivers reference that never posts. */
+export const forecastMetrics = pgTable("forecast_metrics", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), label: text("label").notNull(), unit: text("unit"),
+  effectiveFrom: text("effective_from").notNull(), effectiveTo: text("effective_to"), pattern: jsonb("pattern").$type<unknown>().notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("forecast_metrics_company_name").on(table.companyId, table.name)]);
+
+/** Twelve calendar-month deviations a driver can apply; they sum to zero. */
+export const seasonalityProfiles = pgTable("seasonality_profiles", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), deviations: jsonb("deviations").$type<string[]>().notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("seasonality_profiles_company_name").on(table.companyId, sql`lower(${table.name})`)]);
+
 /** A user-defined category under one Standard statement line, such as Subscriptions under Revenues. */
 export const reportCategories = pgTable("report_categories", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -844,6 +863,8 @@ export const economicItems = pgTable(
     amount: text("amount"),
     /** A driver formula over the forecast model, in major units. When set, `amount` is the display fallback only. */
     amountFormula: text("amount_formula"),
+    /** Standard-model driver pattern (finance-engine DriverPattern); exclusive with amountFormula. */
+    pattern: jsonb("pattern").$type<unknown>(),
     cadence: text("cadence"),
     accountingTreatment: text("accounting_treatment").default("cash").notNull(),
     recognitionStart: text("recognition_start"),

@@ -7,7 +7,7 @@ continuously maintained financial model. Upload bank activity, invoices,
 contracts, spreadsheets, or accounting exports; review what the system learned;
 then ask questions, close periods, and change the forecast in plain language.
 
-[Standard statements](docs/standard-statements.md) show the books in the Standard Financial Model layout, with a user-set statement mapping and model timeline, and download as a Standard-shaped Excel workbook.
+[Standard statements](docs/standard-statements.md) show the books in the Standard Financial Model layout, with a user-set statement mapping and model timeline, and download as a Standard-shaped Excel workbook. [Forecast drivers](docs/forecast-drivers.md) bring the Standard model's driver patterns: % of another line, per unit of an operating metric, growth, caps, per-driver seasonality and escalation on any cycle.
 
 [Goals & reviews](docs/goal-reviews.md) adds cash targets, preserved plan baselines,
 saved reviews of the latest outlook, and atomic scenario decisions with preserved outcome reviews.

@@ -617,6 +617,13 @@
       "when": 1790812800000,
       "tag": "0087_chart_cash_treatment",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0088_driver_patterns",
+      "breakpoints": true
     }
   ]
 }

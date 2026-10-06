@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readCompanyScope, withCompanyTransaction } from "./company-scope";
 import type { Database } from "./index";
 import * as schema from "./schema";
-import { chartAccounts, reportCategories, financialWorkReviews, financialReviewTasks, financialReviewSignoffs, recognitionJournalLinks, economicItems, journalEntries, journalBatches, users, financialImportReviews, financialReviewPreferences, cashGoalVersions, companies, financialReviewSnapshots, goalDecisionReviews, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, sources } from "./schema";
+import { chartAccounts, reportCategories, forecastMetrics, seasonalityProfiles, financialWorkReviews, financialReviewTasks, financialReviewSignoffs, recognitionJournalLinks, economicItems, journalEntries, journalBatches, users, financialImportReviews, financialReviewPreferences, cashGoalVersions, companies, financialReviewSnapshots, goalDecisionReviews, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, sources } from "./schema";
 
 config({ path: fileURLToPath(new URL("../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -189,4 +189,17 @@ describe.skipIf(!connectionString)("withCompanyTransaction", () => {
     expect(String((crossCompany as { cause?: unknown } | null)?.cause ?? crossCompany)).toMatch(/foreign key/i);
   });
 
+  it("isolates operating metrics and seasonality profiles", async (context) => {
+    if (!appDatabase) { context.skip(`skipped: ${unavailable}`); return; }
+    for (const companyId of [companyAId, companyBId]) {
+      await database.insert(forecastMetrics).values({ companyId, name: "customers", label: "Customers", effectiveFrom: "2027-01", pattern: { initialValue: "100", repeatsEveryMonths: 1 } });
+      await database.insert(seasonalityProfiles).values({ companyId, name: "Flat", deviations: Array(12).fill("0") });
+    }
+    await withCompanyTransaction(appDatabase, companyAId, async (tx) => {
+      expect((await tx.select().from(forecastMetrics)).map((row) => row.companyId)).toEqual([companyAId]);
+      expect((await tx.select().from(seasonalityProfiles)).map((row) => row.companyId)).toEqual([companyAId]);
+    });
+    const rejection = await withCompanyTransaction(appDatabase, companyAId, (tx) => tx.insert(forecastMetrics).values({ companyId: companyBId, name: "foreign", label: "Foreign", effectiveFrom: "2027-01", pattern: {} })).then(() => null, (reason: unknown) => reason);
+    expect(String((rejection as { cause?: unknown } | null)?.cause ?? rejection)).toMatch(/row-level security/i);
+  });
 });
