@@ -1,5 +1,8 @@
 import ExcelJS from "exceljs";
 import { standardLines, type StandardLineDefinition, type StandardPeriodColumn, type StandardRow } from "@balsa/finance-engine";
+import { forecastColumns, planForecastLayout, simulateForecast, writeForecastInputs, writeForecastSheet, type ForecastInput } from "./forecast-sheet";
+
+export type { ExportBasis, ExportDriver, ExportEscalation, ExportLeg, ExportMetric, ExportPattern, ExportRef, ExportSeasonality, ForecastInput } from "./forecast-sheet";
 
 /**
  * A Standard Financial Model-shaped workbook of a Balsa outlook. Every line
@@ -12,13 +15,6 @@ export const exportFormatVersion = "standard-export-2026-10-06.1";
 
 export type ExportScenario = { id: string; name: string; description: string | null; months: StandardPeriodColumn[]; runway: { runwayMonths: number | null; cashOutMonth: string | null } };
 export type ExportAccount = { id: string; code: string; name: string; section: string | null; lineLabel: string | null; categoryName: string | null; status: string; reason: string };
-/** One driver row in the Standard model's Forecast columns. Text is already in the reader's words; amounts are minor units by period. */
-export type ExportDriver = {
-  label: string; direction: "receipt" | "spend"; lineLabel: string | null;
-  columns: { initialValue: string; startsIn: string; repeatsEvery: string; changingBasedOn: string; changesEvery: string; changingBy: string; usingDriver: string; maxMonths: string; maxValue: string; seasonality: string; escalation: string };
-  amountsByPeriod: Record<string, string>; exception: string | null;
-};
-export type ExportMetric = { label: string; unit: string | null; summary: string; valuesByPeriod: Record<string, string> };
 
 export type StandardWorkbookInput = {
   company: { name: string; currency: string };
@@ -33,13 +29,12 @@ export type StandardWorkbookInput = {
   scenarios: ExportScenario[];
   accounts: ExportAccount[];
   mapping: { confirmed: number; total: number; complete: boolean };
-  /** Forecast drivers and operating metrics; the Forecast sheet is omitted when there are none. */
-  drivers?: ExportDriver[];
-  metrics?: ExportMetric[];
+  /** Forecast drivers, operating metrics and their inputs; the Forecast sheet is omitted when there are no drivers or metrics. */
+  forecast?: ForecastInput;
 };
 
 /** Functions every formula may use: identical in Excel, Google Sheets and LibreOffice. */
-export const allowedFunctions = new Set(["SUM", "SUMIFS", "SUMPRODUCT", "ABS", "IF", "IFERROR", "COUNT", "COUNTIF", "EOMONTH", "AND", "OR", "MIN", "MAX", "INDEX", "MATCH", "ROUND"]);
+export const allowedFunctions = new Set(["SUM", "SUMIFS", "SUMPRODUCT", "ABS", "IF", "IFERROR", "COUNT", "COUNTIF", "EOMONTH", "AND", "OR", "MIN", "MAX", "INDEX", "MATCH", "ROUND", "YEAR", "MONTH", "MOD", "INT"]);
 export function formulaFunctions(formula: string) {
   const unquoted = formula.replace(/"[^"]*"/g, "").replace(/'[^']*'!/g, "");
   return [...unquoted.matchAll(/([A-Z][A-Z0-9.]*)\(/g)].map((match) => match[1]!);
@@ -57,6 +52,7 @@ const monthEnd = (period: string) => { const [year, month] = period.split("-").m
 const major = (minor: string) => Number(BigInt(minor)) / 100;
 const fiscalYearOf = (period: string, endMonth: number) => { const [year, month] = period.split("-").map(Number) as [number, number]; return month > endMonth ? year + 1 : year; };
 
+const ref = (sheet: string, address: string) => `'${sheet}'!${address}`;
 type SheetRow = { key: string; row: number; source: StandardRow; stock: boolean };
 type Section = { title: string; pick: (statement: StandardPeriodColumn["statement"]) => StandardRow[]; stock: boolean };
 const sections: Section[] = [
@@ -120,7 +116,7 @@ function title(sheet: ExcelJS.Worksheet, heading: string, description: string) {
  * (every month has the same rows by construction); line and category rows
  * are Balsa values, subtotals are formulas.
  */
-function statementSheet(workbook: ExcelJS.Workbook, name: string, description: string, months: StandardPeriodColumn[], input: StandardWorkbookInput, only?: Section["title"][]) {
+function statementSheet(workbook: ExcelJS.Workbook, name: string, description: string, months: StandardPeriodColumn[], input: StandardWorkbookInput, only?: Section["title"][], links?: { rows: Map<string, number>; periods: Set<string> }) {
   const sheet = workbook.addWorksheet(name, { views: [{ state: "frozen", xSplit: 2, ySplit: header.yearEnd }] });
   title(sheet, name, description);
   styleHeaderRows(sheet, months, input.timeline.fiscalYearEndMonth, input.timeline.asOfPeriod);
@@ -155,10 +151,13 @@ function statementSheet(workbook: ExcelJS.Workbook, name: string, description: s
         const at = (key: string) => { const target = rows.get(key); if (!target) throw new Error(`Row ${key} is missing from ${name}`); return `${letter}${target.row}`; };
         const formula = subtotalFormula(entry.key, at, rows);
         const source = section.pick(month.statement).find((candidate) => candidate.key === entry.key);
+        // A row a forecast driver moves is Balsa's figure plus the driver's change on Forecast, zero as exported.
+        const change = !formula && links?.periods.has(month.period) ? links.rows.get(entry.key) : undefined;
         if (formula) cell.value = { formula };
+        else if (change) cell.value = { formula: `${major(source?.amountMinor ?? "0")}+${ref("Forecast", `${columnLetter(forecastColumns.firstMonth + index)}${change}`)}` };
         else cell.value = major(source?.amountMinor ?? "0");
         cell.numFmt = moneyFormat;
-        cell.font = { color: { argb: formula ? colors.formula : colors.input }, bold: entry.source.kind === "total" };
+        cell.font = { color: { argb: formula ? colors.formula : change ? colors.link : colors.input }, bold: entry.source.kind === "total" };
         if (emphasis) cell.border = { top: { style: "thin", color: { argb: colors.rule } } };
       });
       if (emphasis) label.border = { top: { style: "thin", color: { argb: colors.rule } } };
@@ -169,7 +168,6 @@ function statementSheet(workbook: ExcelJS.Workbook, name: string, description: s
 
 type Placed = ReturnType<typeof statementSheet>;
 const range = (placed: Placed, row: number) => `$${columnLetter(firstMonthColumn)}${row}:$${placed.lastColumn}${row}`;
-const ref = (sheet: string, address: string) => `'${sheet}'!${address}`;
 
 export async function buildStandardWorkbook(input: StandardWorkbookInput): Promise<Uint8Array> {
   if (!input.base.length) throw new Error("The export needs at least one month.");
@@ -178,8 +176,15 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
   const readme = workbook.addWorksheet("README");
   const getStarted = workbook.addWorksheet("Get Started");
   const summary = workbook.addWorksheet("Summary", { views: [{ state: "frozen", xSplit: 2, ySplit: 5 }] });
-  const forecastSheet = (input.drivers?.length || input.metrics?.length) ? workbook.addWorksheet("Forecast", { views: [{ state: "frozen", xSplit: 1, ySplit: 5 }] }) : null;
-  const statements = statementSheet(workbook, "Statements", "Monthly statements in the Standard layout. Blue figures are Balsa's; black figures are formulas.", input.base, input);
+  const forecast = input.forecast && (input.forecast.drivers.length || input.forecast.metrics.length) ? input.forecast : null;
+  const forecastSheet = forecast ? workbook.addWorksheet("Forecast") : null;
+  // The forecast is planned before any sheet is written, so Statements can link to its changes.
+  const periods = input.base.map((month) => month.period);
+  const statementRows = [...input.base[0]!.statement.incomeStatement, ...input.base[0]!.statement.balanceSheet, ...input.base[0]!.statement.cashFlow];
+  const statementKeys = new Set(statementRows.map((row) => row.key));
+  const forecastPlan = forecast ? simulateForecast(forecast, periods) : null;
+  const forecastLayout = forecast && forecastPlan ? planForecastLayout(forecast, forecastPlan, periods, statementKeys) : null;
+  const statements = statementSheet(workbook, "Statements", "Monthly statements in the Standard layout. Blue figures are Balsa's; black figures are formulas; green figures are Balsa's plus the change from editing a driver on Forecast.", input.base, input, undefined, forecastLayout ? { rows: forecastLayout.changeRows, periods: new Set(forecast!.forecastPeriods) } : undefined);
   const plan = input.plan ? statementSheet(workbook, "Plan", "The pinned plan's income statement over the same months.", input.plan, input, ["Income statement"]) : null;
 
   // Summary: annual columns by fiscal year, summed from Statements; balances take the fiscal year's last month.
@@ -270,32 +275,11 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
     }
   }
 
-  // Forecast: each driver in the Standard model's driver columns, with the monthly amounts Balsa resolved.
-  if (forecastSheet) {
-    const sheet = forecastSheet;
-    title(sheet, "Forecast", "Each forecast driver in the Standard model's driver columns, with the amounts Balsa calculated for each month. Change a driver in Balsa (Accounting, Drivers) and export again.");
-    const columns: [keyof ExportDriver["columns"], string, number][] = [["initialValue", "Initial value", 13], ["startsIn", "Starts in", 10], ["repeatsEvery", "Repeats every N months", 11], ["changingBasedOn", "Changing based on", 16], ["changesEvery", "Changes every N months", 11], ["changingBy", "Changing by % or #", 11], ["usingDriver", "Using driver", 22], ["maxMonths", "For a max of N months", 11], ["maxValue", "To a max value of", 12], ["seasonality", "Seasonality", 14], ["escalation", "Escalation", 22]];
-    const first = 4 + columns.length; // A label, B direction, C line, then the driver columns, then months
-    sheet.getColumn(1).width = 34; sheet.getColumn(2).width = 9; sheet.getColumn(3).width = 22;
-    ["Driver", "Direction", "Statement line"].forEach((label, index) => Object.assign(sheet.getCell(5, 1 + index), { value: label, font: { bold: true } }));
-    columns.forEach(([, label, width], index) => { sheet.getColumn(4 + index).width = width; Object.assign(sheet.getCell(5, 4 + index), { value: label, font: { bold: true }, alignment: { wrapText: true, vertical: "bottom" } }); });
-    input.base.forEach((month, index) => { const column = first + index; sheet.getColumn(column).width = 12; Object.assign(sheet.getCell(5, column), { value: monthEnd(month.period), numFmt: dateFormat, font: { bold: true }, alignment: { horizontal: "right" } }); Object.assign(sheet.getCell(4, column), { value: month.period <= input.timeline.asOfPeriod ? "Actual" : "Forecast", font: { color: { argb: colors.muted }, size: 9 }, alignment: { horizontal: "right" } }); });
-    let row = 6;
-    for (const driver of input.drivers ?? []) {
-      sheet.getRow(row).values = [driver.label, driver.direction === "receipt" ? "Receipt" : "Spend", driver.lineLabel ?? "", ...columns.map(([key]) => driver.columns[key])];
-      input.base.forEach((month, index) => { const minor = driver.amountsByPeriod[month.period]; Object.assign(sheet.getCell(row, first + index), { value: minor === undefined || month.period <= input.timeline.asOfPeriod ? null : major(minor), numFmt: moneyFormat, font: { color: { argb: colors.input } } }); });
-      if (driver.exception) Object.assign(sheet.getCell(row, first + input.base.length), { value: driver.exception, font: { color: { argb: "FFB00020" } } });
-      row += 1;
-    }
-    if (input.metrics?.length) {
-      row += 1;
-      Object.assign(sheet.getCell(row, 1), { value: "OPERATING METRICS", font: { bold: true, color: { argb: colors.muted }, size: 9 } }); row += 1;
-      for (const metric of input.metrics) {
-        sheet.getCell(row, 1).value = metric.label; sheet.getCell(row, 2).value = metric.unit ?? ""; sheet.getCell(row, 4).value = metric.summary;
-        input.base.forEach((month, index) => { const value = metric.valuesByPeriod[month.period]; Object.assign(sheet.getCell(row, first + index), { value: value === undefined ? null : Number(value), numFmt: "#,##0.0", font: { color: { argb: colors.input } } }); });
-        row += 1;
-      }
-    }
+  // Forecast: live driver rows, with Balsa's own amounts beside them.
+  if (forecastSheet && forecast && forecastPlan && forecastLayout) {
+    title(forecastSheet, "Forecast", "Each forecast driver in the Standard model's driver columns. Blue cells on a pale fill are inputs: change one and the driver, Statements, Summary and Checks recalculate. Rows marked Balsa's values say why they are not formulas.");
+    const profileRange = writeForecastInputs(getStarted, forecast, { ...colors, money: moneyFormat, date: dateFormat });
+    writeForecastSheet(forecastSheet, forecast, forecastPlan, forecastLayout, new Map(statementRows.map((row) => [row.key, row.label])), statementKeys, profileRange, { ...colors, money: moneyFormat, date: dateFormat });
   }
 
   // Mapping and lineage: where every figure comes from.
@@ -364,6 +348,11 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
   const unplaced = input.base.reduce((count, month) => count + (month.statement.unplacedAccountIds?.length ?? 0), 0);
   single("Every account with an amount is placed on a line", unplaced === 0 ? "yes" : "no");
   single("Every account's line is confirmed in Balsa", input.mapping.complete ? "yes" : "no");
+  if (forecast && forecastLayout && forecast.drivers.length) {
+    const block = (from: number, to: number) => ref("Forecast", `$${columnLetter(forecastColumns.firstMonth)}${from}:$${columnLetter(forecastColumns.firstMonth + periods.length - 1)}${to}`);
+    single("Driver formulas reproduce Balsa's driver amounts", `IF(SUMPRODUCT(ABS(${block(forecastLayout.driverBlock.first, forecastLayout.driverBlock.last)}-${block(forecastLayout.balsaBlock.first, forecastLayout.balsaBlock.last)}))<0.005,"yes","no")`);
+    single("No forecast driver has an exception", forecast.drivers.some((driver) => driver.exception) ? "no" : "yes");
+  }
   for (const { row } of checkRows) checks.getCell(row, 2).alignment = { horizontal: "center" };
 
   // Get Started: the model structure and the check summary.
@@ -406,7 +395,7 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
     "Sheets",
     "Get Started: the model's structure and the check summary.",
     "Summary: annual totals by fiscal year.",
-    ...(input.drivers?.length || input.metrics?.length ? ["Forecast: each forecast driver in the Standard model's driver columns (initial value, repeats, changing based on, using driver, maximums, seasonality, escalation), with the amount Balsa calculated for each forecast month, and the operating metrics drivers use."] : []),
+    ...(forecast ? ["Forecast: operating metrics and forecast drivers in the Standard model's driver columns (initial value, starts, repeats, changing based on, using, maximums, seasonality, escalation). Each driver is a formula: change a blue input and the driver, Statements, Summary and Checks recalculate. An edited amount settles the way the driver's entry does, in the same month. Balsa's own amounts are kept below for comparison. A driver Balsa computes another way (a formula, dated amounts) is written as Balsa's values with the reason. Seasonality profiles and the company escalation are inputs on Get Started."] : []),
     "Statements: monthly income statement, balance sheet and cash flow, with actual and forecast months marked.",
     ...(input.plan ? ["Plan and Budget: the pinned plan, and plan versus actuals over a month range you choose."] : []),
     ...(input.scenarios.length ? ["Scenarios: each scenario's net income and cash beside the base outlook."] : []),
