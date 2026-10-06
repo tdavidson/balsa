@@ -1,4 +1,4 @@
-import { addMonths, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@balsa/finance-engine";
+import { addMonths, resolveAccountIsCash, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@balsa/finance-engine";
 
 const cadences = ["once", "monthly", "quarterly", "annual"] as const;
 const cashFlowCategories = ["operating", "investing", "financing", "none"] as const;
@@ -29,8 +29,9 @@ export function templateRowToTemplate(row: TemplateRow): ForecastEntryTemplate {
   return { id: row.id, itemType: row.itemType === "obligation" ? "obligation" : "agreement", direction: row.direction, ...(row.category ? { category: row.category } : {}), debitAccountId: row.debitAccountId, creditAccountId: row.creditAccountId, ...(row.decisionId ? { decisionId: row.decisionId } : {}), ...(row.policyId ? { policyId: row.policyId } : {}) };
 }
 
-export type ChartAccountRow = { id: string; code: string; name: string; accountType: string; normalBalance: "debit" | "credit"; statementSection: string | null; statementLine: string | null; balanceTiming: string | null; cashFlowCategory: string | null; workingCapitalCategory: string | null };
-export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAccount {
+export type ChartAccountRow = { id: string; code: string; name: string; accountType: string; normalBalance: "debit" | "credit"; statementSection: string | null; statementLine: string | null; balanceTiming: string | null; cashFlowCategory: string | null; workingCapitalCategory: string | null; cashTreatment?: string | null; bankAccountIdentifier?: string | null };
+/** `linkedIds`: chart accounts a connected bank account points at, which count as cash by default. */
+export function chartAccountToForecastAccount(row: ChartAccountRow, linkedIds: Set<string> = new Set()): ForecastAccount {
   const timing = row.balanceTiming === "current" || row.balanceTiming === "noncurrent" ? row.balanceTiming : undefined;
   const cashFlow = cashFlowCategories.find((category) => category === row.cashFlowCategory);
   const workingCapital: WorkingCapitalCategory | undefined = workingCapitalCategories.find((category) => category === row.workingCapitalCategory);
@@ -38,6 +39,7 @@ export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAcc
     accountId: row.id, accountCode: row.code, accountName: row.name, accountType: row.accountType, normalBalance: row.normalBalance,
     ...(row.statementSection ? { statementSection: row.statementSection } : {}), ...(row.statementLine ? { statementLine: row.statementLine } : {}),
     ...(timing ? { balanceTiming: timing } : {}), ...(cashFlow ? { cashFlowCategory: cashFlow } : {}), ...(workingCapital ? { workingCapitalCategory: workingCapital } : {}),
+    isCash: resolveAccountIsCash({ accountType: row.accountType, statementSection: row.statementSection, statementLine: row.statementLine, name: row.name, cashTreatment: row.cashTreatment ?? null, bankLinked: Boolean(row.bankAccountIdentifier) || linkedIds.has(row.id) }),
   };
 }
 

@@ -1,3 +1,4 @@
+import { cashFlag } from "./cash-flag";
 import type { EntryBasis, PostedJournalLine } from "./ledger";
 
 export type RecognitionProof = { driverId: string; currency: string; throughMonth: string; lines: PostedJournalLine[]; valid: boolean };
@@ -21,7 +22,7 @@ const projectionVersion = (template: ForecastEntryTemplate, amountMinor: string)
  * a missing or zero month is skipped, and a negative or non-integer month makes the
  * whole driver an exception. The cadence still chooses which months emit.
  */
-export function buildProjectedEntries(drivers: ForecastDriver[], templates: ForecastEntryTemplate[], horizon: { start: string; end: string }, scenarioId?: string, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string }[] = [], proofs: RecognitionProof[] = []): { entries: ProjectedEntry[]; exceptions: { driverId: string; reason: string }[] } {
+export function buildProjectedEntries(drivers: ForecastDriver[], templates: ForecastEntryTemplate[], horizon: { start: string; end: string }, scenarioId?: string, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string; isCash?: boolean }[] = [], proofs: RecognitionProof[] = []): { entries: ProjectedEntry[]; exceptions: { driverId: string; reason: string }[] } {
   const entries: ProjectedEntry[] = []; const exceptions: { driverId: string; reason: string }[] = [];
   for (const driver of drivers) {
     const monthly = driver.amountByMonth;
@@ -56,7 +57,7 @@ export function buildProjectedEntries(drivers: ForecastDriver[], templates: Fore
 }
 
 /** Fixed single payments with an explicit recognition interval use the same balanced journals. */
-function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTemplate, horizon: { start: string; end: string }, scenarioId: string | undefined, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string }[], proof?: RecognitionProof): ProjectedEntry[] | string {
+function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTemplate, horizon: { start: string; end: string }, scenarioId: string | undefined, accounts: { accountId: string; accountType: string; workingCapitalCategory?: string; statementLine?: string; accountName: string; isCash?: boolean }[], proof?: RecognitionProof): ProjectedEntry[] | string {
   const treatment = driver.accountingTreatment;
   const start = driver.recognitionStart; const end = driver.recognitionEnd;
   if (!["accrual", "prepaid"].includes(treatment ?? "") || driver.cadence !== "once" || driver.amountFormula || !start || !end || !validMonth(start) || !validMonth(end) || start > end || !/^[1-9]\d*$/.test(driver.amountMinor)) return "Non-cash treatment requires one fixed payment and an explicit recognition interval.";
@@ -65,7 +66,7 @@ function recognitionEntries(driver: ForecastDriver, template: ForecastEntryTempl
   const receipt = driver.direction === "receipt";
   const cashId = receipt ? template.debitAccountId : template.creditAccountId; const incomeId = receipt ? template.creditAccountId : template.debitAccountId;
   const cash = accounts.find((account) => account.accountId === cashId); const income = accounts.find((account) => account.accountId === incomeId);
-  if (!cash || cash.accountType !== "asset" || !/cash/i.test(cash.statementLine ?? cash.accountName) || income?.accountType !== (receipt ? "revenue" : "expense")) return "Recognition needs an approved cash-to-revenue or expense-to-cash template.";
+  if (!cash || cash.accountType !== "asset" || !cashFlag(cash, () => /cash/i.test(cash.statementLine ?? cash.accountName)) || income?.accountType !== (receipt ? "revenue" : "expense")) return "Recognition needs an approved cash-to-revenue or expense-to-cash template.";
   const category = treatment === "prepaid" ? receipt ? "deferred_revenue" : "prepaids" : receipt ? "receivables" : "payables";
   const expectedType = category === "prepaids" || category === "receivables" ? "asset" : "liability";
   const matching = accounts.filter((account) => account.workingCapitalCategory === category && account.accountType === expectedType && account.accountId !== cashId && account.accountId !== incomeId);

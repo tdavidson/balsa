@@ -22,7 +22,7 @@ export async function bankWorkspace(companyId: string) {
   return withCompanyTransaction(getDatabase(), companyId, async (tx) => {
     const connections = await tx.select({ id: bankConnections.id, enrollmentId: bankConnections.enrollmentId, institution: bankConnections.institution, environment: bankConnections.environment, status: bankConnections.status, lastSyncedAt: bankConnections.lastSyncedAt, error: bankConnections.error }).from(bankConnections).where(eq(bankConnections.companyId, companyId));
     const accounts = await tx.select().from(bankAccounts).where(eq(bankAccounts.companyId, companyId));
-    const ledgerAccounts = await tx.select({ id: chartAccounts.id, code: chartAccounts.code, name: chartAccounts.name, accountType: chartAccounts.accountType, statementLine: chartAccounts.statementLine }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y")));
+    const ledgerAccounts = await tx.select({ id: chartAccounts.id, code: chartAccounts.code, name: chartAccounts.name, accountType: chartAccounts.accountType, statementLine: chartAccounts.statementLine, cashTreatment: chartAccounts.cashTreatment }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y")));
     return { companyId, environment, configurationError, connections, accounts, ledgerAccounts };
   });
 }
@@ -64,7 +64,7 @@ export async function mapBankAccount(companyId: string, userId: string, accountI
     if (!account) throw new BankError("Bank account not found.", 404);
     if (chartAccountId) {
       const [chart] = await tx.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.id, chartAccountId), eq(chartAccounts.active, "Y")));
-      if (!chart || chart.accountType !== (account.accountType === "credit" ? "liability" : "asset") || (account.accountType === "depository" && !/cash/i.test(`${chart.statementLine ?? ""} ${chart.name}`))) throw new BankError("Select an active cash asset for a bank account, or a liability for a credit card.");
+      if (!chart || chart.accountType !== (account.accountType === "credit" ? "liability" : "asset") || (account.accountType === "depository" && chart.cashTreatment === "not_cash")) throw new BankError("Select an active asset that is not marked \"not cash\" for a bank account, or a liability for a credit card.");
       const identifier = `teller:${account.providerAccountId}`;
       if (chart.bankAccountIdentifier && chart.bankAccountIdentifier !== identifier) throw new BankError("This ledger account already maps to another bank identifier. Review that mapping first.", 409);
       const [other] = await tx.select({ id: bankAccounts.id }).from(bankAccounts).where(and(eq(bankAccounts.companyId, companyId), eq(bankAccounts.chartAccountId, chartAccountId), ne(bankAccounts.id, accountId)));

@@ -61,7 +61,7 @@ export const isStandardLineId = (value: string): value is StandardLineId => line
 export const standardLineDefinition = (id: StandardLineId) => lineById.get(id)!;
 
 /** The chart fields a mapping reads. `reportLine` is the user's confirmed choice; absent means unconfirmed. */
-export type StandardMappingAccount = Pick<TrialBalanceLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory"> & { hasBankIdentifier?: boolean; reportLine?: StandardLineId | null; reportCategoryId?: string | null };
+export type StandardMappingAccount = Pick<TrialBalanceLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory" | "isCash"> & { hasBankIdentifier?: boolean; reportLine?: StandardLineId | null; reportCategoryId?: string | null };
 export type ReportCategory = { id: string; line: StandardLineId; name: string; sortOrder: number };
 export type StandardMappingStatus = "confirmed" | "suggested" | "fallback" | "unclassified";
 export type ResolvedStandardMapping = { accountId: string; line: StandardLineId | null; categoryId: string | null; status: StandardMappingStatus; reason: string };
@@ -131,9 +131,11 @@ export function suggestStandardLine(account: StandardMappingAccount): { line: St
   if (!section) return { line: null, status: "unclassified", reason: "A contra account needs the statement section it offsets before it can be placed." };
   const workingCapital = account.workingCapitalCategory ? workingCapitalLines[account.workingCapitalCategory] : undefined;
   if (workingCapital && standardLineDefinition(workingCapital).section === section) return { line: workingCapital, status: "suggested", reason: `Working capital category ${account.workingCapitalCategory!.replace(/_/g, " ")}` };
-  if (section === "asset" && account.hasBankIdentifier) return { line: "cash", status: "suggested", reason: "Linked to a bank account" };
+  // The ledger's own cash classification decides the Cash line, so the two never disagree.
+  if (section === "asset" && account.isCash === true) return { line: "cash", status: "suggested", reason: account.hasBankIdentifier ? "Linked to a bank account" : "Treated as cash in the ledger" };
+  if (section === "asset" && account.isCash === undefined && account.hasBankIdentifier) return { line: "cash", status: "suggested", reason: "Linked to a bank account" };
   const text = `${account.statementLine ?? ""} ${account.accountName}`.toLowerCase();
-  const rule = rules[section].find((candidate) => candidate.pattern.test(text));
+  const rule = rules[section].find((candidate) => candidate.pattern.test(text) && !(candidate.line === "cash" && account.isCash === false));
   if (rule) return { line: rule.line, status: "suggested", reason: `${rule.reason[0]!.toUpperCase()}${rule.reason.slice(1)}` };
   const line = fallbackLine(section, account.balanceTiming);
   return { line, status: "fallback", reason: `No rule matched; placed on ${standardLineDefinition(line).label}` };

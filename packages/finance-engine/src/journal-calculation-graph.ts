@@ -1,3 +1,4 @@
+import { cashFlag } from "./cash-flag";
 import type { AccountBalanceReconciliation } from "./account-reconciliation";
 import type { LedgerReconciliation } from "./ledger-reconciliation";
 import type { TrialBalance, TrialBalanceLine } from "./ledger";
@@ -5,7 +6,7 @@ import type { JournalStatements, StatementAccountLine } from "./statements";
 import type { AllocationAnalysis } from "./allocation-analysis";
 
 /** Increment when the journal-derived graph semantics change. */
-export const journalCalculationFormulaVersion = "journal-ledger-2026-09-13.1";
+export const journalCalculationFormulaVersion = "journal-ledger-2026-10-06.1";
 
 export type JournalGraphVerificationStatus = "verified" | "unverified" | "exception";
 export type JournalCalculationNode = {
@@ -132,7 +133,7 @@ export function buildJournalCalculationGraph(input: {
     nodes.push({ id: "control:source_ledger_reconciliation", kind: "control", month: input.period, label: "Source-to-ledger reconciliation", formula: "approved source rows reconcile through actual cash into posted journal lines", formulaVersion: journalCalculationFormulaVersion, value: input.ledgerReconciliation.verificationStatus === "verified", inputNodeIds: input.ledgerReconciliation.sourceRows.flatMap((row) => row.journalLineIds.map((lineId) => sourceNodeIds.get(lineId))).filter((id): id is string => Boolean(id)), lineIds: input.ledgerReconciliation.sourceRows.flatMap((row) => row.journalLineIds), provenance: [], verification: input.ledgerReconciliation.verificationStatus === "verified" ? { status: "verified", reasons: [] } : { status: "exception", reasons: input.ledgerReconciliation.controls.reasons } });
     for (const cashTie of input.ledgerReconciliation.controls.cashToStatement) {
       const cashAccountInputs = input.trialBalance.lines
-        .filter((line) => line.currency === cashTie.currency && /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`))
+        .filter((line) => line.currency === cashTie.currency && cashFlag(line, () => /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`)))
         .map(accountNodeId);
       const status = cashTie.status === "tied" ? "verified" as const : cashTie.status === "missing_statement" ? "unverified" as const : "exception" as const;
       const reason = cashTie.status === "tied"

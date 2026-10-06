@@ -51,7 +51,7 @@ export function BankConnectionsPanel({ companyId, companyName }: { companyId: st
             <Select value={account.chartAccountId ?? "unmapped"} disabled={busy || connection.status === "disconnected"} onValueChange={(value) => void act({ action: "map", accountId: account.id, chartAccountId: value === "unmapped" ? null : value })}>
               <SelectTrigger id={account.id}><SelectValue placeholder="Select ledger account" /></SelectTrigger>
               <SelectContent><SelectGroup><SelectItem value="unmapped">Select ledger account (imports paused)</SelectItem>
-              {data.ledgerAccounts.filter((ledger) => account.accountType === "credit" ? ledger.accountType === "liability" : ledger.accountType === "asset" && /cash/i.test(`${ledger.statementLine ?? ""} ${ledger.name}`)).map((ledger) => <SelectItem key={ledger.id} value={ledger.id}>{ledger.code} · {ledger.name}</SelectItem>)}
+              {data.ledgerAccounts.filter((ledger) => account.accountType === "credit" ? ledger.accountType === "liability" : ledger.accountType === "asset" && ledger.cashTreatment !== "not_cash").map((ledger) => <SelectItem key={ledger.id} value={ledger.id}>{ledger.code} · {ledger.name}</SelectItem>)}
               </SelectGroup></SelectContent>
             </Select>
           </Field></FieldGroup>

@@ -1,8 +1,11 @@
+import { cashFlag } from "./cash-flag";
 import { buildTrialBalance, type EntryBasis, type PostedJournalLine, type TrialBalanceLine } from "./ledger";
 
 export type StatementAccountLine = {
   key: string;
   label: string;
+  /** Set when every account in the group carries a resolved cash flag: true if any of them is cash. */
+  isCash?: boolean;
   amountMinor: string;
   accountIds: string[];
   lineIds: string[];
@@ -67,17 +70,18 @@ export const presentationAmount = (line: TrialBalanceLine) => {
 };
 
 function aggregate(lines: TrialBalanceLine[]): StatementAccountLine[] {
-  const grouped = new Map<string, { label: string; amount: bigint; accountIds: string[]; lineIds: string[]; provenance: TrialBalanceLine["provenance"] }>();
+  const grouped = new Map<string, { label: string; amount: bigint; accountIds: string[]; lineIds: string[]; provenance: TrialBalanceLine["provenance"]; cashFlags: (boolean | undefined)[] }>();
   for (const line of lines) {
     const key = line.statementLine ?? line.accountCode;
-    const group = grouped.get(key) ?? { label: line.statementLine ?? line.accountName, amount: 0n, accountIds: [], lineIds: [], provenance: [] };
+    const group = grouped.get(key) ?? { label: line.statementLine ?? line.accountName, amount: 0n, accountIds: [], lineIds: [], provenance: [], cashFlags: [] };
+    group.cashFlags.push(line.isCash);
     group.amount += presentationAmount(line);
     group.accountIds.push(line.accountId);
     group.lineIds.push(...line.lineIds);
     group.provenance.push(...line.provenance);
     grouped.set(key, group);
   }
-  return [...grouped.entries()].map(([key, group]) => ({ key, label: group.label, amountMinor: group.amount.toString(), accountIds: group.accountIds, lineIds: group.lineIds, provenance: group.provenance })).sort((left, right) => left.label.localeCompare(right.label));
+  return [...grouped.entries()].map(([key, group]) => ({ key, label: group.label, ...(group.cashFlags.every((flag) => flag !== undefined) ? { isCash: group.cashFlags.some(Boolean) } : {}), amountMinor: group.amount.toString(), accountIds: group.accountIds, lineIds: group.lineIds, provenance: group.provenance })).sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export type AccountPresentationBalance = { line: TrialBalanceLine; amountMinor: bigint };
@@ -145,7 +149,7 @@ export function buildJournalStatements(lines: PostedJournalLine[], period: strin
     let operating = 0n; let investing = 0n; let financing = 0n; let cashMovement = 0n; let cashReceipts = 0n; let cashSpending = 0n;
     const entriesForCashFlow: NonNullable<CurrencyJournalStatements["cashFlow"]>["entries"] = [];
     for (const [entryId, entryLines] of entries) {
-      const cash = entryLines.filter((line) => /cash/.test(`${line.statementLine ?? ""} ${line.accountName}`.toLowerCase()));
+      const cash = entryLines.filter((line) => cashFlag(line, () => /cash/.test(`${line.statementLine ?? ""} ${line.accountName}`.toLowerCase())));
       if (!cash.length) continue;
       const movement = cash.reduce((sum, line) => sum + BigInt(line.debitMinor) - BigInt(line.creditMinor), 0n);
       cashMovement += movement;

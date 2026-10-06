@@ -4,13 +4,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { chartAccounts, entities, getDatabase } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
+import { chartRowIsBankLinked, chartRowIsCash, loadBankLinkedAccountIds } from "@/lib/cash-accounts";
 
 const body = z.object({ code: z.string().trim().min(1).max(32), name: z.string().trim().min(1).max(160), accountType: z.enum(["asset", "liability", "equity", "revenue", "expense", "contra"]), normalBalance: z.enum(["debit", "credit"]), statementSection: z.enum(["asset", "liability", "equity", "revenue", "expense"]).optional(), statementLine: z.string().trim().min(1).max(80).optional(), balanceTiming: z.enum(["current", "noncurrent"]).optional(), bankAccountIdentifier: z.string().trim().min(1).max(160).optional(), cashFlowCategory: z.enum(["operating", "investing", "financing", "none"]).optional(), workingCapitalCategory: z.enum(["receivables", "payables", "deferred_revenue", "prepaids", "inventory", "other"]).optional(), fxMonetary: z.enum(["Y", "N"]).optional(), entityId: z.string().uuid().optional(), activeFrom: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(), activeTo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(), active: z.enum(["Y", "N"]).optional() });
 
 export async function GET() {
   await auth.protect();
   const context = await requireCompanyAccess();
-  const accounts = await getDatabase().select().from(chartAccounts).where(eq(chartAccounts.companyId, context.company.id)).orderBy(asc(chartAccounts.code));
+  const [rows, linkedIds] = await Promise.all([getDatabase().select().from(chartAccounts).where(eq(chartAccounts.companyId, context.company.id)).orderBy(asc(chartAccounts.code)), loadBankLinkedAccountIds(context.company.id)]);
+  // isCash is the resolved rule the ledger and forecast use; bankLinked explains a default of cash.
+  const accounts = rows.map((row) => ({ ...row, isCash: chartRowIsCash(row, linkedIds), bankLinked: chartRowIsBankLinked(row, linkedIds) }));
   return NextResponse.json({ accounts });
 }
 
