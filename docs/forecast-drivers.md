@@ -36,6 +36,10 @@ References resolve in dependency order. A driver that refers back to itself, dir
 
 Customers, headcount, orders, units: forecast series that drivers can be a percentage of or an amount per unit of. A metric has a name drivers use to refer to it, a label, a unit, a start and end month, and the same pattern inputs as a driver, so it can grow on its own or follow another metric. Metrics never post to the books. A metric that a driver or another metric uses cannot be removed until they change.
 
+### Actuals
+
+A metric takes actual values by month, typed into its **Actuals** grid or cited from an approved fact (a customer count read from a billing export, say). An actual can cite evidence or an approved fact; a fact still awaiting review cannot supply one. A recorded actual always wins over the pattern for its month. A pattern that grows on its own (fixed, % change, # change, logarithmic) continues from the last actual: it restarts in that month at the actual value, so the first forecast month is one step on from it. A metric that follows another metric keeps following it and only takes the actuals for months that have them.
+
 ## Seasonality
 
 A profile is twelve calendar-month deviations from an average month, in percent, that sum to zero, so a year's total is unchanged. Each driver picks its own profile, or none. Seasonality shapes the output; growth compounds on the unseasoned value, so seasonality never compounds into growth.
@@ -43,6 +47,31 @@ A profile is twelve calendar-month deviations from an average month, in percent,
 ## Escalation
 
 A rate, a cycle of any number of months, and where the cycle is counted from: the driver's own start (like a lease anniversary) or a calendar month. It compounds once per cycle. Set a company default under **Default escalation** and opt drivers into it, or give a driver its own terms. A driver that uses the company default when none is set is an exception.
+
+## From actuals
+
+The **From actuals** section of the Drivers tab reads the last six months of actual income-statement history (the API takes 2 to 24) and proposes a pattern for each line, in this order of preference:
+
+- **A share of revenue**, for anything but revenue, when revenue and the line both moved and the share held steady (its spread is at most 15% of its mean). Hosting that ran at 5% of revenue becomes "5% of total revenue".
+- **Compound growth**, when a log-linear fit explains the history well (R² at least 0.8) and the rate is at least half a percent a month. The starting amount is projected one step past the last actual, so the forecast continues the trend instead of repeating last month.
+- **The average**, otherwise.
+
+Fewer than three months of history repeats the latest month, marked low confidence. Each suggestion shows its rationale, the history behind it and a confidence.
+
+A line with no driver yet gets a new driver that posts to that account and settles through the account that settled it in the books: the cash account it was paid from, or the main cash account for a line booked through receivables or payables. A line with no cash side at all, like depreciation, is shown without a proposal. An existing driver gets a new pattern unless it is already linked (a % of or # per), which is never replaced by a statistic; the suggestion is shown beside it for comparison. A metric with actuals gets a suggestion the same way.
+
+**Propose** creates a proposed decision citing the history; nothing changes until it is applied. Once proposed, **Apply** applies it from the same row. Applying every suggestion is enough to generate a full forecast from actuals alone.
+
+## The agent
+
+The agent proposes; Balsa calculates. It reads the drivers, metrics and their resolved months (`get_drivers`), each line's history with Balsa's suggestion ready to propose (`get_driver_history`), and approved facts (`read_facts`). It proposes changes as decisions with a structured effect, which preview and apply exactly like any other decision:
+
+- a pattern or link on a driver (`set_item_pattern`), including links Balsa's statistics would not find, such as support at $12 per customer;
+- a new driver from an account's history (`add_item` with a pattern);
+- a metric, or a metric's actuals cited from approved facts (`set_metric`, `set_metric_actuals`);
+- a driver that fits no pattern, as a formula over model variables (`set_dimension`, `set_variable`, `set_item_formula`).
+
+One-off events (a fundraise, an office move, a price change in March) are ordinary decisions with a start month, so the Standard model's event and custom flags are not implemented: the agent proposing a dated decision does the same job with lineage.
 
 ## Rules that protect the forecast
 
@@ -55,9 +84,3 @@ A rate, a cycle of any number of months, and where the cycle is counted from: th
 ## In the workbook
 
 The export's **Forecast** sheet lists each driver in the Standard model's driver columns, with the amount Balsa calculated for each forecast month, and the operating metrics. The amounts are values; making the driver rows live spreadsheet formulas is phase 4 of the spec.
-
-## Not yet
-
-- The agent cannot yet propose patterns or links; set them in the Drivers tab.
-- Metrics cannot yet be fed from actuals (a customer count from a billing export).
-- The Standard model's event and custom flags are not implemented.

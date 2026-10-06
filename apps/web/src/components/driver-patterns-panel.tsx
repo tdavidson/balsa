@@ -9,9 +9,11 @@ type Ref = { kind: "driver"; driverId: string } | { kind: "metric"; name: string
 type Escalation = { rate: string; everyMonths: number; anchor: "driver_start" | { calendarMonth: number } };
 type Pattern = { initialValue: string; repeatsEveryMonths: number; change?: { basis: "pct_change" | "abs_change" | "log_change"; everyMonths: number; by: string } | { basis: "pct_of" | "per_unit"; ref: Ref }; maxMonths?: number; maxValue?: string; seasonalityProfileId?: string; escalation?: "company" | Escalation };
 type Driver = { id: string; label: string; direction: "receipt" | "spend"; amount: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; amountFormula: string | null; pattern: Pattern | null; summary: string | null; lineLabel: string | null; next: { month: string; amountMinor: string | null }[]; exception: string | null };
-type Metric = { id: string; name: string; label: string; unit: string | null; effectiveFrom: string; effectiveTo: string | null; pattern: Pattern; values: Record<string, string> | null; exception: string | null };
+type Metric = { id: string; name: string; label: string; unit: string | null; effectiveFrom: string; effectiveTo: string | null; pattern: Pattern; values: Record<string, string> | null; exception: string | null; lastActual: { month: string; value: string; sourceName: string | null } | null; actualCount: number };
+type Actual = { month: string; value: string; sourceName?: string | null; factLabel?: string | null; decisionId?: string | null; removed?: boolean; added?: boolean };
 type Profile = { id: string; name: string; deviations: string[] };
 type Overview = { asOfMonth: string; months: string[]; stale: boolean; drivers: Driver[]; metrics: Metric[]; seasonality: Profile[]; escalation: Escalation | null; lines: { id: string; label: string; section: string }[] };
+type Suggestion = { key: string; target: { kind: "driver" | "account" | "metric"; label: string; lineLabel?: string | null }; history: { month: string; value: number }[]; suggestion: { basis: string; rationale: string; confidence: "high" | "medium" | "low" } | null; summary: string | null; effect: unknown; note: string | null };
 type Basis = "fixed" | "pct_change" | "abs_change" | "log_change" | "pct_of" | "per_unit";
 
 const field = "h-8 rounded-md border border-border bg-transparent px-2 text-[13px]";
@@ -114,6 +116,14 @@ export function DriverPatternsPanel({ onChanged }: { onChanged?: () => void }) {
   const [profileDraft, setProfileDraft] = useState<{ id: string | null; name: string; values: string[] } | null>(null);
   const [escalationDraft, setEscalationDraft] = useState<{ rate: string; every: string; anchor: string } | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const [actuals, setActuals] = useState<Actual[] | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [proposed, setProposed] = useState<Record<string, { id: string; applied: boolean }>>({});
+  const loadSuggestions = useCallback(async () => { const response = await fetch("/api/driver-patterns/suggestions"); if (response.ok) setSuggestions((await response.json()).suggestions); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => void loadSuggestions(), 0); return () => window.clearTimeout(timer); }, [loadSuggestions]);
+  const propose = async (key: string) => { setBusy(true); setError(null); try { const response = await fetch("/api/driver-patterns/suggestions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) }); if (!response.ok) { setError(await errorText(response)); return; } const { decision } = await response.json(); setProposed((current) => ({ ...current, [key]: { id: decision.id, applied: false } })); } finally { setBusy(false); } };
+  const apply = async (key: string) => { const entry = proposed[key]; if (!entry) return; setBusy(true); setError(null); try { const response = await fetch("/api/decisions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: entry.id, status: "applied" }) }); if (!response.ok) { setError(await errorText(response)); return; } setProposed((current) => ({ ...current, [key]: { ...entry, applied: true } })); await load(); await loadSuggestions(); onChanged?.(); } finally { setBusy(false); } };
+  const loadActuals = async (metricId: string) => { setActuals(null); const response = await fetch(`/api/forecast-metrics/${metricId}/actuals`); if (response.ok) setActuals((await response.json()).actuals); };
 
   const load = useCallback(async () => { const response = await fetch("/api/driver-patterns"); if (response.ok) setData(await response.json()); }, []);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
@@ -143,6 +153,17 @@ export function DriverPatternsPanel({ onChanged }: { onChanged?: () => void }) {
       <label className="grid gap-1">Starts<Input className="h-8" onChange={(event) => setMetricMeta({ ...metricMeta, effectiveFrom: event.target.value })} type="month" value={metricMeta.effectiveFrom} /></label>
       <label className="grid gap-1">Ends<Input className="h-8" onChange={(event) => setMetricMeta({ ...metricMeta, effectiveTo: event.target.value })} type="month" value={metricMeta.effectiveTo} /></label>
     </div>}
+    {editing.kind === "metric" && <div className="mb-4 rounded-md bg-muted/30 p-3 text-[13px]">
+      <div className="flex items-center justify-between"><strong>Actual values</strong><button className="text-xs underline underline-offset-2" onClick={() => setActuals([...(actuals ?? []), { month: "", value: "", added: true }])} type="button">Add a month</button></div>
+      <p className="mt-1 text-xs text-muted-foreground">Recorded values by month. Months with an actual use it, and a growth pattern continues from the latest one. Values from evidence keep a link to their source.</p>
+      {actuals === null ? <p className="mt-2 text-xs text-muted-foreground">Loading…</p> : actuals.length === 0 ? <p className="mt-2 text-xs text-muted-foreground">None recorded; the pattern starts from its starting value.</p> : <div className="mt-2 flex flex-col gap-1">{actuals.map((actual, index) => <div className={cn("flex flex-wrap items-center gap-2", actual.removed && "opacity-50 line-through")} key={`${actual.month}-${index}`}>
+        <Input aria-label="Actual month" className="h-7 w-36" disabled={!actual.added} onChange={(event) => setActuals(actuals.map((item, position) => position === index ? { ...item, month: event.target.value } : item))} type="month" value={actual.month} />
+        <Input aria-label="Actual value" className="h-7 w-28" inputMode="decimal" onChange={(event) => setActuals(actuals.map((item, position) => position === index ? { ...item, value: event.target.value } : item))} value={actual.value} />
+        <span className="text-xs text-muted-foreground">{actual.factLabel ? `Fact: ${actual.factLabel}` : actual.sourceName ? `From ${actual.sourceName}` : actual.decisionId ? "From a decision" : actual.added ? "New" : "Entered by hand"}</span>
+        {!actual.removed && <button className="text-xs text-muted-foreground underline underline-offset-2" onClick={() => setActuals(actual.added ? actuals.filter((_, position) => position !== index) : actuals.map((item, position) => position === index ? { ...item, removed: true } : item))} type="button">Remove</button>}
+      </div>)}</div>}
+      {actuals && actuals.length > 0 && <Button className="mt-2" disabled={busy} onClick={async () => { const values = actuals.filter((item) => item.month).map((item) => ({ month: item.month, value: item.removed ? null : item.value.trim() })); if (values.length && await send(`/api/forecast-metrics/${editing.id}/actuals`, "PUT", { values })) await loadActuals(editing.id); }} size="sm" type="button" variant="outline">Save actuals</Button>}
+    </div>}
     {editingDriver?.amountFormula ? <p className="text-[13px] text-muted-foreground">This driver has a formula. Clear the formula in the Model tab before giving it a pattern.</p>
       : <PatternForm data={data} draft={draft} money={editing.kind === "driver"} onChange={setDraft} selfKey={editing.kind === "driver" ? `driver:${editing.id}` : `metric:${metricMeta.name}`} />}
     <div className="mt-4 flex flex-wrap gap-2">
@@ -170,12 +191,30 @@ export function DriverPatternsPanel({ onChanged }: { onChanged?: () => void }) {
     </table>{data.drivers.length === 0 && <p className="text-[13px] text-muted-foreground">No confirmed drivers yet.</p>}</div>
 
     <section className="border-t border-border pt-5">
+      <h4 className="text-[11px] uppercase tracking-[.12em] text-muted-foreground">From actuals</h4>
+      <p className="mt-1 text-xs text-muted-foreground">What the last six months of actuals suggest for each driver, for income and expense accounts no driver forecasts yet, and for metrics with recorded values. Balsa calculates every figure and reason here. Propose turns a suggestion into a decision; nothing changes until it is applied.</p>
+      {suggestions === null ? <p className="mt-2 text-[13px] text-muted-foreground">Reading the actuals…</p> : suggestions.length === 0 ? <p className="mt-2 text-[13px] text-muted-foreground">No actuals to learn from yet.</p> : <div className="mt-3 flex flex-col">{suggestions.map((item) => {
+        const state = proposed[item.key];
+        return <div className="grid gap-1 border-t border-border py-3 text-[13px] sm:grid-cols-[minmax(0,1fr)_auto]" key={item.key}>
+          <div>
+            <p><span className="font-medium">{item.target.label}</span><span className="text-xs text-muted-foreground"> · {item.target.kind === "account" ? "no driver yet" : item.target.kind}{item.target.lineLabel ? ` · ${item.target.lineLabel}` : ""}</span></p>
+            {item.history.length > 0 && <p className="text-xs tabular-nums text-muted-foreground">{item.history.slice(-6).map((point) => `${monthLabel(point.month)} ${point.value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`).join(" · ")}</p>}
+            {item.suggestion && <p className="mt-1">{item.summary} <span className="text-xs text-muted-foreground">({item.suggestion.confidence} confidence)</span></p>}
+            {item.suggestion && <p className="text-xs text-muted-foreground">{item.suggestion.rationale}</p>}
+            {item.note && <p className="text-xs text-muted-foreground">{item.note}</p>}
+          </div>
+          <div className="flex items-start gap-2 sm:justify-end">{item.effect ? state ? state.applied ? <span className="text-xs text-muted-foreground">Applied</span> : <Button disabled={busy} onClick={() => void apply(item.key)} size="sm" type="button">Apply</Button> : <Button disabled={busy} onClick={() => void propose(item.key)} size="sm" type="button" variant="outline">Propose</Button> : null}</div>
+        </div>;
+      })}</div>}
+    </section>
+
+    <section className="border-t border-border pt-5">
       <div className="flex items-center justify-between"><h4 className="text-[11px] uppercase tracking-[.12em] text-muted-foreground">Operating metrics</h4><button className="text-xs underline underline-offset-2" onClick={() => { setEditing({ kind: "new-metric", id: "" }); setMetricMeta({ name: "", label: "", unit: "", effectiveFrom: data.months[0] ?? "", effectiveTo: "" }); setDraft({ ...blankDraft, initial: "" }); setError(null); }} type="button">Add metric</button></div>
       <p className="mt-1 text-xs text-muted-foreground">Customers, headcount, orders: forecast series that drivers can be a percentage of or an amount per unit of. They never post to the books.</p>
       {data.metrics.length > 0 && <table className="mt-3 w-full text-[13px]"><tbody>{data.metrics.map((metric) => <tr className="border-t border-border align-top" key={metric.id}>
-        <td className="py-2 pr-3">{metric.label}<span className="block text-xs text-muted-foreground">{metric.name}{metric.unit ? ` · ${metric.unit}` : ""}</span>{metric.exception && <span className="block text-[13px] text-destructive">{metric.exception}</span>}</td>
+        <td className="py-2 pr-3">{metric.label}<span className="block text-xs text-muted-foreground">{metric.name}{metric.unit ? ` · ${metric.unit}` : ""}{metric.lastActual ? ` · last actual ${monthLabel(metric.lastActual.month)}: ${Number(metric.lastActual.value).toLocaleString("en-US")}${metric.lastActual.sourceName ? ` (${metric.lastActual.sourceName})` : ""}` : " · no actuals"}</span>{metric.exception && <span className="block text-[13px] text-destructive">{metric.exception}</span>}</td>
         {months.map((month) => <td className="py-2 pr-2 text-right tabular-nums" key={month}>{metric.values?.[month] !== undefined ? Number(metric.values[month]).toLocaleString("en-US", { maximumFractionDigits: 1 }) : "—"}</td>)}
-        <td className="py-2 text-right"><button className="text-xs underline underline-offset-2" onClick={() => { setEditing({ kind: "metric", id: metric.id }); setMetricMeta({ name: metric.name, label: metric.label, unit: metric.unit ?? "", effectiveFrom: metric.effectiveFrom, effectiveTo: metric.effectiveTo ?? "" }); setDraft(toDraft(metric.pattern, null)); setError(null); }} type="button">Edit</button></td>
+        <td className="py-2 text-right"><button className="text-xs underline underline-offset-2" onClick={() => { setEditing({ kind: "metric", id: metric.id }); setMetricMeta({ name: metric.name, label: metric.label, unit: metric.unit ?? "", effectiveFrom: metric.effectiveFrom, effectiveTo: metric.effectiveTo ?? "" }); setDraft(toDraft(metric.pattern, null)); setError(null); void loadActuals(metric.id); }} type="button">Edit</button></td>
       </tr>)}</tbody></table>}
     </section>
 

@@ -44,7 +44,21 @@ export type DriverPattern = {
 /** Twelve calendar-month deviations from an average month (January first); they sum to zero, so a year's total is unchanged. */
 export type SeasonalityProfile = { id: string; name: string; deviations: string[] };
 /** A forecast series that never posts: customers, headcount, units. Drivers reference it by name. */
-export type OperatingMetric = { name: string; label?: string; effectiveFrom: string; effectiveTo?: string; pattern: DriverPattern };
+/**
+ * `actuals`: recorded values by month. Months with an actual use it; a pattern
+ * that is not a link (% of, # per) continues from the last actual, starting at
+ * that value in that month, so the forecast is generated from what happened.
+ */
+export type OperatingMetric = { name: string; label?: string; effectiveFrom: string; effectiveTo?: string; pattern: DriverPattern; actuals?: Record<string, string> };
+
+/** The window and pattern a metric forecasts with, after its actuals. */
+export function metricForecastBasis(metric: OperatingMetric): { window: { effectiveFrom: string; effectiveTo?: string }; pattern: DriverPattern; lastActual: string | null } {
+  const months = Object.keys(metric.actuals ?? {}).filter((month) => parseDecimal(metric.actuals![month]!) !== null).sort();
+  const lastActual = months.at(-1) ?? null;
+  const linked = metric.pattern.change?.basis === "pct_of" || metric.pattern.change?.basis === "per_unit";
+  if (!lastActual || linked) return { window: { effectiveFrom: metric.effectiveFrom, ...(metric.effectiveTo ? { effectiveTo: metric.effectiveTo } : {}) }, pattern: metric.pattern, lastActual };
+  return { window: { effectiveFrom: lastActual, ...(metric.effectiveTo ? { effectiveTo: metric.effectiveTo } : {}) }, pattern: { ...metric.pattern, initialValue: metric.actuals![lastActual]! }, lastActual };
+}
 export type PatternContext = { metrics?: OperatingMetric[]; seasonality?: SeasonalityProfile[]; escalation?: EscalationRule | null };
 export type PatternException = { driverId: string; reason: string };
 
@@ -189,8 +203,7 @@ function expandPattern(pattern: DriverPattern, window: { effectiveFrom: string; 
     if (shaped > modelValueCap || shaped < -modelValueCap) throw new RangeError("The pattern grew past the model's value limit.");
     out.set(month, shaped);
   }
-  for (const month of months) if (!out.has(month)) out.set(month, zero);
-  return out;
+  return new Map(months.map((month) => [month, out.get(month) ?? zero]));
 }
 
 /** Fixed or formula driver amounts as a series, on the months its cadence emits. */
@@ -274,7 +287,11 @@ export function resolvePatternDrivers(drivers: ForecastDriver[], input: { months
         let reference: Series | undefined;
         const change = metric.pattern.change;
         if (change?.basis === "pct_of" || change?.basis === "per_unit") { const resolved = referenceSeries(change.ref); if (resolved instanceof Error) return fail(`Metric ${name}: ${resolved.message}`); reference = resolved; }
-        return expandPattern(metric.pattern, metric, months, context, false, reference);
+        const basis = metricForecastBasis(metric);
+        const series = expandPattern(basis.pattern, basis.window, months, context, false, reference);
+        // A recorded actual always wins over the pattern for its month.
+        for (const month of months) { const actual = metric.actuals?.[month]; const value = actual === undefined ? null : parseDecimal(actual); if (value !== null) series.set(month, value); }
+        return series;
       }
       const variable = input.model?.variables.find((candidate) => candidate.name === name);
       if (!variable) return fail(`No operating metric or model variable is named ${name}.`);

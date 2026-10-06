@@ -104,6 +104,29 @@ describe.skipIf(!process.env.DATABASE_URL)("forecast preview parity", async () =
     expect(headline((await latest()).delta)).toEqual(headline(preview.consequence));
   });
 
+  it("previews pattern, metric and new-account decisions exactly as they land", async () => {
+    const decide = async (effect: unknown) => {
+      const [decision] = await db.insert(decisions).values({ companyId, question: "Pattern?", answer: "Yes", status: "proposed", effect: JSON.stringify(effect) }).returning({ id: decisions.id });
+      const preview = await previewForecastChange(companyId, { kind: "apply_decision", decisionId: decision!.id });
+      await db.update(decisions).set({ status: "applied" }).where(eq(decisions.id, decision!.id));
+      await applyDecisionIfEffective(companyId, decision!.id, null);
+      await refreshCurrentCalculationRun(companyId, { cause: { kind: "decision_applied", subjectType: "decision", subjectId: decision!.id, actorUserId: null, via: "worker" } });
+      // A change that moves no cash has no consequence on either side.
+      const landed = (await latest()).delta;
+      if (preview.consequence) expect(headline(landed)).toEqual(headline(preview.consequence));
+      return preview.consequence;
+    };
+    const [item] = await db.insert(economicItems).values({ companyId, type: "obligation", direction: "spend", label: "Salaries", amount: "1000", cadence: "monthly", effectiveFrom: firstMonth, status: "confirmed" }).returning({ id: economicItems.id });
+    await refreshCurrentCalculationRun(companyId, { cause: { kind: "item_confirmed", subjectType: "economic_item", subjectId: item!.id, actorUserId: null, via: "worker" } });
+    await decide({ kind: "set_metric", metric: { name: "heads", label: "Headcount", unit: "people", effectiveFrom: firstMonth, effectiveTo: null, pattern: { initialValue: "4", repeatsEveryMonths: 1, change: { basis: "abs_change", everyMonths: 2, by: "1" } } } });
+    expect(await decide({ kind: "set_item_pattern", itemId: item!.id, pattern: { initialValue: "900", repeatsEveryMonths: 1, change: { basis: "per_unit", ref: { kind: "metric", name: "heads" } } } })).not.toBeNull();
+    const [cash] = await db.select({ id: chartAccounts.id }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.code, "1000")));
+    const [software] = await db.insert(chartAccounts).values({ companyId, code: "6100", name: "Software", accountType: "expense", normalBalance: "debit" }).returning({ id: chartAccounts.id });
+    expect(await decide({ kind: "add_item", item: { label: "Software", direction: "spend", amount: 300, cadence: "monthly", effectiveFrom: firstMonth, category: "software", accountingTreatment: "cash", accountId: software!.id, cashAccountId: cash!.id, pattern: { initialValue: "300", repeatsEveryMonths: 1, change: { basis: "pct_change", everyMonths: 1, by: "0.02" } } } })).not.toBeNull();
+    const created = await db.select().from(economicItems).where(and(eq(economicItems.companyId, companyId), eq(economicItems.label, "Software")));
+    expect(created[0]?.forecastTemplateId).toBeTruthy();
+  });
+
   it("does not load the ledger when the latest forecast run is current", async () => {
     const ledger = await import("./journal-ledger");
     const spy = vi.spyOn(ledger, "loadPostedJournalLines");

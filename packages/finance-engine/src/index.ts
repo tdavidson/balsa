@@ -35,3 +35,4 @@ export * from "./weekly-cash";
 export * from "./forecast-accuracy";
 export * from "./standard-layout";
 export * from "./driver-patterns";
+export * from "./driver-history";

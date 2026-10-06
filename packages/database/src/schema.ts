@@ -683,6 +683,19 @@ export const forecastMetrics = pgTable("forecast_metrics", {
   ...timestamps,
 }, (table) => [uniqueIndex("forecast_metrics_company_name").on(table.companyId, table.name)]);
 
+/** A recorded value of an operating metric for one month, with its source: a user, or an evidence fact, possibly through a decision. */
+export const forecastMetricActuals = pgTable("forecast_metric_actuals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  metricId: uuid("metric_id").notNull().references(() => forecastMetrics.id, { onDelete: "cascade" }),
+  month: text("month").notNull(), value: text("value").notNull(),
+  evidenceId: uuid("evidence_id").references((): AnyPgColumn => evidence.id, { onDelete: "set null" }),
+  factId: uuid("fact_id").references((): AnyPgColumn => factRecords.id, { onDelete: "set null" }),
+  decisionId: uuid("decision_id").references((): AnyPgColumn => decisions.id, { onDelete: "set null" }),
+  createdByUserId: uuid("created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (table) => [uniqueIndex("forecast_metric_actuals_metric_month").on(table.metricId, table.month), index("forecast_metric_actuals_company").on(table.companyId)]);
+
 /** Twelve calendar-month deviations a driver can apply; they sum to zero. */
 export const seasonalityProfiles = pgTable("seasonality_profiles", {
   id: uuid("id").defaultRandom().primaryKey(),

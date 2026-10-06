@@ -1,7 +1,7 @@
 import "server-only";
 import { loadRecognitionProofs } from "./recognition-continuity";
 import { and, desc, eq } from "drizzle-orm";
-import { chartAccounts, companies, forecastMetrics, seasonalityProfiles, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
+import { chartAccounts, companies, forecastMetricActuals, forecastMetrics, seasonalityProfiles, economicItems, forecastDimensions, forecastEntryTemplates, forecastVariables, getDatabase, journalPeriodClosures } from "@finance/database";
 import { addMonths, isStandardLineId, isValidMonth, monthRange, resolveFormulaDrivers, resolveStandardMapping, summarizeActualCash, resolvePatternDrivers, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type ForecastModel, type ForecastRunInput, type PatternContext, type StandardLineId } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { chartAccountToForecastAccount, economicItemToDriver, forecastAsOfFromClosure, templateRowToTemplate } from "@/lib/forecast-drivers";
@@ -70,15 +70,18 @@ export function resolveDriversForWindow(drivers: ForecastDriver[], model: Foreca
  */
 /** Operating metrics, seasonality profiles and the default escalation; undefined when the company has none. */
 export async function loadPatternContext(companyId: string, db: DbExecutor = getDatabase()): Promise<PatternContext | undefined> {
-  const [metrics, profiles, [company]] = await Promise.all([
+  const [metrics, profiles, [company], actualRows] = await Promise.all([
     db.select().from(forecastMetrics).where(eq(forecastMetrics.companyId, companyId)),
     db.select().from(seasonalityProfiles).where(eq(seasonalityProfiles.companyId, companyId)),
     db.select({ escalation: companies.defaultEscalation }).from(companies).where(eq(companies.id, companyId)).limit(1),
+    db.select({ metricId: forecastMetricActuals.metricId, month: forecastMetricActuals.month, value: forecastMetricActuals.value }).from(forecastMetricActuals).where(eq(forecastMetricActuals.companyId, companyId)),
   ]);
   const escalation = parseStoredEscalation(company?.escalation);
+  const actualsByMetric = new Map<string, Record<string, string>>();
+  for (const row of actualRows.sort((left, right) => left.month.localeCompare(right.month))) actualsByMetric.set(row.metricId, { ...(actualsByMetric.get(row.metricId) ?? {}), [row.month]: row.value });
   if (!metrics.length && !profiles.length && !escalation) return undefined;
   return {
-    metrics: metrics.sort((left, right) => compareIds(left.name, right.name)).map((metric) => ({ name: metric.name, label: metric.label, effectiveFrom: metric.effectiveFrom, ...(metric.effectiveTo ? { effectiveTo: metric.effectiveTo } : {}), pattern: parseStoredPattern(metric.pattern)! })),
+    metrics: metrics.sort((left, right) => compareIds(left.name, right.name)).map((metric) => ({ name: metric.name, label: metric.label, effectiveFrom: metric.effectiveFrom, ...(metric.effectiveTo ? { effectiveTo: metric.effectiveTo } : {}), pattern: parseStoredPattern(metric.pattern)!, ...(actualsByMetric.get(metric.id) ? { actuals: actualsByMetric.get(metric.id)! } : {}) })),
     seasonality: profiles.sort((left, right) => compareIds(left.id, right.id)).map((profile) => ({ id: profile.id, name: profile.name, deviations: profile.deviations })),
     escalation,
   };
