@@ -51,9 +51,9 @@ const input: StandardWorkbookInput = {
   accounts: chart.map((item) => ({ id: item.accountId, code: item.accountCode, name: item.accountName, section: item.accountType, lineLabel: null, categoryName: null, status: "suggested", reason: "" })),
   mapping: { confirmed: 2, total: chart.length, complete: false },
   forecast: {
-    forecastPeriods: periods.filter((period) => period > asOf), seasonality: [], escalation: null,
+    forecastPeriods: periods.filter((period) => period > asOf), seasonality: [], escalation: null, scenarios: [{ id: "hire", name: "Hire an engineer" }],
     // Statements here are not built from this driver, so it stays unlinked: a values-only check of the sheet's columns.
-    drivers: [{ id: "hosting", label: "Hosting", direction: "spend", lineLabel: "COGS", referenceLine: "cogs", pattern: { initialValue: 480, startsIn: "2026-09", endsIn: null, repeatsEvery: 1, basis: "", changesEvery: null, changingBy: null, using: null, maxMonths: null, maxValue: null, seasonality: null, escalation: null }, note: null, posting: null, settlement: null, amountsByPeriod: { "2026-09": "48000", "2026-10": "48000", "2026-11": "48000", "2026-12": "48000" }, exception: null }],
+    drivers: [{ id: "hosting", label: "Hosting", direction: "spend", lineLabel: "COGS", referenceLine: "cogs", scenarioId: null, excludedIn: [], pattern: { initialValue: 480, startsIn: "2026-09", endsIn: null, repeatsEvery: 1, basis: "", changesEvery: null, changingBy: null, using: null, maxMonths: null, maxValue: null, seasonality: null, escalation: null }, note: null, posting: null, settlement: null, amountsByPeriod: { "2026-09": "48000", "2026-10": "48000", "2026-11": "48000", "2026-12": "48000" }, exception: null }],
     metrics: [{ name: "customers", label: "Customers", unit: "customers", pattern: { initialValue: 100, startsIn: "2026-09", endsIn: null, repeatsEvery: 1, basis: "% change", changesEvery: 1, changingBy: 0.05, using: null, maxMonths: null, maxValue: null, seasonality: null, escalation: null }, actuals: {}, valuesByPeriod: { "2026-09": "100", "2026-10": "105", "2026-11": "110.25", "2026-12": "115.7625" } }],
   },
 };
@@ -92,9 +92,10 @@ describe("buildStandardWorkbook", () => {
     const rowOf = (label: string) => { let found = 0; sheet.eachRow((row, number) => { if (!found && row.getCell(1).value === label) found = number; }); return found; };
     const hosting = rowOf("Hosting");
     expect(sheet.getRow(hosting).values).toEqual(expect.arrayContaining(["Hosting", "Spend", "COGS", 480]));
-    expect(sheet.getCell(hosting, 19 + periods.indexOf("2026-10")).value).toMatchObject({ formula: expect.stringContaining("ROUND(") });
+    expect(sheet.getCell(hosting, 21 + periods.indexOf("2026-10")).value).toMatchObject({ formula: expect.stringContaining("ROUND(") });
+    expect(sheet.getCell(hosting, 18).value).toBe("Base");
     expect(sheet.getCell(rowOf("Customers"), 8).value).toBe("% change");
-    expect(String(sheet.getCell(hosting, 18).value)).toMatch(/^Formula\. Not linked to Statements/);
+    expect(String(sheet.getCell(hosting, 20).value)).toMatch(/^Formula\. Not linked to Statements/);
   });
 
   it("omits Plan, Budget and Scenarios when there is nothing to show", async () => {
@@ -126,7 +127,7 @@ describe.skipIf(!soffice)("recalculated in LibreOffice", () => {
     expect(results).toEqual({
       "Net income equals Balsa": "yes", "Total assets equal Balsa": "yes", "Total liabilities and equity equal Balsa": "yes", "Cash end of period equals Balsa": "yes",
       "Balance sheet balances every month": "yes", "Cash flow explains the change in cash": "yes", "Summary net income equals the months it covers": "yes", "Every account with an amount is placed on a line": "yes", "Every account's line is confirmed in Balsa": "no",
-      "Driver formulas reproduce Balsa's driver amounts": "yes", "No forecast driver has an exception": "yes",
+      "Driver formulas reproduce Balsa's driver amounts": "yes", "No forecast driver has an exception, in any scenario": "yes",
     });
   });
 

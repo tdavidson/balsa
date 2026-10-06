@@ -28,6 +28,10 @@ export type ExportPattern = {
 export type ExportLeg = { line: StandardLineId; categoryId: string | null };
 export type ExportDriver = {
   id: string; label: string; direction: "receipt" | "spend"; lineLabel: string | null;
+  /** Null for a base driver; a scenario's id for a driver the scenario adds or changes (its row replaces the base row while that scenario is active). */
+  scenarioId: string | null;
+  /** For a base driver: the scenarios in which it is replaced or removed. */
+  excludedIn: string[];
   /** The line other drivers mean when they refer to this driver's line (the engine's own membership rule). */
   referenceLine: string | null;
   /** Null for a driver Balsa computes another way (a formula, dated amounts); `note` says how. */
@@ -46,7 +50,18 @@ export type ForecastInput = {
   forecastPeriods: string[];
   drivers: ExportDriver[]; metrics: ExportMetric[];
   seasonality: ExportSeasonality[]; escalation: ExportEscalation | null;
+  /** Scenarios in the order of the active-scenario selector (1, 2, …); 0 is the base outlook. */
+  scenarios: { id: string; name: string }[];
 };
+
+/** A driver row's key: one per driver, plus one per scenario that changes it. */
+export const driverKey = (driver: Pick<ExportDriver, "id" | "scenarioId">) => `driver:${driver.id}${driver.scenarioId ? `@${driver.scenarioId}` : ""}`;
+/** Whether a row counts while scenario `index` is active (0 = base). */
+export function driverInUse(driver: Pick<ExportDriver, "scenarioId" | "excludedIn">, input: Pick<ForecastInput, "scenarios">, index: number) {
+  if (index === 0) return driver.scenarioId === null;
+  const scenario = input.scenarios[index - 1]!.id;
+  return driver.scenarioId === scenario || (driver.scenarioId === null && !driver.excludedIn.includes(scenario));
+}
 
 const monthNumber = (period: string) => { const [year, month] = period.split("-").map(Number) as [number, number]; return year * 12 + month; };
 /** ROUND as Excel, LibreOffice and Sheets compute it: on the value's 15 significant digits, half away from zero. */
@@ -56,8 +71,11 @@ export function spreadsheetRound(value: number, places: number) {
 }
 const linked = (basis: ExportBasis) => basis === "% of" || basis === "# per";
 
-type Row = { key: string; money: boolean; pattern: ExportPattern | null; balsa: number[]; actuals: (number | null)[]; ref: string | null; members: string[] };
-export type ForecastPlan = { live: Map<string, boolean>; reasons: Map<string, string>; values: Map<string, number[]> };
+type Row = { key: string; money: boolean; pattern: ExportPattern | null; balsa: number[]; actuals: (number | null)[]; ref: string | null; members: string[]; inUse: boolean[] };
+/** `values` are the base outlook's; `byScenario[i]` the values while scenario i is active (0 = base). */
+export type ForecastPlan = { live: Map<string, boolean>; reasons: Map<string, string>; values: Map<string, number[]>; byScenario: Map<string, number[]>[] };
+/** What a reference resolves to: a metric's row, the drivers on a line, or every row of a driver (only one is in use at a time). */
+export const refKey = (ref: ExportRef | null) => !ref ? null : ref.kind === "driver" ? `all:${ref.id}` : ref.kind === "metric" ? `metric:${ref.name}` : `line:${ref.line}`;
 
 /**
  * Evaluate every row the way the sheet's formulas will, decide which rows can
@@ -70,18 +88,18 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
   const profiles = new Map(input.seasonality.map((profile) => [profile.name, profile.deviations]));
   const rows = new Map<string, Row>();
   const series = (values: Record<string, string>, scale: number) => periods.map((period, index) => flags[index] && values[period] !== undefined ? Number(values[period]) / scale : 0);
-  const refKey = (ref: ExportRef | null) => !ref ? null : ref.kind === "driver" ? `driver:${ref.id}` : ref.kind === "metric" ? `metric:${ref.name}` : `line:${ref.line}`;
-  for (const metric of input.metrics) rows.set(`metric:${metric.name}`, { key: `metric:${metric.name}`, money: false, pattern: metric.pattern, balsa: series(metric.valuesByPeriod, 1), actuals: periods.map((period) => metric.actuals[period] !== undefined ? Number(metric.actuals[period]) : null), ref: refKey(metric.pattern?.using ?? null), members: [] });
-  for (const driver of input.drivers) rows.set(`driver:${driver.id}`, { key: `driver:${driver.id}`, money: true, pattern: driver.pattern, balsa: series(driver.amountsByPeriod, 100), actuals: periods.map(() => null), ref: refKey(driver.pattern?.using ?? null), members: [] });
-  for (const line of new Set(input.drivers.map((driver) => driver.referenceLine).filter((line): line is string => Boolean(line)))) {
-    const members = input.drivers.filter((driver) => driver.referenceLine === line).map((driver) => `driver:${driver.id}`);
-    rows.set(`line:${line}`, { key: `line:${line}`, money: true, pattern: null, balsa: periods.map(() => 0), actuals: periods.map(() => null), ref: null, members });
-  }
+  const scenarioIndexes = [0, ...input.scenarios.map((_, index) => index + 1)];
+  const always = scenarioIndexes.map(() => true);
+  const aggregate = (key: string, members: string[]) => rows.set(key, { key, money: true, pattern: null, balsa: periods.map(() => 0), actuals: periods.map(() => null), ref: null, members, inUse: always });
+  for (const metric of input.metrics) rows.set(`metric:${metric.name}`, { key: `metric:${metric.name}`, money: false, pattern: metric.pattern, balsa: series(metric.valuesByPeriod, 1), actuals: periods.map((period) => metric.actuals[period] !== undefined ? Number(metric.actuals[period]) : null), ref: refKey(metric.pattern?.using ?? null), members: [], inUse: always });
+  for (const driver of input.drivers) rows.set(driverKey(driver), { key: driverKey(driver), money: true, pattern: driver.pattern, balsa: series(driver.amountsByPeriod, 100), actuals: periods.map(() => null), ref: refKey(driver.pattern?.using ?? null), members: [], inUse: scenarioIndexes.map((index) => driverInUse(driver, input, index)) });
+  for (const line of new Set(input.drivers.map((driver) => driver.referenceLine).filter((line): line is string => Boolean(line)))) aggregate(`line:${line}`, input.drivers.filter((driver) => driver.referenceLine === line).map(driverKey));
+  for (const id of new Set(input.drivers.map((driver) => driver.id))) aggregate(`all:${id}`, input.drivers.filter((driver) => driver.id === id).map(driverKey));
 
   const live = new Map<string, boolean>(); const reasons = new Map<string, string>();
-  const exceptions = new Set(input.drivers.filter((driver) => driver.exception).map((driver) => `driver:${driver.id}`));
+  const exceptions = new Set(input.drivers.filter((driver) => driver.exception).map(driverKey));
   for (const row of rows.values()) {
-    if (row.key.startsWith("line:")) continue;
+    if (row.key.startsWith("line:") || row.key.startsWith("all:")) continue;
     const pattern = row.pattern;
     const reason = !pattern ? null
       : exceptions.has(row.key) ? "Balsa reports an exception for this driver"
@@ -94,7 +112,7 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
     if (reason) reasons.set(row.key, reason);
   }
 
-  const evaluate = () => {
+  const evaluate = (scenario: number) => {
     const values = new Map<string, number[]>(); const visiting = new Set<string>();
     const resolve = (key: string): number[] => {
       const known = values.get(key); if (known) return known;
@@ -102,7 +120,8 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
       if (visiting.has(key)) throw new Error(`cycle:${key}`);
       visiting.add(key);
       let out: number[];
-      if (row.key.startsWith("line:")) { const parts = row.members.map(resolve); out = periods.map((_, index) => parts.reduce((sum, part) => sum + part[index]!, 0)); }
+      if (!row.inUse[scenario]) out = periods.map(() => 0);
+      else if (row.members.length || row.key.startsWith("line:") || row.key.startsWith("all:")) { const parts = row.members.map(resolve); out = periods.map((_, index) => parts.reduce((sum, part) => sum + part[index]!, 0)); }
       else if (!live.get(key)) out = row.balsa.map((value, index) => row.actuals[index] ?? value);
       else out = evaluateRow(row, row.ref ? resolve(row.ref) : null);
       visiting.delete(key); values.set(key, out); return out;
@@ -141,25 +160,26 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
     return values;
   };
 
-  // Demote any live row the evaluation cannot reproduce, until nothing changes.
+  // Demote any live row the evaluation cannot reproduce in any scenario that uses it, until nothing changes.
   for (let round = 0; round <= rows.size; round += 1) {
-    let values: Map<string, number[]>;
-    try { values = evaluate(); }
+    let byScenario: Map<string, number[]>[];
+    try { byScenario = scenarioIndexes.map(evaluate); }
     catch (error) {
       const key = String((error as Error).message).replace(/^cycle:/, "");
       const culprit = rows.has(key) && live.get(key) ? key : [...live.entries()].find(([, isLive]) => isLive)?.[0];
       if (!culprit) throw error;
       live.set(culprit, false); reasons.set(culprit, "Its references could not be ordered in a spreadsheet"); continue;
     }
-    if (options.compare === false) return { live, reasons, values };
+    if (options.compare === false) return { live, reasons, values: byScenario[0]!, byScenario };
     let changed = false;
     for (const [key, isLive] of live) {
       if (!isLive) continue;
-      const row = rows.get(key)!; const computed = values.get(key)!;
+      const row = rows.get(key)!;
       const tolerance = row.money ? 0.005 : 0.0000005;
-      if (computed.some((value, index) => flags[index] && Math.abs(value - (row.actuals[index] ?? row.balsa[index]!)) >= tolerance)) { live.set(key, false); reasons.set(key, "Its formula would not reproduce Balsa's amounts exactly"); changed = true; }
+      const differs = scenarioIndexes.some((scenario) => row.inUse[scenario] && byScenario[scenario]!.get(key)!.some((value, index) => flags[index] && Math.abs(value - (row.actuals[index] ?? row.balsa[index]!)) >= tolerance));
+      if (differs) { live.set(key, false); reasons.set(key, "Its formula would not reproduce Balsa's amounts exactly"); changed = true; }
     }
-    if (!changed) return { live, reasons, values };
+    if (!changed) return { live, reasons, values: byScenario[0]!, byScenario };
   }
   throw new Error("The forecast rows did not settle");
 }
@@ -174,10 +194,12 @@ function escalationSteps(rule: ExportEscalation, start: string, period: string) 
 // ---------------------------------------------------------------------------
 // Layout and formulas
 
-export const forecastColumns = { label: 1, unit: 2, line: 3, initial: 4, starts: 5, ends: 6, repeats: 7, basis: 8, changesEvery: 9, by: 10, using: 11, maxMonths: 12, maxValue: 13, seasonality: 14, escalationRate: 15, escalationEvery: 16, escalationFrom: 17, source: 18, firstMonth: 19 } as const;
+export const forecastColumns = { label: 1, unit: 2, line: 3, initial: 4, starts: 5, ends: 6, repeats: 7, basis: 8, changesEvery: 9, by: 10, using: 11, maxMonths: 12, maxValue: 13, seasonality: 14, escalationRate: 15, escalationEvery: 16, escalationFrom: 17, scenario: 18, inUse: 19, source: 20, firstMonth: 21 } as const;
 export const forecastHeader = { period: 3, flag: 4, labels: 5 } as const;
 /** Fixed addresses on Get Started that the driver formulas read. */
-export const getStartedInputs = { profileHeaderRow: 4, profileFirstRow: 5, profileNameColumn: 4, escalationRate: "$S$5", escalationEvery: "$S$6", escalationFrom: "$S$7" } as const;
+export const getStartedInputs = { profileHeaderRow: 4, profileFirstRow: 5, profileNameColumn: 4, escalationRate: "$S$5", escalationEvery: "$S$6", escalationFrom: "$S$7", activeScenario: "$S$10", scenarioIndex: "$S$11", scenarioListFirstRow: 13 } as const;
+/** The active scenario's number (0 = base), for any sheet's formulas. */
+export const activeScenarioIndex = `'Get Started'!${getStartedInputs.scenarioIndex}`;
 export const spareProfileRows = 3;
 
 const L = (column: number) => { let letter = ""; for (let n = column; n > 0; n = Math.floor((n - 1) / 26)) letter = String.fromCharCode(65 + ((n - 1) % 26)) + letter; return letter; };
@@ -185,12 +207,12 @@ const C = forecastColumns;
 const col = (column: number, row: number) => `$${L(column)}${row}`;
 
 /** The formula for a live row's helper cell: the value before seasonality, escalation and caps. */
-export function baseFormula(options: { row: number; baseRow: number; column: number; firstColumn: number; money: boolean; refRow: number | null }) {
-  const { row, baseRow, column, firstColumn, money, refRow } = options;
+export function baseFormula(options: { row: number; baseRow: number; column: number; firstColumn: number; money: boolean; refRows: number[] }) {
+  const { row, baseRow, column, firstColumn, money, refRows } = options;
   const at = (input: number) => col(input, row); const X = L(column);
   const offset = `((YEAR(${X}$${forecastHeader.labels})*12+MONTH(${X}$${forecastHeader.labels}))-(YEAR(${at(C.starts)})*12+MONTH(${at(C.starts)})))`;
   const previous = column === firstColumn ? "0" : `INDEX($${L(firstColumn)}${baseRow}:${L(column - 1)}${baseRow},1,${X}$${forecastHeader.period}-${at(C.repeats)})`;
-  const reference = refRow ? `${X}${refRow}` : "0";
+  const reference = refRows.length ? `(${refRows.map((refRow) => `${X}${refRow}`).join("+")})` : "0";
   const occurs = `IF(${at(C.repeats)}>0,MOD(${offset},${at(C.repeats)})=0,0)`;
   const changeOn = `MOD(${offset},${at(C.changesEvery)})=0`;
   const carried = `IF(${at(C.basis)}="% change",IF(${changeOn},${previous}*(1+${at(C.by)}),${previous}),IF(${at(C.basis)}="# change",IF(${changeOn},${previous}+${at(C.by)},${previous}),${previous}))`;
@@ -199,8 +221,8 @@ export function baseFormula(options: { row: number; baseRow: number; column: num
 }
 
 /** The formula for a live row's monthly cell: the helper value shaped by seasonality and escalation, then the end, maximum months and cap. */
-export function outputFormula(options: { row: number; baseRow: number; column: number; money: boolean; profileRange: { names: string; values: string } }) {
-  const { row, baseRow, column, money, profileRange } = options;
+export function outputFormula(options: { row: number; baseRow: number; column: number; money: boolean; profileRange: { names: string; values: string }; scaled: boolean }) {
+  const { row, baseRow, column, money, profileRange, scaled } = options;
   const at = (input: number) => col(input, row); const X = L(column);
   const date = `${X}$${forecastHeader.labels}`;
   const offset = `((YEAR(${date})*12+MONTH(${date}))-(YEAR(${at(C.starts)})*12+MONTH(${at(C.starts)})))`;
@@ -210,7 +232,7 @@ export function outputFormula(options: { row: number; baseRow: number; column: n
   const seasonality = `IF(${at(C.seasonality)}="",0,INDEX(${profileRange.values},MATCH(${at(C.seasonality)},${profileRange.names},0),MONTH(${date})))`;
   const shaped = `ROUND(ROUND(${X}${baseRow}*(1+${seasonality}),6)*${escalation},6)`;
   const rounded = money ? `ROUND(${shaped},2)` : shaped;
-  return `IF(OR(${X}$${forecastHeader.flag}=0,${offset}<0),0,IF(OR(AND(${at(C.ends)}<>"",${date}>${at(C.ends)}),AND(${at(C.maxMonths)}>0,${offset}>=${at(C.maxMonths)})),0,MIN(${rounded},IF(${at(C.maxValue)}="",1E+300,${at(C.maxValue)}))))`;
+  return `${scaled ? `${at(C.inUse)}*` : ""}IF(OR(${X}$${forecastHeader.flag}=0,${offset}<0),0,IF(OR(AND(${at(C.ends)}<>"",${date}>${at(C.ends)}),AND(${at(C.maxMonths)}>0,${offset}>=${at(C.maxMonths)})),0,MIN(${rounded},IF(${at(C.maxValue)}="",1E+300,${at(C.maxValue)}))))`;
 }
 
 const isIncome = (line: StandardLineId) => { const section = standardLineDefinition(line).section; return section === "revenue" || section === "expense"; };
@@ -260,8 +282,11 @@ export function planForecastLayout(input: ForecastInput, plan: ForecastPlan, per
   const metricRows = new Map<string, number>(); const driverRows = new Map<string, number>(); const lineRows = new Map<string, number>();
   const balsaRows = new Map<string, number>(); const baseRows = new Map<string, number>(); const changeRows = new Map<string, number>();
   if (input.metrics.length) { groupHeaders.push({ row, label: "OPERATING METRICS", block: "metrics" }); row += 1; for (const metric of input.metrics) { metricRows.set(`metric:${metric.name}`, row); row += 1; } row += 1; }
+  // Each scenario's version of a driver sits right below the base row it replaces.
   const groups = new Map<string, ExportDriver[]>();
-  for (const driver of input.drivers) { const key = driver.posting?.line ?? ""; groups.set(key, [...(groups.get(key) ?? []), driver]); }
+  const sequenced = input.drivers.filter((driver) => driver.scenarioId === null).flatMap((driver) => [driver, ...input.drivers.filter((other) => other.id === driver.id && other.scenarioId !== null)]);
+  sequenced.push(...input.drivers.filter((driver) => !sequenced.includes(driver)));
+  for (const driver of sequenced) { const key = driver.posting?.line ?? ""; groups.set(key, [...(groups.get(key) ?? []), driver]); }
   const ordered = [...groups.entries()].sort(([left], [right]) => (lineOrder.get(left) ?? 999) - (lineOrder.get(right) ?? 999));
   groupHeaders.push({ row, label: "DRIVERS", block: "drivers" }); row += 1;
   const driverBlockFirst = row;
@@ -269,7 +294,7 @@ export function planForecastLayout(input: ForecastInput, plan: ForecastPlan, per
   const offsets = new Map<string, number>();
   for (const [line, drivers] of ordered) {
     driverGroups.push({ row, label: line ? standardLineDefinition(line as StandardLineId).label : "Not placed on a line", offset: row - driverBlockFirst }); row += 1;
-    for (const driver of drivers) { driverRows.set(`driver:${driver.id}`, row); offsets.set(`driver:${driver.id}`, row - driverBlockFirst); row += 1; }
+    for (const driver of drivers) { driverRows.set(driverKey(driver), row); offsets.set(driverKey(driver), row - driverBlockFirst); row += 1; }
   }
   const driverBlock = { first: driverBlockFirst, last: row - 1 };
   row += 1;
@@ -292,12 +317,12 @@ export function planForecastLayout(input: ForecastInput, plan: ForecastPlan, per
 /** For each statement row the drivers move: the terms Σ sign × (live − Balsa), and whether the row is a balance (cumulative). */
 export function changeTerms(input: ForecastInput, statementKeys: Set<string>) {
   const terms = new Map<string, { stock: boolean; parts: { sign: number; driverKey: string }[] }>();
-  const add = (key: string, stock: boolean, sign: number, driverId: string) => { const entry = terms.get(key) ?? { stock, parts: [] }; entry.parts.push({ sign, driverKey: `driver:${driverId}` }); terms.set(key, entry); };
+  const add = (key: string, stock: boolean, sign: number, driver: ExportDriver) => { const entry = terms.get(key) ?? { stock, parts: [] }; entry.parts.push({ sign, driverKey: driverKey(driver) }); terms.set(key, entry); };
   for (const driver of input.drivers) {
     const effects = driverEffects(driver, statementKeys); if (!effects) continue;
-    for (const effect of effects.rows) add(effect.key, effect.stock, effect.sign, driver.id);
-    if (effects.cashFlow) add(effects.cashFlow.key, false, effects.cashFlow.sign, driver.id);
-    if (effects.netIncome !== 0) add("current_earnings", true, effects.netIncome, driver.id);
+    for (const effect of effects.rows) add(effect.key, effect.stock, effect.sign, driver);
+    if (effects.cashFlow) add(effects.cashFlow.key, false, effects.cashFlow.sign, driver);
+    if (effects.netIncome !== 0) add("current_earnings", true, effects.netIncome, driver);
   }
   return terms;
 }
@@ -335,13 +360,26 @@ export function writeForecastInputs(sheet: ExcelJS.Worksheet, input: ForecastInp
   return { names, values };
 }
 
+/** The active-scenario dropdown on Get Started, and the number every scenario-aware formula reads (0 = base). */
+export function writeScenarioSelector(sheet: ExcelJS.Worksheet, scenarios: { name: string }[], styles: Pick<ForecastStyles, "input" | "inputFill" | "muted" | "link">) {
+  const first = getStartedInputs.scenarioListFirstRow; const names = ["Base", ...scenarios.map((scenario) => scenario.name)];
+  Object.assign(sheet.getCell("R9"), { value: "ACTIVE SCENARIO", font: { bold: true, color: { argb: styles.muted }, size: 9 } });
+  sheet.getCell("R10").value = "Show the model for";
+  Object.assign(sheet.getCell(getStartedInputs.activeScenario.replaceAll("$", "")), { value: "Base", font: { color: { argb: styles.input } }, fill: { type: "pattern", pattern: "solid", fgColor: { argb: styles.inputFill } }, dataValidation: { type: "list", allowBlank: false, formulae: [`$S$${first}:$S$${first + names.length - 1}`] } });
+  sheet.getCell("R11").value = "Scenario number (0 = base)";
+  Object.assign(sheet.getCell(getStartedInputs.scenarioIndex.replaceAll("$", "")), { value: { formula: `MATCH(${getStartedInputs.activeScenario},$S$${first}:$S$${first + names.length - 1},0)-1` }, font: { color: { argb: styles.link } } });
+  sheet.getCell(`R${first - 1}`).value = "Scenarios in this file";
+  names.forEach((name, index) => { sheet.getCell(`S${first + index}`).value = name; });
+  sheet.getColumn(18).width = 40; sheet.getColumn(19).width = 24;
+}
+
 export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInput, plan: ForecastPlan, layout: ForecastLayout, statementLabels: Map<string, string>, statementKeys: Set<string>, profileRange: { names: string; values: string }, styles: ForecastStyles) {
   const { periods } = layout;
   const first = C.firstMonth; const lastColumn = first + periods.length - 1;
   const muted = { color: { argb: styles.muted }, size: 9 };
   Object.assign(sheet.getCell(forecastHeader.period, 1), { value: "Period", font: muted });
   Object.assign(sheet.getCell(forecastHeader.flag, 1), { value: "Forecast month (1 = Balsa forecasts it)", font: muted });
-  const headers: [number, string, number][] = [[C.label, "Driver", 34], [C.unit, "Direction", 9], [C.line, "Statement line", 20], [C.initial, "Initial value", 12], [C.starts, "Starts in", 9], [C.ends, "Ends in", 9], [C.repeats, "Repeats every N months", 9], [C.basis, "Changing based on", 12], [C.changesEvery, "Changes every N months", 9], [C.by, "Changing by % or #", 10], [C.using, "Using", 20], [C.maxMonths, "For a max of N months", 9], [C.maxValue, "To a max value of", 11], [C.seasonality, "Seasonality", 13], [C.escalationRate, "Escalation rate", 9], [C.escalationEvery, "Escalates every N months", 9], [C.escalationFrom, "Escalates from month (blank: start)", 10], [C.source, "Source", 30]];
+  const headers: [number, string, number][] = [[C.label, "Driver", 34], [C.unit, "Direction", 9], [C.line, "Statement line", 20], [C.initial, "Initial value", 12], [C.starts, "Starts in", 9], [C.ends, "Ends in", 9], [C.repeats, "Repeats every N months", 9], [C.basis, "Changing based on", 12], [C.changesEvery, "Changes every N months", 9], [C.by, "Changing by % or #", 10], [C.using, "Using", 20], [C.maxMonths, "For a max of N months", 9], [C.maxValue, "To a max value of", 11], [C.seasonality, "Seasonality", 13], [C.escalationRate, "Escalation rate", 9], [C.escalationEvery, "Escalates every N months", 9], [C.escalationFrom, "Escalates from month (blank: start)", 10], [C.scenario, "Scenario", 14], [C.inUse, "In use (1 = yes)", 7], [C.source, "Source", 30]];
   for (const [column, label, width] of headers) { sheet.getColumn(column).width = width; Object.assign(sheet.getCell(forecastHeader.labels, column), { value: label, font: { bold: true }, alignment: { wrapText: true, vertical: "bottom" } }); }
   periods.forEach((period, index) => {
     const column = first + index; sheet.getColumn(column).width = 12;
@@ -354,11 +392,14 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
 
   const label = new Map<string, string>([
     ...input.metrics.map((metric) => [`metric:${metric.name}`, metric.label] as const),
-    ...input.drivers.map((driver) => [`driver:${driver.id}`, driver.label] as const),
+    ...input.drivers.map((driver) => [driverKey(driver), driver.label] as const),
+    ...input.drivers.map((driver) => [`all:${driver.id}`, driver.label] as const),
     ...[...layout.lineRows.keys()].map((key) => [key, `Drivers on ${standardLineDefinition(key.slice(5) as StandardLineId).label}`] as const),
   ]);
-  const rowOf = (key: string) => layout.metricRows.get(key) ?? layout.driverRows.get(key) ?? layout.lineRows.get(key) ?? null;
-  const refKey = (ref: ExportRef | null) => !ref ? null : ref.kind === "driver" ? `driver:${ref.id}` : ref.kind === "metric" ? `metric:${ref.name}` : `line:${ref.line}`;
+  /** The rows a reference sums: a metric's or line's row, or every row of a driver (only the one in use is non-zero). */
+  const rowsOf = (key: string) => key.startsWith("all:") ? input.drivers.filter((driver) => driver.id === key.slice(4)).map((driver) => layout.driverRows.get(driverKey(driver))!) : [layout.metricRows.get(key) ?? layout.lineRows.get(key)].filter((row): row is number => row !== undefined);
+  const scenarioIndex = activeScenarioIndex;
+  const scaled = input.scenarios.length > 0;
 
   const writePattern = (row: number, pattern: ExportPattern, live: boolean) => {
     const style = (cell: ExcelJS.Cell, numFmt?: string) => Object.assign(cell, live ? { font: { color: { argb: styles.input } }, fill: { type: "pattern", pattern: "solid", fgColor: { argb: styles.inputFill } } } : { font: { color: { argb: styles.muted } } }, numFmt ? { numFmt } : {});
@@ -379,20 +420,21 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
       sheet.getCell(row, C.seasonality).dataValidation = { type: "list", allowBlank: true, formulae: [profileRange.names] };
     }
   };
-  const writeLiveRow = (key: string, row: number, money: boolean, pattern: ExportPattern, actuals: Record<string, string>) => {
+  const writeLiveRow = (key: string, row: number, money: boolean, pattern: ExportPattern, actuals: Record<string, string>, rowScaled: boolean) => {
     const baseRow = layout.baseRows.get(key)!;
-    const refRow = pattern.using ? rowOf(refKey(pattern.using)!) : null;
+    const refRows = pattern.using ? rowsOf(refKey(pattern.using)!) : [];
     Object.assign(sheet.getCell(baseRow, 1), { value: `${label.get(key)}, before seasonality, escalation and caps`, font: { color: { argb: styles.muted } } });
     periods.forEach((period, index) => {
       const column = first + index;
-      Object.assign(sheet.getCell(baseRow, column), { value: { formula: baseFormula({ row, baseRow, column, firstColumn: first, money, refRow }) }, numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.muted } } });
+      Object.assign(sheet.getCell(baseRow, column), { value: { formula: baseFormula({ row, baseRow, column, firstColumn: first, money, refRows }) }, numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.muted } } });
       const actual = actuals[period];
       Object.assign(sheet.getCell(row, column), actual !== undefined
         ? { value: Number(actual), numFmt: "#,##0.0", font: { color: { argb: styles.input } } }
-        : { value: { formula: outputFormula({ row, baseRow, column, money, profileRange }) }, numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.formula } } });
+        : { value: { formula: outputFormula({ row, baseRow, column, money, profileRange, scaled: rowScaled }) }, numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.formula } } });
     });
   };
-  const writeValues = (row: number, values: number[], money: boolean) => periods.forEach((_, index) => Object.assign(sheet.getCell(row, first + index), { value: values[index] ? values[index] : null, numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.input } } }));
+  /** Balsa's values; `inUseRow` scales them by that row's in-use flag so a replaced row counts only in its scenarios. */
+  const writeValues = (row: number, values: number[], money: boolean, inUseRow: number | null = null) => periods.forEach((_, index) => Object.assign(sheet.getCell(row, first + index), { value: !values[index] ? null : inUseRow ? { formula: `${values[index]}*${col(C.inUse, inUseRow)}` } : values[index], numFmt: money ? styles.money : "#,##0.0", font: { color: { argb: styles.input } } }));
   const sourceText = (key: string, note: string | null, exception: string | null) => [plan.live.get(key) ? "Formula" : plan.reasons.get(key) ? `Balsa's values: ${plan.reasons.get(key)}` : "Balsa's values", note, exception ? `Exception: ${exception}` : null].filter(Boolean).join(". ");
 
   for (const metric of input.metrics) {
@@ -400,25 +442,32 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
     sheet.getCell(row, C.label).value = metric.label; sheet.getCell(row, C.unit).value = metric.unit ?? "";
     if (metric.pattern) writePattern(row, metric.pattern, Boolean(plan.live.get(key)));
     Object.assign(sheet.getCell(row, C.source), { value: sourceText(key, metric.note ?? null, null), font: muted });
-    if (plan.live.get(key)) writeLiveRow(key, row, false, metric.pattern!, metric.actuals);
+    if (plan.live.get(key)) writeLiveRow(key, row, false, metric.pattern!, metric.actuals, false);
     else writeValues(row, plan.values.get(key)!, false);
   }
   for (const driver of input.drivers) {
-    const key = `driver:${driver.id}`; const row = layout.driverRows.get(key)!; const balsaRow = layout.balsaRows.get(key)!;
+    const key = driverKey(driver); const row = layout.driverRows.get(key)!; const balsaRow = layout.balsaRows.get(key)!;
+    if (scaled) {
+      sheet.getCell(row, C.scenario).value = driver.scenarioId ? input.scenarios.find((scenario) => scenario.id === driver.scenarioId)?.name ?? driver.scenarioId : "Base";
+      const own = input.scenarios.findIndex((scenario) => scenario.id === driver.scenarioId) + 1;
+      const excluded = input.scenarios.map((scenario, index) => driver.excludedIn.includes(scenario.id) ? index + 1 : 0).filter(Boolean);
+      const inUse = driver.scenarioId ? `IF(${scenarioIndex}=${own},1,0)` : excluded.length ? `IF(OR(${excluded.map((index) => `${scenarioIndex}=${index}`).join(",")}),0,1)` : null;
+      Object.assign(sheet.getCell(row, C.inUse), { value: inUse ? { formula: inUse } : 1, font: { color: { argb: inUse ? styles.link : styles.muted } }, alignment: { horizontal: "center" } });
+    }
     sheet.getRow(row).getCell(C.label).value = driver.label;
     sheet.getCell(row, C.unit).value = driver.direction === "receipt" ? "Receipt" : "Spend"; sheet.getCell(row, C.line).value = driver.lineLabel ?? "";
     if (driver.pattern) writePattern(row, driver.pattern, Boolean(plan.live.get(key)));
     const unlinked = driverEffects(driver, statementKeys) ? null : "Not linked to Statements: one side of its entry has no Standard line";
     Object.assign(sheet.getCell(row, C.source), { value: sourceText(key, [driver.note, unlinked].filter(Boolean).join(". ") || null, driver.exception), font: { color: { argb: driver.exception ? "FFB00020" : styles.muted }, size: 9 } });
-    if (plan.live.get(key)) writeLiveRow(key, row, true, driver.pattern!, {});
-    else writeValues(row, plan.values.get(key)!, true);
-    sheet.getCell(balsaRow, C.label).value = driver.label;
     const balsa = periods.map((period) => input.forecastPeriods.includes(period) && driver.amountsByPeriod[period] !== undefined ? Number(BigInt(driver.amountsByPeriod[period]!)) / 100 : 0);
-    writeValues(balsaRow, balsa, true);
+    if (plan.live.get(key)) writeLiveRow(key, row, true, driver.pattern!, {}, scaled);
+    else writeValues(row, balsa, true, scaled ? row : null);
+    sheet.getCell(balsaRow, C.label).value = driver.label;
+    writeValues(balsaRow, balsa, true, scaled ? row : null);
   }
   for (const [key, row] of layout.lineRows) {
     sheet.getCell(row, C.label).value = label.get(key)!;
-    const members = input.drivers.filter((driver) => `line:${driver.referenceLine}` === key).map((driver) => layout.driverRows.get(`driver:${driver.id}`)!);
+    const members = input.drivers.filter((driver) => `line:${driver.referenceLine}` === key).map((driver) => layout.driverRows.get(driverKey(driver))!);
     periods.forEach((_, index) => { const X = L(first + index); Object.assign(sheet.getCell(row, first + index), { value: { formula: members.length ? members.map((member) => `${X}${member}`).join("+") : "0" }, numFmt: styles.money }); });
   }
   const terms = changeTerms(input, statementKeys);
