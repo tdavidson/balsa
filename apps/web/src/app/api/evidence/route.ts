@@ -1,4 +1,4 @@
-import { readWorkbookEdits, type WorkbookEdits } from "@balsa/model-export";
+import { InvalidWorkbookExport, readWorkbookEdits, type WorkbookEdits } from "@balsa/model-export";
 import { proposeWorkbookEditsWith } from "@/lib/workbook-round-trip";
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
@@ -108,7 +108,8 @@ export async function POST(request: Request) {
     sourceHash = createHash("sha256").update(buffer).digest("hex");
     // A workbook Balsa exported comes back as edits to propose, not as a source to extract.
     if (/\.xlsx$/i.test(file.name)) {
-      returnedExport = await readWorkbookEdits(buffer);
+      try { returnedExport = await readWorkbookEdits(buffer); }
+      catch (error) { if (error instanceof InvalidWorkbookExport) return NextResponse.json({ error: error.message }, { status: 400 }); throw error; }
       if (returnedExport && returnedExport.manifest.companyId !== context.company.id) return NextResponse.json({ error: "This workbook was exported from a different company. Switch to that company, then upload it again." }, { status: 400 });
       if (returnedExport) deferExtraction = false;
     }

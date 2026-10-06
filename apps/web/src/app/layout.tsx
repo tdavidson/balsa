@@ -20,7 +20,7 @@ const serif = localFont({
 
 export const metadata: Metadata = {
   title: "Balsa",
-  description: "A radical approach to an LLM-native financial operating system",
+  description: "Evidence-backed financial modeling and decisions, with auditable books, driver-based forecasts, and reviewed changes.",
   icons: { icon: [{ url: "/favicon.svg?v=clean-wide-gaps", type: "image/svg+xml" }, { url: "/api/company/favicon" }], shortcut: "/favicon.ico?v=clean-wide-gaps", apple: "/apple-touch-icon.png?v=clean-wide-gaps" },
 };
 

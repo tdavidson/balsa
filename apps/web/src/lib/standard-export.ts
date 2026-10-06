@@ -2,7 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { companies, forecastMetrics, getDatabase, seasonalityProfiles } from "@finance/database";
 import { driverAmountsByMonth, matchingForecastTemplates, monthRange, resolvePatternDrivers, standardLayoutVersion, standardLines, type ForecastDriver, type JournalStatementSelection, type StandardLineId } from "@balsa/finance-engine";
-import { buildStandardWorkbook, driverExportPattern, metricExportPattern, type ExportDriver, type ExportLeg, type ExportMetric, type StandardWorkbookInput } from "@balsa/model-export";
+import { buildStandardWorkbook, driverExportPattern, driverValuesOnlyReason, metricExportPattern, type ExportDriver, type ExportLeg, type ExportMetric, type StandardWorkbookInput } from "@balsa/model-export";
 import { loadForecastBase } from "@/lib/forecast-base";
 import { forecastAsOfMonth, loadForecastAccounts, loadForecastDrivers, loadForecastModel, loadPatternContext } from "@/lib/forecast-inputs";
 import { loadLatestForecast } from "@/lib/forecast-read";
@@ -37,7 +37,7 @@ export async function buildStandardModelExport(companyId: string, now = new Date
 
   // Scenarios are computed on demand, never stored: the base input plus each scenario's items and changes.
   const summaries = await listScenarios(companyId);
-  const forecastBase = summaries.length ? await loadForecastBase(companyId, now) : null;
+  const forecastBase = forecast || summaries.length ? await loadForecastBase(companyId, now) : null;
   const scenarios: StandardWorkbookInput["scenarios"] = [];
   const scenarioRuns: { id: string; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[] }[] = [];
   for (const summary of summaries) {
@@ -55,6 +55,9 @@ export async function buildStandardModelExport(companyId: string, now = new Date
   const exceptionById = new Map((forecast?.run.exceptions ?? []).map((exception) => [exception.driverId, exception.reason]));
   const profileName = (id: string) => profiles.find((profile) => profile.id === id)?.name ?? null;
   const leg = (accountId: string | undefined): ExportLeg | null => { const resolved = accountId ? mapping.resolved.get(accountId) : undefined; return resolved?.line ? { line: resolved.line as StandardLineId, categoryId: resolved.categoryId } : null; };
+  const settlementDrivers = new Set(forecastBase?.settlement?.occurrences.flatMap((item) => item.driverId ? [item.driverId] : []) ?? []);
+  const occurrenceIds = new Set(forecastBase?.settlement?.occurrences.map((item) => item.id) ?? []);
+  const unknownSettlements = forecast?.run.settlements?.some((item) => !occurrenceIds.has(item.id)) ?? false;
   const toExport = (driver: ForecastDriver, scenarioId: string | null, exceptions: Map<string, string>): ExportDriver => {
     const template = matchingForecastTemplates(driver, templates);
     const single = template.length === 1 ? template[0]! : null;
@@ -62,9 +65,10 @@ export async function buildStandardModelExport(companyId: string, now = new Date
     const settlementId = single ? (driver.direction === "receipt" ? single.debitAccountId : single.creditAccountId) : undefined;
     const referenceLine = postingId ? forecastAccountById.get(postingId)?.reportLine ?? null : null;
     const pattern = driverExportPattern(driver, profileName);
+    const valuesOnlyReason = driverValuesOnlyReason(driver, settlementDrivers, unknownSettlements);
     const note = !pattern && !driver.amountFormula ? "Dated amounts in Balsa" : null;
     const formula = driver.amountFormula !== undefined ? { text: driver.amountFormula, startsIn: driver.effectiveFrom, endsIn: driver.effectiveTo ?? null, repeatsEvery: { once: 0, monthly: 1, quarterly: 3, annual: 12 }[driver.cadence] } : null;
-    return { id: driver.id, label: driver.label, direction: driver.direction, lineLabel: referenceLine ? lineLabel.get(referenceLine) ?? null : null, referenceLine, scenarioId, excludedIn: [], pattern, note, formula, posting: leg(postingId), settlement: leg(settlementId), amountsByPeriod: driverAmountsByMonth(driver, periods), exception: exceptions.get(driver.id) ?? null };
+    return { valuesOnlyReason, id: driver.id, label: driver.label, direction: driver.direction, lineLabel: referenceLine ? lineLabel.get(referenceLine) ?? null : null, referenceLine, scenarioId, excludedIn: [], pattern, note, formula, posting: leg(postingId), settlement: leg(settlementId), amountsByPeriod: driverAmountsByMonth(driver, periods), exception: exceptions.get(driver.id) ?? null };
   };
   const drivers: ExportDriver[] = runDrivers.map((driver) => toExport(driver, null, exceptionById));
   // A scenario's own row for every driver it adds, or whose pattern or amounts it changes (including through a link); the base row steps aside while it is active.

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildStandardStatements, driverAmountsByMonth, evaluateModel, monthRange, resolveFormulaDrivers, resolvePatternDrivers, type ForecastModel, standardLayoutVersion, type ForecastDriver, type ForecastEntryTemplate, type OperatingMetric, type PatternContext, type PostedJournalLine, type StandardLineId, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
-import { driverExportPattern, metricExportPattern } from "./export-patterns";
-import { forecastColumns, simulateForecast, type ExportDriver, type ForecastInput } from "./forecast-sheet";
+import { driverValuesOnlyReason, driverExportPattern, metricExportPattern } from "./export-patterns";
+import { driverEffects, driverKey, forecastColumns, simulateForecast, type ExportDriver, type ForecastInput } from "./forecast-sheet";
 import { buildStandardWorkbook, type StandardWorkbookInput } from "./standard-workbook";
 import { modelHeader, planModel, type ModelPlan } from "./model-sheet";
 import { patternFromExport, readWorkbookEdits, stepInputs, type WorkbookEdit } from "./round-trip";
@@ -338,5 +338,45 @@ describe("round trip", () => {
     // The rebuilt inputs reproduce the edited months exactly.
     const evaluation = evaluateModel({ ...model, variables: model.variables.map((variable) => variable.name === "headcount" ? { ...variable, inputs } : variable) }, modelMonths);
     expect(evaluation.ok && evaluation.cubes.get("headcount")!.cells.get("eng")!.map((value) => Number(value) / 1e6)).toEqual(headcount.after);
+  });
+});
+
+
+describe("accounting treatments that require engine replay", () => {
+  it.each([
+    ["prepaid expense", "prepaid", "spend", false],
+    ["accrued expense", "accrual", "spend", false],
+    ["deferred revenue", "prepaid", "receipt", false],
+    ["partial settlement", "cash", "spend", true],
+    ["rescheduled receipt", "cash", "receipt", true],
+  ] as const)("keeps %s rows and scenario variants fixed and outside returned edits", async (_label, accountingTreatment, direction, reviewed) => {
+    const candidate = exportDrivers.find((item) => item.id === "rent" && item.scenarioId === null)!;
+    const reason = driverValuesOnlyReason({ id: candidate.id, accountingTreatment }, new Set(reviewed ? [candidate.id] : []));
+    expect(reason).toMatch(/recalculate changes in Balsa/);
+    const frozen = { ...candidate, direction, valuesOnlyReason: reason };
+    const variant = { ...frozen, scenarioId: "growth" };
+    const fixedForecast = { ...forecast, drivers: [{ ...frozen, excludedIn: ["growth"] }, variant] };
+    const plan = simulateForecast(fixedForecast, periods, { model: modelLink });
+    for (const row of fixedForecast.drivers) {
+      expect(plan.live.get(driverKey(row))).toBe(false);
+      expect(driverEffects(row, new Set())).toBeNull();
+    }
+    const exported = await buildStandardWorkbook({ ...input, forecast: fixedForecast });
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(exported.buffer as ArrayBuffer);
+    const parsed = (await readWorkbookEdits(exported.buffer as ArrayBuffer))!;
+    expect(parsed.manifest.drivers).toEqual([]);
+    const sheet = workbook.getWorksheet("Forecast")!;
+    let changed = 0;
+    sheet.eachRow((row) => {
+      if (row.getCell(forecastColumns.label).value === candidate.label && String(row.getCell(forecastColumns.source).value).includes("recalculate changes in Balsa")) {
+        row.getCell(forecastColumns.initial).value = 24000; changed += 1;
+      }
+    });
+    expect(changed).toBe(2);
+    expect((await readWorkbookEdits(await workbook.xlsx.writeBuffer() as ArrayBuffer))!.edits).toEqual([]);
+  });
+  it("retains live cash support but freezes when stored settlement identities are unavailable", () => {
+    expect(driverValuesOnlyReason({ id: "rent", accountingTreatment: "cash" }, new Set())).toBeNull();
+    expect(driverValuesOnlyReason({ id: "rent" }, new Set(), true)).toContain("Reviewed settlements");
   });
 });

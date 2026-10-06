@@ -5,12 +5,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import ExcelJS from "exceljs";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildStandardStatements, standardLayoutVersion, type StandardPeriodColumn } from "@balsa/finance-engine";
-import { buildStandardWorkbook, readWorkbookEdits, type StandardWorkbookInput } from "@balsa/model-export";
+import { buildStandardWorkbook, readWorkbookEdits, type WorkbookEdit, type StandardWorkbookInput } from "@balsa/model-export";
 config({ path: fileURLToPath(new URL("../../../../.env", import.meta.url)), quiet: true });
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!process.env.DATABASE_URL)("returned workbooks", async () => {
-  const { closeDatabase, companies, decisions, economicItems, evidence, forecastMetrics, forecastVariables, getDatabase, users } = await import("@finance/database");
+  const { closeDatabase, companies, decisions, economicItems, evidence, forecastMetrics, forecastVariables, forecastDimensions, getDatabase, users } = await import("@finance/database");
   const { proposeWorkbookEditsWith } = await import("./workbook-round-trip");
   const { applyDecisionAndEnqueue } = await import("./decision-effects");
   const db = getDatabase(); const ids: string[] = []; const userIds: string[] = [];
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.DATABASE_URL)("returned workbooks", async () => {
     const [metric] = await db.select().from(forecastMetrics).where(and(eq(forecastMetrics.companyId, f.companyId), eq(forecastMetrics.name, "customers")));
     expect(metric!.pattern).toMatchObject({ change: { by: "0.08" } });
     const [variable] = await db.select().from(forecastVariables).where(and(eq(forecastVariables.companyId, f.companyId), eq(forecastVariables.name, "headcount"), eq(forecastVariables.active, "Y")));
-    expect(variable!.inputs).toEqual([{ coords: {}, from: "2026-09", value: "2" }, { coords: {}, from: "2026-11", value: "3" }]);
+    expect(variable!.inputs).toEqual([{ coords: {}, from: "2026-09", value: "2" }, { coords: {}, from: "2026-11", value: "3" }, { coords: {}, from: "2027-01", value: "2" }]);
   });
 
   it("notes what it cannot propose and proposes nothing for another company's driver", async () => {
@@ -91,4 +91,61 @@ describe.skipIf(!process.env.DATABASE_URL)("returned workbooks", async () => {
     const [untouched] = await db.select().from(economicItems).where(eq(economicItems.id, other.rentId));
     expect((untouched!.pattern as { change: { by: string } }).change.by).toBe("0.03");
   });
+  async function proposeInputs(f: Awaited<ReturnType<typeof seed>>, changes: WorkbookEdit[]) {
+    const parsed = (await readWorkbookEdits((await buildStandardWorkbook(workbookInput(f.companyId, f.rentId))).buffer as ArrayBuffer))!;
+    return db.transaction((tx) => proposeWorkbookEditsWith(tx, { companyId: f.companyId, actorUserId: f.userId, evidenceId: f.evidenceId, edits: { ...parsed, edits: changes } }));
+  }
+  const cellEdit = (coords: Record<string, string>, before: number[], after: number[]): WorkbookEdit => ({ kind: "model_input", variable: "headcount", key: JSON.stringify(coords), coords, months: ["2026-10", "2026-11"], before, after });
+  const inputRow = async (companyId: string) => (await db.select().from(forecastVariables).where(and(eq(forecastVariables.companyId, companyId), eq(forecastVariables.name, "headcount"))))[0]!;
+
+  it.each([false, true])("applies both coordinates atomically regardless of edit order (%s)", async (reverse) => {
+    const f = await seed();
+    await db.insert(forecastDimensions).values({ companyId: f.companyId, name: "team", items: ["eng", "sales"] });
+    await db.update(forecastVariables).set({ dims: ["team"], inputs: [{ coords: { team: "eng" }, from: "2026-09", value: "2" }, { coords: { team: "sales" }, from: "2026-09", value: "3" }] }).where(eq(forecastVariables.companyId, f.companyId));
+    const changes = [cellEdit({ team: "eng" }, [2, 2], [4, 4]), cellEdit({ team: "sales" }, [3, 3], [5, 5])];
+    const result = await proposeInputs(f, reverse ? changes.reverse() : changes);
+    expect(result.notes).toEqual([]); expect(result.proposed).toHaveLength(1);
+    await applyDecisionAndEnqueue(f.companyId, result.proposed[0]!.id, f.userId);
+    const row = await inputRow(f.companyId);
+    expect(row.inputs).toEqual(expect.arrayContaining([{ coords: { team: "eng" }, from: "2026-10", value: "4" }, { coords: { team: "sales" }, from: "2026-10", value: "5" }]));
+  });
+
+  it("preserves unchanged months and the schedule beyond the export", async () => {
+    const f = await seed();
+    await db.update(forecastVariables).set({ inputs: [{ coords: {}, from: "2026-09", value: "2" }, { coords: {}, from: "2026-11", value: "7" }] }).where(eq(forecastVariables.companyId, f.companyId));
+    const result = await proposeInputs(f, [cellEdit({}, [2, 2], [4, 2])]);
+    expect(result.notes).toEqual([]);
+    await applyDecisionAndEnqueue(f.companyId, result.proposed[0]!.id, f.userId);
+    expect((await inputRow(f.companyId)).inputs).toEqual([{ coords: {}, from: "2026-09", value: "2" }, { coords: {}, from: "2026-10", value: "4" }, { coords: {}, from: "2026-11", value: "7" }]);
+  });
+
+  it("refuses conflicting cells at intake and stale approvals without changing state", async () => {
+    const f = await seed();
+    const first = await proposeInputs(f, [cellEdit({}, [2, 2], [4, 2])]);
+    await db.update(forecastVariables).set({ inputs: [{ coords: {}, from: "2026-09", value: "7" }] }).where(eq(forecastVariables.companyId, f.companyId));
+    const conflicting = await proposeInputs(f, [cellEdit({}, [2, 2], [4, 2])]);
+    expect(conflicting.proposed).toEqual([]); expect(conflicting.notes[0]).toContain("changed in Balsa");
+    await expect(applyDecisionAndEnqueue(f.companyId, first.proposed[0]!.id, f.userId)).rejects.toThrow("changed since");
+    expect((await inputRow(f.companyId)).inputs[0]!.value).toBe("7");
+    const [decision] = await db.select().from(decisions).where(eq(decisions.id, first.proposed[0]!.id));
+    expect(decision!.status).toBe("proposed");
+  });
+
+  it("rejects old workbook variable proposals without conflict protection", async () => {
+    const f = await seed(); const row = await inputRow(f.companyId);
+    const [decision] = await db.insert(decisions).values({ companyId: f.companyId, evidenceId: f.evidenceId, question: "Old workbook edit", answer: "Synthetic", status: "proposed", effect: JSON.stringify({ kind: "set_variable", variable: { name: row.name, kind: row.kind, dims: row.dims, formula: null, inputs: [] } }) }).returning();
+    await expect(applyDecisionAndEnqueue(f.companyId, decision!.id, f.userId)).rejects.toThrow("predates conflict checks");
+  });
+
+  it("serializes competing approvals so only one can replace the same input snapshot", async () => {
+    const f = await seed();
+    const first = await proposeInputs(f, [cellEdit({}, [2, 2], [4, 2])]);
+    const second = await proposeInputs(f, [cellEdit({}, [2, 2], [5, 2])]);
+    const outcomes = await Promise.allSettled([first, second].map((result) => applyDecisionAndEnqueue(f.companyId, result.proposed[0]!.id, f.userId)));
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    const rows = await db.select().from(decisions).where(eq(decisions.companyId, f.companyId));
+    expect(rows.map((row) => row.status).sort()).toEqual(["applied", "proposed"]);
+  });
+
 });

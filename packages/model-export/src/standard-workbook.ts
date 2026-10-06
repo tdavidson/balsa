@@ -13,7 +13,8 @@ export type { ExportBasis, ExportDriver, ExportEscalation, ExportLeg, ExportMetr
  * numbers stay Balsa's. Formulas use only functions that behave the same in
  * Excel, Google Sheets and LibreOffice.
  */
-export const exportFormatVersion = "standard-export-2026-10-06.1";
+import { exportFormatVersion } from "./manifest-schema";
+export { exportFormatVersion } from "./manifest-schema";
 
 export type ExportScenario = { id: string; name: string; description: string | null; months: StandardPeriodColumn[]; runway: { runwayMonths: number | null; cashOutMonth: string | null } };
 export type ExportAccount = { id: string; code: string; name: string; section: string | null; lineLabel: string | null; categoryName: string | null; status: string; reason: string };

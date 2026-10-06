@@ -1,4 +1,6 @@
 import ExcelJS from "exceljs";
+import { manifestFormat, manifestSchema, InvalidWorkbookExport } from "./manifest-schema";
+export { manifestFormat, InvalidWorkbookExport } from "./manifest-schema";
 import type { DriverPattern, DriverRef } from "@balsa/finance-engine";
 import { forecastColumns as C, type ExportPattern } from "./forecast-sheet";
 import { modelColumns } from "./model-sheet";
@@ -13,7 +15,6 @@ import { modelColumns } from "./model-sheet";
  */
 
 export const manifestSheetName = "Balsa data";
-export const manifestFormat = "balsa-export-manifest-1";
 
 export type ManifestDriver = { key: string; id: string; scenarioId: string | null; label: string; row: number; kind: "pattern" | "formula"; pattern?: ExportPattern; formula?: { text: string; startsIn: string; endsIn: string | null; repeatsEvery: number } };
 export type ManifestMetric = { name: string; label: string; row: number; pattern: ExportPattern };
@@ -38,10 +39,19 @@ export function writeManifest(workbook: ExcelJS.Workbook, manifest: ExportManife
 
 function readManifest(workbook: ExcelJS.Workbook): ExportManifest | null {
   const sheet = workbook.getWorksheet(manifestSheetName);
-  if (!sheet || sheet.getCell(1, 1).value !== manifestFormat) return null;
+  if (!sheet) return null;
+  if (sheet.getCell(1, 1).value !== manifestFormat || sheet.rowCount > 350) throw new InvalidWorkbookExport();
   let text = "";
-  for (let row = 2; row <= sheet.rowCount; row += 1) { const value = sheet.getCell(row, 1).value; if (typeof value === "string") text += value; }
-  try { const manifest = JSON.parse(text) as ExportManifest; return manifest.format === manifestFormat ? manifest : null; } catch { return null; }
+  for (let row = 2; row <= sheet.rowCount; row += 1) {
+    const value = sheet.getCell(row, 1).value;
+    if (typeof value !== "string" || value.length > chunkSize) throw new InvalidWorkbookExport();
+    text += value;
+  }
+  try {
+    const parsed = manifestSchema.safeParse(JSON.parse(text));
+    if (!parsed.success) throw new InvalidWorkbookExport();
+    return parsed.data;
+  } catch { throw new InvalidWorkbookExport(); }
 }
 
 export type WorkbookEdit =
@@ -65,7 +75,7 @@ const numberOf = (value: ExcelJS.CellValue): number | null | "invalid" => {
   const resolved = plain(value);
   if (resolved === null || resolved === undefined || resolved === "") return null;
   if (typeof resolved === "number" && Number.isFinite(resolved)) return resolved;
-  if (typeof resolved === "string" && /^-?\d+(\.\d+)?$/.test(resolved.trim())) return Number(resolved.trim());
+  if (typeof resolved === "string" && /^-?\d+(\.\d+)?$/.test(resolved.trim())) { const number = Number(resolved.trim()); return Number.isFinite(number) ? number : "invalid"; }
   return "invalid";
 };
 const textOf = (value: ExcelJS.CellValue) => { const resolved = plain(value); return resolved === null || resolved === undefined ? "" : String(resolved).trim(); };
@@ -105,6 +115,7 @@ export async function readWorkbookEdits(bytes: Uint8Array | ArrayBuffer): Promis
   if (!manifest) return null;
   const edits: WorkbookEdit[] = []; const notes: string[] = [];
   const forecast = workbook.getWorksheet("Forecast");
+  if ((manifest.drivers.length || manifest.metrics.length) && !forecast || manifest.model && !workbook.getWorksheet("Model")) throw new InvalidWorkbookExport();
   if (forecast) {
     for (const driver of manifest.drivers) {
       const label = `${driver.label}${driver.scenarioId ? " (scenario row)" : ""}`;

@@ -3,8 +3,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { decisions, economicItems, forecastMetrics, forecastVariables, recordAudit, seasonalityProfiles } from "@finance/database";
 import type { DbExecutor } from "@/lib/db-executor";
 import { describePattern, validatePattern } from "@balsa/finance-engine";
-import { exportPattern, patternFromExport, stepInputs, type WorkbookEdits } from "@balsa/model-export";
+import { exportPattern, patternFromExport, type WorkbookEdits } from "@balsa/model-export";
 import { decisionEffectSchema, type DecisionEffect } from "@/lib/decision-effects";
+import { mergeWorkbookInput } from "./workbook-model-inputs";
 import { parseStoredPattern } from "@/lib/driver-pattern-schema";
 
 export type ProposedEdit = { id: string; question: string; answer: string };
@@ -36,6 +37,7 @@ export async function proposeWorkbookEditsWith(db: DbExecutor, input: { companyI
   const profileId = (name: string) => profiles.find((profile) => profile.name === name)?.id ?? null;
   const profileName = (id: string) => profiles.find((profile) => profile.id === id)?.name ?? null;
 
+  const modelDrafts = new Map<string, { original: typeof variables[number]; inputs: typeof variables[number]["inputs"]; descriptions: string[]; conflict: boolean }>();
   for (const edit of input.edits.edits) {
     if (edit.kind === "driver_pattern" || edit.kind === "formula_window") {
       if (edit.scenarioId) { notes.push(`${edit.label}: edits to a scenario's row are not proposed. Change the scenario in Balsa.`); continue; }
@@ -74,10 +76,21 @@ export async function proposeWorkbookEditsWith(db: DbExecutor, input: { companyI
     }
     const variable = variables.find((candidate) => candidate.name === edit.variable);
     if (!variable || variable.formula) { notes.push(`${edit.variable}: not proposed, because it is no longer an input variable in Balsa.`); continue; }
-    const inputs = stepInputs(variable.inputs, edit.coords, edit.months, edit.after);
+    const draft = modelDrafts.get(variable.name) ?? { original: variable, inputs: variable.inputs, descriptions: [], conflict: false };
+    modelDrafts.set(variable.name, draft);
+    try { draft.inputs = mergeWorkbookInput(draft.inputs, edit); }
+    catch { draft.conflict = true; notes.push(`${edit.variable}: inputs changed in Balsa after export. Export a fresh workbook before proposing this change.`); continue; }
     const where = Object.entries(edit.coords).map(([dim, item]) => `${dim}=${item}`).join(", ");
     const changed = edit.months.filter((_, index) => edit.after[index] !== edit.before[index]);
-    drafts.push({ question: `Change the model input ${edit.variable}${where ? ` for ${where}` : ""} ${changed.length > 1 ? `from ${changed[0]} to ${changed.at(-1)}` : `in ${changed[0]}`}, as edited in the returned workbook?`, answer: `The workbook sets ${edit.variable}${where ? ` (${where})` : ""} to ${changed.map((month) => `${edit.after[edit.months.indexOf(month)]} in ${month}`).slice(0, 6).join(", ")}${changed.length > 6 ? ", …" : ""}.`, effect: { kind: "set_variable", variable: { name: variable.name, kind: variable.kind, dims: variable.dims, formula: null, inputs } } as DecisionEffect });
+    draft.descriptions.push(`${where || "all"}: ${changed.map((month) => `${edit.after[edit.months.indexOf(month)]} in ${month}`).slice(0, 6).join(", ")}${changed.length > 6 ? ", …" : ""}`);
+  }
+  for (const [name, draft] of modelDrafts) {
+    if (draft.conflict) continue;
+    const { kind, dims, formula, inputs } = draft.original;
+    const expectedVariable = { name, kind, dims, formula, inputs };
+    const summary = draft.descriptions.join("; ");
+    const boundedSummary = summary.length > 16_000 ? `${summary.slice(0, 16_000)}… (Review the complete input changes before applying.)` : summary;
+    drafts.push({ question: `Change model input ${name}, as edited in the returned workbook?`, answer: `The workbook changes ${name}: ${boundedSummary}. Unedited months are preserved.`, effect: { kind: "set_variable", expectedVariable, variable: { ...expectedVariable, inputs: draft.inputs } } });
   }
 
   const proposed: ProposedEdit[] = [];

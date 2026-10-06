@@ -43,6 +43,8 @@ export type ExportDriver = {
   /** Minor units by period, as Balsa resolved them. */
   amountsByPeriod: Record<string, string>;
   exception: string | null;
+  /** Treatment requires the accounting engine; neither inputs nor statement deltas are live. */
+  valuesOnlyReason?: string | null;
 };
 /** An operating metric, or a model variable a driver uses (pattern null, values only). */
 export type ExportMetric = { name: string; label: string; unit: string | null; pattern: ExportPattern | null; note?: string | null; /** A forecast model variable a driver uses: its total across coordinates, read from the Model sheet. */ variable?: boolean; actuals: Record<string, string>; valuesByPeriod: Record<string, string> };
@@ -103,9 +105,11 @@ export function simulateForecast(input: ForecastInput, periods: string[], option
   for (const id of new Set(input.drivers.map((driver) => driver.id))) aggregate(`all:${id}`, input.drivers.filter((driver) => driver.id === id).map(driverKey));
 
   const live = new Map<string, boolean>(); const reasons = new Map<string, string>();
+  const frozen = new Map(input.drivers.filter((driver) => driver.valuesOnlyReason).map((driver) => [driverKey(driver), driver.valuesOnlyReason!]));
   const exceptions = new Set(input.drivers.filter((driver) => driver.exception).map(driverKey));
   for (const row of rows.values()) {
     if (row.key.startsWith("line:") || row.key.startsWith("all:")) continue;
+    if (frozen.has(row.key)) { live.set(row.key, false); reasons.set(row.key, frozen.get(row.key)!); continue; }
     if (row.formula || row.variable) {
       const reason = exceptions.has(row.key) ? "Balsa reports an exception for this driver"
         : !model ? "The forecast model is not in this file"
@@ -273,7 +277,7 @@ const cashClass = (line: StandardLineId): "operating" | "investing" | "financing
 };
 /** Each statement row a driver moves, with the sign its amount carries there. */
 export function driverEffects(driver: ExportDriver, statementKeys: Set<string>) {
-  if (!driver.posting || !driver.settlement) return null;
+  if (driver.valuesOnlyReason || !driver.posting || !driver.settlement) return null;
   const debit = driver.direction === "spend" ? driver.posting : driver.settlement;
   const legs = [driver.posting, driver.settlement].map((leg) => ({ leg, sign: (leg === debit) === debitNatural(leg.line) ? 1 : -1 }));
   const rows: { key: string; sign: number; stock: boolean }[] = [];
@@ -508,7 +512,7 @@ export function writeForecastSheet(sheet: ExcelJS.Worksheet, input: ForecastInpu
     sheet.getRow(row).getCell(C.label).value = driver.label;
     sheet.getCell(row, C.unit).value = driver.direction === "receipt" ? "Receipt" : "Spend"; sheet.getCell(row, C.line).value = driver.lineLabel ?? "";
     if (driver.pattern) writePattern(row, driver.pattern, Boolean(plan.live.get(key)));
-    const unlinked = driverEffects(driver, statementKeys) ? null : "Not linked to Statements: one side of its entry has no Standard line";
+    const unlinked = driver.valuesOnlyReason || driverEffects(driver, statementKeys) ? null : "Not linked to Statements: one side of its entry has no Standard line";
     Object.assign(sheet.getCell(row, C.source), { value: sourceText(key, [driver.note, unlinked].filter(Boolean).join(". ") || null, driver.exception), font: { color: { argb: driver.exception ? "FFB00020" : styles.muted }, size: 9 } });
     const balsa = periods.map((period) => input.forecastPeriods.includes(period) && driver.amountsByPeriod[period] !== undefined ? Number(BigInt(driver.amountsByPeriod[period]!)) / 100 : 0);
     if (plan.live.get(key) && driver.formula) writeFormulaRow(row, driver.formula, scaled);

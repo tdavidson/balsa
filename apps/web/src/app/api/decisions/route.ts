@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { decisions, getDatabase, recordAudit, policies } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { z } from "zod";
+import { ModelWriteError } from "@/lib/forecast-model-store";
 import { applyDecisionAndEnqueue, createAppliedDecisionAndEnqueue, decisionEffectSchema, describeEffect, parseStoredEffect } from "@/lib/decision-effects";
 
 const decisionUpdate = z.object({ id: z.string().uuid(), status: z.enum(["proposed", "applied", "rejected"]) });
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     const result = await createAppliedDecisionAndEnqueue(context.company.id, { question: body.data.question, answer: body.data.answer, ...(body.data.appliesTo !== undefined ? { appliesTo: body.data.appliesTo } : {}), ...(body.data.effect !== undefined ? { effect: body.data.effect } : {}) }, context.user.id);
     return NextResponse.json({ decision: result.decision, resolvedReviewCount: result.resolvedReviewCount, applied: result.mutation, calculationRun: result.calculationRun });
   } catch (error) {
+    if (error instanceof ModelWriteError) return NextResponse.json({ error: error.message }, { status: error.status });
     const message = (error instanceof Error ? error.message : "unknown error").slice(0, 500);
     return NextResponse.json({ error: `Decision effect failed: ${message}` }, { status: 502 });
   }
@@ -41,6 +43,7 @@ export async function PATCH(request: Request) {
       const result = await applyDecisionAndEnqueue(context.company.id, body.data.id, context.user.id);
       return NextResponse.json(result);
     } catch (error) {
+      if (error instanceof ModelWriteError) return NextResponse.json({ error: error.message }, { status: error.status });
       const message = (error instanceof Error ? error.message : "unknown error").slice(0, 500);
       if (message === "Decision not found") return NextResponse.json({ error: message }, { status: 404 });
       return NextResponse.json({ error: `Decision effect failed: ${message}` }, { status: 502 });
