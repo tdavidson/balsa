@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq } from "drizzle-orm";
-import { companies, economicItems, forecastMetrics, forecastVariables, recordAudit, seasonalityProfiles } from "@finance/database";
+import { companies, economicItems, evidence, factRecords, forecastMetricActuals, forecastMetrics, forecastVariables, recordAudit, seasonalityProfiles } from "@finance/database";
 import { describePattern, validateEscalation, validatePattern, validateSeasonality, type DriverPattern, type EscalationRule } from "@balsa/finance-engine";
 import type { DbTransaction } from "@/lib/db-executor";
 import { loadPatternContext } from "@/lib/forecast-inputs";
@@ -81,6 +81,33 @@ export async function deleteMetricWith(tx: DbTransaction, actor: Actor, metricId
   if (users.length) throw new PatternInvalid(`${metric.label} is used by ${users.slice(0, 3).join(", ")}${users.length > 3 ? ` and ${users.length - 3} more` : ""}. Change those first.`);
   await tx.delete(forecastMetrics).where(and(eq(forecastMetrics.companyId, actor.companyId), eq(forecastMetrics.id, metricId)));
   await recordAudit(tx, { companyId: actor.companyId, actorUserId: actor.actorUserId, via: actor.via, action: "metric.deleted", entityType: "forecast_metric", entityId: metricId, summary: `Removed the ${metric.label} metric`, before: metric });
+}
+
+export type MetricActualInput = { month: string; value: string | null; evidenceId?: string | null | undefined; factId?: string | null | undefined };
+
+/**
+ * Record, change or remove a metric's actual values. A value may cite an
+ * evidence document or an approved fact in this company; a null value
+ * removes that month. The forecast continues from the latest actual.
+ */
+export async function setMetricActualsWith(tx: DbTransaction, actor: Actor, metricRef: { id: string } | { name: string }, values: MetricActualInput[], decisionId?: string) {
+  const [metric] = await tx.select().from(forecastMetrics).where(and(eq(forecastMetrics.companyId, actor.companyId), "id" in metricRef ? eq(forecastMetrics.id, metricRef.id) : eq(forecastMetrics.name, metricRef.name))).limit(1);
+  if (!metric) throw new PatternNotFound("Operating metric not found");
+  for (const value of values) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value.month)) throw new PatternInvalid("Each actual needs a YYYY-MM month.");
+    if (value.value !== null && !/^-?\d+(\.\d{1,6})?$/.test(value.value)) throw new PatternInvalid(`${value.month}: the value must be a number with up to six decimal places.`);
+    if (value.evidenceId) { const [row] = await tx.select({ id: evidence.id }).from(evidence).where(and(eq(evidence.companyId, actor.companyId), eq(evidence.id, value.evidenceId))).limit(1); if (!row) throw new PatternInvalid("The cited evidence is not in this company."); }
+    if (value.factId) { const [row] = await tx.select({ id: factRecords.id, status: factRecords.status }).from(factRecords).where(and(eq(factRecords.companyId, actor.companyId), eq(factRecords.id, value.factId))).limit(1); if (!row) throw new PatternInvalid("The cited fact is not in this company."); if (row.status !== "approved") throw new PatternInvalid("Only an approved fact can supply an actual value; approve it first."); }
+  }
+  const before = await tx.select({ month: forecastMetricActuals.month, value: forecastMetricActuals.value }).from(forecastMetricActuals).where(eq(forecastMetricActuals.metricId, metric.id));
+  for (const value of values) {
+    if (value.value === null) { await tx.delete(forecastMetricActuals).where(and(eq(forecastMetricActuals.metricId, metric.id), eq(forecastMetricActuals.month, value.month))); continue; }
+    const row = { value: value.value, evidenceId: value.evidenceId ?? null, factId: value.factId ?? null, decisionId: decisionId ?? null, createdByUserId: actor.actorUserId, updatedAt: new Date() };
+    await tx.insert(forecastMetricActuals).values({ companyId: actor.companyId, metricId: metric.id, month: value.month, ...row }).onConflictDoUpdate({ target: [forecastMetricActuals.metricId, forecastMetricActuals.month], set: row });
+  }
+  const months = values.map((value) => value.month).sort();
+  await recordAudit(tx, { companyId: actor.companyId, actorUserId: actor.actorUserId, via: actor.via, action: "metric.actuals_changed", entityType: "forecast_metric", entityId: metric.id, summary: `${metric.label}: ${values.length} actual value${values.length === 1 ? "" : "s"} recorded for ${months[0]}${months.length > 1 ? ` to ${months.at(-1)}` : ""}`, before: { actuals: before.filter((row) => months.includes(row.month)) }, after: { actuals: values, ...(decisionId ? { decisionId } : {}) } });
+  return metric;
 }
 
 export async function saveSeasonalityWith(tx: DbTransaction, actor: Actor, input: { name: string; deviations: string[] }, profileId?: string) {

@@ -1,8 +1,8 @@
 import { auth } from "@/lib/auth";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ilike } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { decisions, economicItems, entities, evidence, getDatabase, knowledgeDocuments, policies, recordAudit, reviewItems } from "@finance/database";
+import { decisions, economicItems, entities, evidence, factRecords, getDatabase, knowledgeDocuments, policies, recordAudit, reviewItems } from "@finance/database";
 import { isCategory, isValidMonth, type Category } from "@balsa/finance-engine";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { requireCompanyAccess } from "@/lib/auth";
@@ -15,7 +15,9 @@ import { simulateForAgent } from "@/lib/forecast-scenarios";
 import { listScenarios } from "@/lib/scenarios";
 import { loadJournalAllocationAnalysis } from "@/lib/journal-allocation-analysis";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
-import { describeEffect, effectFromFlat, flatEffectJsonSchema, flatEffectSchema } from "@/lib/decision-effects";
+import { describeEffect, effectFromFlat, effectToFlat, flatEffectJsonSchema, flatEffectSchema } from "@/lib/decision-effects";
+import { loadDriverOverview } from "@/lib/driver-overview";
+import { loadDriverSuggestions } from "@/lib/driver-suggestions";
 import { parseEntityAttributes } from "@/lib/interpretation";
 import { recordOnboardingKnowledge } from "@/lib/company-knowledge";
 import { takeRateLimit } from "@/lib/request-rate-limit";
@@ -44,7 +46,7 @@ const inputSchema = modelRequestSchema.extend({
   decisionId: z.string().uuid().optional(),
 });
 
-const toolNames = ["get_financials", "get_statements", "trace_value", "get_obligations", "get_allocations", "simulate", "read_policies", "read_company_state", "read_evidence"] as const;
+const toolNames = ["get_financials", "get_statements", "trace_value", "get_obligations", "get_allocations", "simulate", "read_policies", "read_company_state", "read_evidence", "get_drivers", "get_driver_history", "read_facts"] as const;
 
 const outputSchema = z.object({
   answer: z.string(),
@@ -112,6 +114,17 @@ async function runTool(tool: (typeof toolNames)[number], rawInput: string, conte
     case "read_policies": return context.policies;
     case "read_company_state": return { items: context.items, entities: context.entities, asOfMonth: asOf, horizon: { start: financials[0]?.month ?? asOf, end: financials.at(-1)?.month ?? asOf }, recentForecastConsequences: context.consequences };
     case "read_evidence": return relevantEvidenceContext(context.evidenceDocuments, typeof input.query === "string" ? input.query : rawInput);
+    case "get_drivers": return loadDriverOverview(context.companyId);
+    case "get_driver_history": {
+      const months = typeof input.months === "number" && Number.isInteger(input.months) ? Math.min(Math.max(input.months, 2), 24) : 6;
+      const history = await loadDriverSuggestions(context.companyId, { months });
+      return { asOfMonth: history.asOfMonth, months: history.months, revenue: history.revenue, items: history.suggestions.map((item) => ({ key: item.key, target: item.target, history: item.history, stats: item.stats, suggestion: item.suggestion ? { summary: item.summary, basis: item.suggestion.basis, rationale: item.suggestion.rationale, confidence: item.suggestion.confidence } : null, note: item.note, proposal: item.effect ? effectToFlat(item.effect) : null })) };
+    }
+    case "read_facts": {
+      const query = typeof input.query === "string" ? input.query.trim().slice(0, 100) : "";
+      const rows = await getDatabase().select({ id: factRecords.id, label: factRecords.label, value: factRecords.value, sourceLocation: factRecords.sourceLocation, evidenceId: factRecords.evidenceId, sourceName: evidence.sourceName }).from(factRecords).innerJoin(evidence, eq(factRecords.evidenceId, evidence.id)).where(and(eq(factRecords.companyId, context.companyId), eq(factRecords.status, "approved"), ...(query ? [ilike(factRecords.label, `%${query}%`)] : []))).orderBy(desc(factRecords.createdAt)).limit(40);
+      return { facts: rows, note: "Only approved facts are listed; cite a fact's id as factId and its evidenceId when proposing metric actuals." };
+    }
   }
 }
 
@@ -164,9 +177,17 @@ Tools (request at most one per turn as toolCalls; results come back on the next 
 - get_obligations {}: confirmed drivers; settlement analysis is still migrating.
 - get_allocations {}: report its explicit availability result; never use a legacy calculation to answer.
 - simulate {"changes":[{"kind":"add_driver","label":"Contractor","direction":"spend","amount":6000,"cadence":"monthly","effectiveFrom":"YYYY-MM","effectiveTo":null,"category":"contractor","itemId":null,"variable":null,"coords":null,"from":null,"value":null,"formula":null}]} or {"scenarioId":"<saved scenario id>"}: answers what-if questions against the current base forecast and writes nothing. Every change carries all fourteen keys, with unused ones null. Kinds: add_driver (label, direction, amount in dollars, cadence, effectiveFrom, optional effectiveTo and category); change_amount (itemId of a confirmed item, amount, effectiveFrom); end_item (itemId, effectiveTo; the as-of month ${asOf} removes the item); set_input (variable, coords, from, decimal value); set_formula (variable, formula). Model changes are applied in order and the final model must be valid. It returns the simulated runway, one line comparing it with the base forecast, and any excluded drivers. Use it for "what if" questions before proposing a decision.
+- get_drivers {}: every confirmed driver with its pattern in words, the statement line it posts to, its next twelve months as the engine resolved them and any exception; operating metrics with their values and latest actual; seasonality profiles; the default escalation; the statement lines a driver can reference.
+- get_driver_history {"months":6}: for each driver, each income or expense account with no driver, and each metric with actuals: the monthly actual history, statistics (share of revenue, monthly growth and fit, average), a suggested pattern with its rationale and confidence, and a ready proposal (a complete flat effect) or a note saying why there is none. Use it to generate or revise the forecast from actuals, and quote its numbers; never compute your own.
+- read_facts {"query":"customers"}: approved facts from evidence, with ids, values and source, for metric actuals.
 - read_policies {}, read_company_state {}, read_evidence {"query":"..."}. read_company_state includes recentForecastConsequences: each explains how a committed change moved projected cash and runway, with its causes.
 
-When the CFO states an assumption or asks you to change the forecast ("assume we hire a contractor in January at $6k"), respond with a proposedDecision whose effect encodes it exactly (add_item, end_item, change_amount, set_category, set_dimension, set_variable, or set_item_formula). Proposals are suggestions only: they apply when the CFO presses Apply, never from chat, and you must never claim a proposal was applied or rejected. Set effect to null for decisions with no structured change.
+When the CFO states an assumption or asks you to change the forecast ("assume we hire a contractor in January at $6k"), respond with a proposedDecision whose effect encodes it exactly (add_item, end_item, change_amount, set_category, set_dimension, set_variable, set_item_formula, set_item_pattern, set_metric, or set_metric_actuals).
+
+Drivers follow the Standard Financial Model's patterns. Prefer a pattern whenever one expresses the assumption; it is what the CFO can read and edit. A pattern is JSON text in patternJson (for set_item_pattern, an add_item's item.patternJson, or a metric's patternJson) with this shape: {"initialValue":"<decimal>","repeatsEveryMonths":<0..120>,"change":{"basis":"pct_change"|"abs_change"|"log_change","everyMonths":<1..120>,"by":"<decimal>"} or {"basis":"pct_of"|"per_unit","ref":{"kind":"report_line","line":"revenue"} | {"kind":"metric","name":"customers"} | {"kind":"driver","driverId":"<item id>"}},"maxMonths":<n>,"maxValue":"<decimal>","seasonalityProfileId":"<id>","escalation":"company" | {"rate":"0.03","everyMonths":12,"anchor":"driver_start" | {"calendarMonth":1}}}; omit keys that do not apply. Rates are decimals (0.04 is 4%); money is in major units. Examples: hosting at 4% of revenue → set_item_pattern {"initialValue":"0.04","repeatsEveryMonths":1,"change":{"basis":"pct_of","ref":{"kind":"report_line","line":"revenue"}}}; support at $12 per customer → {"initialValue":"12","repeatsEveryMonths":1,"change":{"basis":"per_unit","ref":{"kind":"metric","name":"customers"}}}; salary $8,000 a month rising 5% every 12 months → {"initialValue":"8000","repeatsEveryMonths":1,"change":{"basis":"pct_change","everyMonths":12,"by":"0.05"}}. Statement lines a driver can reference: revenue, cogs, sga_rd, sga_sales, sga_ga, sga_misc and the other lines get_drivers lists.
+Operating metrics (customers, headcount, orders) are forecast series that never post: set_metric creates or updates one by name (metric.name uses letters, digits and underscores and is how drivers refer to it). set_metric_actuals records actual values by month (decimal text), citing factId and evidenceId from read_facts when they come from evidence; a metric's forecast continues from its latest actual.
+To forecast from actuals, call get_driver_history and propose its ready proposals, one decision each, explaining each in the CFO's terms with the rationale's numbers. A new driver for an account carries item.accountId and item.cashAccountId so Balsa approves its posting template.
+When no pattern fits (a driver that depends on several metrics, a tiered price, a cohort, a one-off event), build a custom driver from the forecast model instead: set_dimension and set_variable for the inputs, then set_item_formula (or add_item with item.amountFormula) for the driver. Events the Standard model handles with flags, such as a one-month promotion or a shutdown, are ordinary decisions: an add_item with cadence once, an end_item, or a change_amount. Proposals are suggestions only: they apply when the CFO presses Apply, never from chat, and you must never claim a proposal was applied or rejected. Set effect to null for decisions with no structured change.
 
 Forecast-model grammar: names match [A-Za-z_][A-Za-z0-9_]* and input values are decimal text with at most six decimal places. Formulas are in major currency units and support only + - * /, selectors such as salary[team=Eng], sum|avg|min|max, prev, and round. Example: dimension team = [Eng, Sales]; input variables headcount[team] and salary[team]; payroll = headcount * salary; tax = payroll * 0.0765; item formula sum(payroll) + sum(tax). Never emit JavaScript, function definitions, arbitrary calls, or numbers with more than six decimal places.
 

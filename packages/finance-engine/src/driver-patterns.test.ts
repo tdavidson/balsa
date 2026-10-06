@@ -181,3 +181,20 @@ describe("amount changes and safety", () => {
     expect(result.exceptions[0]?.reason).toMatch(/could not be read/);
   });
 });
+
+describe("metrics fed from actuals", () => {
+  const customers = { name: "customers", effectiveFrom: "2026-01", pattern: { initialValue: "50", repeatsEveryMonths: 1, change: { basis: "pct_change" as const, everyMonths: 1, by: "0.1" } }, actuals: { "2026-11": "180", "2026-12": "200" } };
+  const support = driver("support", { initialValue: "10", repeatsEveryMonths: 1, change: { basis: "per_unit", ref: { kind: "metric", name: "customers" } } }, { itemType: "obligation", direction: "spend", effectiveFrom: "2026-12" });
+
+  it("continues the pattern from the last actual and uses actuals for their months", () => {
+    const result = resolvePatternDrivers([support], { months: monthRange("2026-12", "2027-03"), templates, context: { metrics: [customers] } });
+    expect(result.metrics.customers).toMatchObject({ "2026-12": "200", "2027-01": "220", "2027-02": "242" });
+    expect(amounts(result, "support", "2026-12", "2027-01")).toEqual(["200000", "220000"]);
+  });
+
+  it("uses the pattern as written when there are no actuals", () => {
+    const result = resolvePatternDrivers([support], { months: monthRange("2026-12", "2027-01"), templates, context: { metrics: [{ ...customers, actuals: {} }] } });
+    expect(result.metrics.customers?.["2026-01"]).toBeUndefined();
+    expect(Number(result.metrics.customers?.["2026-12"])).toBeCloseTo(50 * 1.1 ** 11, 3);
+  });
+});
