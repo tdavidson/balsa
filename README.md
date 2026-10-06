@@ -15,6 +15,9 @@ formula-bearing workbook; supported returned edits become proposals for review.
 [Operating models](docs/operating-models.md) let AI draft a decision-specific
 structure of assumptions, relationships, and alternatives. Deterministic runs,
 conditional policies, and bounded simulations help compare those alternatives.
+[The decision workspace](docs/decision-workspace.md) brings saved drafts, assumptions,
+cash comparisons, calculation details, and outcome tracking into five views.
+Start with guided hiring inputs or describe a different decision.
 [Goals & reviews](docs/goal-reviews.md) connect the outlook to cash targets,
 preserved plans, approvals, and outcome reviews.
 

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
+import { buildHiringDecision } from "./hiring-decision";
 import type { OperatingModel } from "@balsa/finance-engine";
 import type { OperatingPreview } from "./operating-models";
 import type { GoalDecisionPreview } from "./goal-decisions-contract";
@@ -164,6 +165,8 @@ describe.skipIf(!process.env.DATABASE_URL)(
         debitAccountId: cash!.id,
         creditAccountId: revenue!.id,
       });
+      const [expense] = await db.insert(chartAccounts).values({ companyId, code: "6000", name: "Synthetic expense", accountType: "expense", normalBalance: "debit" }).returning();
+      await db.insert(forecastEntryTemplates).values({ companyId, name: "Expenses", itemType: "obligation", direction: "spend", debitAccountId: expense!.id, creditAccountId: cash!.id });
       const [policy] = await db
         .insert(policies)
         .values({
@@ -1599,5 +1602,29 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(fresh.preview.previewToken).not.toBe(result.preview.previewToken);
       expect((await readStudy(f.companyId,saved.id)).snapshot.result).toEqual(result.preview.result);
     });
+    it("carries hiring, incremental pricing, and a new delayed receipt through approval into scoped outcomes", async () => {
+      const hiring = buildHiringDecision({ startMonth: "2026-10", hires: 2, annualSalary: "120000", benefitsPercent: "25", recruitingPerHire: "1000", minimumCash: "0" }, { start: "2026-10", end: "2027-03" }, "USD");
+      const pricing: OperatingModel = { ...model, name: "Incremental pricing", description: "Incremental collections only; existing revenue stays in the base forecast", nodes: [
+        { ...model.nodes[0]!, id: "increase", label: "Additional price", values: [{ month: "2026-10", value: "10" }] },
+        { ...model.nodes[0]!, id: "customers", label: "Customers retained", unit: "customers", values: [{ month: "2026-10", value: "100" }] },
+        { ...model.nodes[0]!, id: "receipts", label: "Incremental collections", op: "multiply", args: ["increase", "customers"], values: [] },
+      ], outputs: [{ nodeId: "receipts", label: "Incremental collections", direction: "receipt", category: "other" }], cases: [{ id: "lower_volume", name: "Fewer retained customers", rationale: "Explicit demand assumption", overrides: [{ nodeId: "customers", values: [{ month: "2026-10", value: "75" }] }] }] };
+      const delayed: OperatingModel = { ...model, name: "New customer receipt delayed", description: "A new receipt not already included in the forecast", nodes: [{ ...model.nodes[0]!, values: [{ month: "2026-10", value: "0" }, { month: "2026-11", value: "20000" }, { month: "2026-12", value: "0" }] }], cases: [] };
+      for (const definition of [hiring, pricing, delayed]) {
+        const f = await seed(definition);
+        expect((await workspace(f.companyId, f.experimentId)).predictions).toEqual([]);
+        const approved = await approve(f);
+        const selected = await workspace(f.companyId, f.experimentId);
+        expect(selected.predictions.map(item => item.id)).toEqual([approved.id]);
+        expect(selected.predictions[0]?.experimentId).toBe(f.experimentId);
+        expect((await workspace(f.companyId, randomUUID())).predictions).toEqual([]);
+        const outcome = await load(f.companyId, approved.id, later);
+        expect(outcome.experimentId).toBe(f.experimentId);
+        expect(outcome.rows.length).toBeGreaterThan(0);
+        // A preserved prediction must keep the approved source model, not a later draft.
+        expect(outcome.rows.some(row => row.nodeId === definition.outputs[0]!.nodeId)).toBe(true);
+      }
+    });
+
   },
 );

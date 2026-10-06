@@ -1,4 +1,8 @@
 "use client";
+import { DecisionDraftBar } from "./decision-draft-bar";
+import { HiringDecisionStarter } from "./hiring-decision-starter";
+import { DecisionCashChart } from "./decision-cash-chart";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 import {OperatingStudies} from "./operating-studies";
 import {
   OperatingDecisionForm,
@@ -37,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { exactMoney as money } from "./opening-cash-review";
+export type PreservedDecision = { id: string; scenarioId: string; model: OperatingModel; caseId: string };
 type Workspace = Awaited<ReturnType<typeof loadOperatingWorkspace>>;
 const formula = (node: OperatingModel["nodes"][number]) =>
   node.op === "input"
@@ -51,21 +56,31 @@ export function OperatingModels({
   company,
   initialData,
   initialError,
+  initialSaved = null,
+  initialView = "overview",
 }: {
   company: { id: string; name: string; currency: string };
   initialData: Workspace | null;
   initialError: string;
+  initialSaved?: PreservedDecision | null;
+  initialView?: string;
 }) {
+  const [draftSession, setDraftSession] = useState(0);
+  const [view, setView] = useState(initialView);
+  const [inspectionMonth, setInspectionMonth] = useState("");
+  const [savedLink, setSavedLink] = useState<{ id: string; scenarioId: string } | null>(initialSaved);
   const [workspace, setWorkspace] = useState(initialData);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState<OperatingModel | null>(null);
+  const [model, setModel] = useState<OperatingModel | null>(initialSaved?.model ?? null);
   const [preview, setPreview] = useState<OperatingPreview | null>(null);
-  const [selectedCase, setSelectedCase] = useState("base");
-  const [busy, setBusy] = useState(false);
+  const [selectedCase, setSelectedCase] = useState(initialSaved?.caseId ?? "base");
+  const [working, setBusy] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const busy = working || draftBusy;
   const [error, setError] = useState(initialError);
   const [notice, setNotice] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
-  const [definition, setDefinition] = useState("");
+  const [definition, setDefinition] = useState(initialSaved ? JSON.stringify(initialSaved.model, null, 2) : "");
   const request = useRef<{ fingerprint: string; key: string } | null>(null);
   async function read<T>(url: string, body?: object): Promise<T> {
     const response = await fetch(
@@ -109,6 +124,7 @@ export function OperatingModels({
       ...next,
       decision: next.decision ?? defaultOperatingDecision(next),
     };
+    setSavedLink(null);
     setModel(next);
     setDefinition(JSON.stringify(next, null, 2));
     setPreview(null);
@@ -131,7 +147,7 @@ export function OperatingModels({
           <Link href="/goal-decisions">Decisions & outcomes</Link>
         </nav>
         <h1 className="mt-5 text-3xl font-semibold">
-          Model a business decision
+          Decision workspace
         </h1>
         <p className="mt-2 max-w-3xl text-muted-foreground">
           Describe what you want to understand. Build and revise the operating
@@ -139,6 +155,15 @@ export function OperatingModels({
           {company.name}.
         </p>
       </header>
+      <p className="text-sm text-muted-foreground">{company.name} · {company.currency}{workspace ? ` · Forecast ${workspace.horizon.start}–${workspace.horizon.end}` : ""} · {savedLink ? "Saved scenario — review its approval status" : preview ? "Calculated preview — not approved" : "Draft — outside the forecast"}</p>
+      <DecisionDraftBar key={`${company.id}-${draftSession}`} companyId={company.id} definition={{ prompt, model, selectedCase }} experimentId={savedLink?.id ?? null} disabled={busy} onBusyChange={setDraftBusy} onOpen={async draft => {
+        let linked: { id: string; scenarioId: string } | null = null;
+        if (draft.experimentId) linked = await read(`/api/operating-models?id=${draft.experimentId}`);
+        setPrompt(draft.definition.prompt); setModel(draft.definition.model); setDefinition(draft.definition.model ? JSON.stringify(draft.definition.model, null, 2) : ""); setSelectedCase(draft.definition.selectedCase); setPreview(null); setAcknowledged(false); request.current = null; setSavedLink(linked); setView(draft.definition.model ? "assumptions" : "overview");
+      }} />
+      <div className="overflow-x-auto"><ToggleGroup type="single" value={view} onValueChange={next => { if (next) setView(next); }} variant="outline" aria-label="Decision workspace views">
+        {["overview", "assumptions", "compare", "details", "outcome"].map(item => <ToggleGroupItem key={item} value={item} disabled={(item === "assumptions" || item === "details") && !model || item === "compare" && !preview}>{item[0]!.toUpperCase() + item.slice(1)}</ToggleGroupItem>)}
+      </ToggleGroup></div>
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Model needs attention</AlertTitle>
@@ -158,6 +183,8 @@ export function OperatingModels({
       )}
       {workspace && (
         <>
+          <div hidden={view !== "overview"} className="flex flex-col gap-6">
+          {!model && <HiringDecisionStarter horizon={workspace.horizon} currency={company.currency} disabled={busy} onCreate={next => { change(next); setPrompt(next.decision!.question); setSelectedCase("base"); setView("assumptions"); }} />}
           <Card>
             <CardHeader>
               <CardTitle>
@@ -202,6 +229,7 @@ export function OperatingModels({
                           previous: model,
                         });
                         change(result.model);
+                        setView("assumptions");
                         setSelectedCase("base");
                         setNotice(
                           "Draft created. Review its assumptions, relationships and omissions before calculating financial effects.",
@@ -215,11 +243,17 @@ export function OperatingModels({
                         ? "Revise draft with AI"
                         : "Draft model with AI"}
                   </Button>
+                  <Button variant="outline" disabled={busy} onClick={() => setPrompt("Evaluate a price increase. Model only incremental collections relative to current prices; show volume response and collection timing as explicit assumptions. List missing customer, price, and demand evidence. Compare the increase with keeping current prices.")}>Explore a pricing change</Button>
+                  <Button variant="outline" disabled={busy} onClick={() => { setPrompt("Evaluate a delayed customer payment. First distinguish a receipt already included in the forecast from a new unmodeled receipt. For a new receipt, compare its stated payment dates without repeating it monthly. List missing agreement and timing evidence."); setNotice("If the receipt is already forecast, change its existing expectation in Expectations & coverage. Adding it again here would double count cash."); }}>Explore payment timing</Button>
+                  <Link className="self-center text-sm underline" href="/reconciliation">Change timing of an existing receipt</Link>
                   {model && (
                     <Button
                       variant="outline"
                       disabled={busy}
                       onClick={() => {
+                        if (model && !window.confirm("Start a new decision? Save progress first if you want to keep this draft.")) return;
+                        setDraftSession(value => value + 1);
+                        setSavedLink(null); setPrompt("");
                         setModel(null);
                         setPreview(null);
                         setDefinition("");
@@ -233,8 +267,9 @@ export function OperatingModels({
               </FieldGroup>
             </CardContent>
           </Card>
+          </div>
           {model && (
-            <>
+            <div hidden={view !== "assumptions" && view !== "details"}>
               <Card>
                 <CardHeader>
                   <CardTitle>{model.name}</CardTitle>
@@ -250,6 +285,7 @@ export function OperatingModels({
                       flows that are not already in your base forecast.
                     </AlertDescription>
                   </Alert>
+                  <div hidden={view !== "assumptions"} className="flex flex-col gap-5">
                   <OperatingDecisionForm
                     currency={company.currency}
                     model={model}
@@ -313,6 +349,7 @@ export function OperatingModels({
                           <p className="my-2 text-sm text-muted-foreground">
                             {node.rationale}
                           </p>
+                          <p className="mb-2 text-xs text-muted-foreground">{node.evidenceIds.length ? "Supporting sources (approval checked when calculated):" : "No supporting source attached — assumption only."} {node.evidenceIds.map((id, index) => <a key={id} className="mr-2 underline" href={`/api/evidence/${id}/file`} target="_blank" rel="noreferrer">Source {index + 1}</a>)}</p>
                           <FieldGroup>
                             {node.values.map((step, i) => (
                               <Field key={i}>
@@ -352,6 +389,8 @@ export function OperatingModels({
                         </section>
                       ))}
                   </div>
+                  </div>
+                  <div hidden={view !== "details"} className="flex flex-col gap-5">
                   <OperatingRelationships model={model} />
                   <details>
                     <summary className="cursor-pointer font-medium">
@@ -474,6 +513,7 @@ export function OperatingModels({
                       </Button>
                     </FieldGroup>
                   </details>
+                  </div>
                   <Button
                     disabled={busy}
                     onClick={() =>
@@ -486,6 +526,7 @@ export function OperatingModels({
                           model,
                         });
                         setPreview(result.preview);
+                        setView("compare");
                         setSelectedCase(
                           result.preview.model.decision?.caseId ?? "base",
                         );
@@ -500,9 +541,9 @@ export function OperatingModels({
                   </Button>
                 </CardContent>
               </Card>
-            </>
+            </div>
           )}
-          {preview?.decisionAnalysis && (
+          {view === "compare" && preview?.decisionAnalysis && (
             <OperatingDecisionResults
               key={preview.previewToken}
               analysis={preview.decisionAnalysis}
@@ -513,7 +554,7 @@ export function OperatingModels({
             />
           )}
           {preview && path && (
-            <>
+            <div hidden={view !== "compare" && view !== "details"}>
               <Card>
                 <CardHeader>
                   <CardTitle>Compare the consequences</CardTitle>
@@ -524,7 +565,8 @@ export function OperatingModels({
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <div className="overflow-x-auto">
+                  {view === "compare" && <DecisionCashChart preview={preview} caseId={path.caseId} onInspect={month => { setInspectionMonth(month); setView("details"); }} />}
+                  <div hidden={view !== "compare"} className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr>
@@ -555,7 +597,7 @@ export function OperatingModels({
                               <th className="p-3">
                                 <button
                                   className="text-left underline"
-                                  onClick={() => setSelectedCase(p.caseId)}
+                                  onClick={() => { setSelectedCase(p.caseId); setSavedLink(null); setAcknowledged(false); }}
                                 >
                                   {p.name}
                                 </button>
@@ -600,7 +642,7 @@ export function OperatingModels({
                       </tbody>
                     </table>
                   </div>
-                  <Select value={path.caseId} onValueChange={setSelectedCase}>
+                  <Select value={path.caseId} onValueChange={next => { setSelectedCase(next); setSavedLink(null); setAcknowledged(false); }}>
                     <SelectTrigger aria-label="Inspect operating case">
                       <SelectValue />
                     </SelectTrigger>
@@ -614,6 +656,8 @@ export function OperatingModels({
                       </SelectGroup>
                     </SelectContent>
                   </Select>
+                  <div hidden={view !== "details"}>
+                  {(() => { const month = displayedMonths.find(item => item.month === inspectionMonth) ?? displayedMonths[0]; return month ? <Alert><AlertTitle>{month.month} ending cash</AlertTitle><AlertDescription>{money(month.openingCashMinor, company.currency)} opening cash + {money(month.receiptsMinor, company.currency)} cash in − {money(month.spendingMinor, company.currency)} cash out = {money(month.endingCashMinor, company.currency)}. Inspect the monthly inputs and sources below.</AlertDescription></Alert> : null; })()}
                   <details open>
                     <summary className="cursor-pointer font-medium">
                       Monthly cash and operating trace
@@ -728,6 +772,20 @@ export function OperatingModels({
                       Accounting forecast: {path.forecast.formulaVersion}
                     </p>
                   </details>
+                  </div>
+                  <div hidden={view !== "compare"} className="flex flex-col gap-4">
+                  {path.forecast.exceptions.length > 0 && (
+                    <Alert variant="destructive">
+                      <AlertTitle>Resolve forecast exceptions before saving</AlertTitle>
+                      <AlertDescription>
+                        <ul className="list-disc pl-5">
+                          {path.forecast.exceptions.map((item, index) => <li key={index}>{item.reason}</li>)}
+                        </ul>
+                        <Link className="underline" href="/">Review accounting and forecast mappings</Link>, then calculate again.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  <Alert><AlertTitle>Next: review the forecast change</AlertTitle><AlertDescription>Save the selected case, then review its before-and-after financial effects for approval. Approval needs a preserved plan; <Link className="underline" href="/goals">set a goal and preserve a plan</Link> if you have not done so.</AlertDescription></Alert>
                   <p className="text-sm">
                     {selectedCase === "__unchanged__"
                       ? "Do nothing needs no saved scenario. Choose a modeled case above if you want to propose an action."
@@ -774,11 +832,12 @@ export function OperatingModels({
                             };
                           const result = await read<{
                             companyId: string;
-                            saved: { id: string; name: string };
+                            saved: { id: string; name: string; scenarioId: string };
                           }>("/api/operating-models", {
                             ...content,
                             requestKey: request.current.key,
                           });
+                          setSavedLink(result.saved);
                           setWorkspace(await read("/api/operating-models"));
                           setNotice(
                             `Saved ${result.saved.name}. Its frozen cash schedule is a scenario awaiting review in Decisions & outcomes. The operating definition is preserved below.`,
@@ -789,20 +848,26 @@ export function OperatingModels({
                       Save this case as a scenario for review
                     </Button>
                   </FieldGroup>
-                  <Link className="text-sm underline" href="/goal-decisions">
-                    Open Decisions & outcomes for approval
+                  <Link className="text-sm underline" href={savedLink ? `/goal-decisions?scenario=${savedLink.scenarioId}&experiment=${savedLink.id}` : "/goal-decisions"}>
+                    {savedLink ? "Review this scenario for approval" : "Open Decisions & outcomes for approval"}
                   </Link>
+                  {savedLink && <Link className="text-sm underline" href={`/operating-models?experiment=${savedLink.id}&view=outcome`}>Reopen this decision and track its outcome</Link>}
+                  </div>
                 </CardContent>
               </Card>
-            </>
+            </div>
           )}
-          {preview && <OperatingStudies key={`study-${company.id}-${preview.previewToken}`} companyId={company.id} model={preview.model} source={{kind:"draft",model:preview.model,caseId:selectedCase}}/>}
-          <OperatingOutcomes key={`outcomes-${company.id}`} companyId={company.id} />
-          <OperatingConnections
+          {view === "details" && preview && <OperatingStudies key={`study-${company.id}-${preview.previewToken}`} companyId={company.id} model={preview.model} source={{kind:"draft",model:preview.model,caseId:selectedCase}}/>}
+          {view === "outcome" && <>
+            {savedLink && <Alert><AlertTitle>Follow this decision through approval</AlertTitle><AlertDescription><Link className="underline" href={`/goal-decisions?scenario=${savedLink.scenarioId}&experiment=${savedLink.id}`}>Review the saved scenario and its current approval status.</Link> Approved predictions below retain the assumptions used at approval; new draft edits do not rewrite them.</AlertDescription></Alert>}
+            <OperatingOutcomes key={`outcomes-${company.id}-${savedLink?.id ?? "all"}`} companyId={company.id} experimentId={savedLink?.id} />
+          </>}
+          {view === "details" && <OperatingConnections
             key={company.id}
             companyId={company.id}
             experiments={workspace.saved}
-          />
+          />}
+          <div hidden={view !== "overview"}>
           <Card>
             <CardHeader>
               <CardTitle>Preserved experiments</CardTitle>
@@ -834,9 +899,12 @@ export function OperatingModels({
                           act(async () => {
                             const saved = await read<{
                               companyId: string;
-                              snapshot: { model: OperatingModel };
+                              id: string; scenarioId: string; snapshot: { model: OperatingModel };
                             }>(`/api/operating-models?id=${item.id}`);
+                            if ((model || prompt) && !window.confirm("Reopen this experiment? Save progress first to keep your current draft.")) return;
+                            setDraftSession(value => value + 1);
                             change(saved.snapshot.model);
+                            setSavedLink(saved); setSelectedCase("base"); setView("assumptions");
                             setNotice(
                               "Original assumptions reopened. Revise the dates and inputs, then calculate against today's forecast.",
                             );
@@ -863,6 +931,7 @@ export function OperatingModels({
               )}
             </CardContent>
           </Card>
+          </div>
         </>
       )}
     </main>

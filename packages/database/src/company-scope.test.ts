@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readCompanyScope, withCompanyTransaction } from "./company-scope";
 import type { Database } from "./index";
 import * as schema from "./schema";
-import { chartAccounts, reportCategories, forecastMetricActuals, forecastMetrics, seasonalityProfiles, financialWorkReviews, financialReviewTasks, financialReviewSignoffs, recognitionJournalLinks, economicItems, journalEntries, journalBatches, users, financialImportReviews, financialReviewPreferences, cashGoalVersions, companies, financialReviewSnapshots, goalDecisionReviews, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, sources } from "./schema";
+import { operatingDrafts, chartAccounts, reportCategories, forecastMetricActuals, forecastMetrics, seasonalityProfiles, financialWorkReviews, financialReviewTasks, financialReviewSignoffs, recognitionJournalLinks, economicItems, journalEntries, journalBatches, users, financialImportReviews, financialReviewPreferences, cashGoalVersions, companies, financialReviewSnapshots, goalDecisionReviews, forecastOccurrences, forecastRecurrencePolicies, forecastReviewCommands, sources } from "./schema";
 
 config({ path: fileURLToPath(new URL("../../../.env.local", import.meta.url)) });
 config({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -205,4 +205,15 @@ describe.skipIf(!connectionString)("withCompanyTransaction", () => {
     const rejection = await withCompanyTransaction(appDatabase, companyAId, (tx) => tx.insert(forecastMetrics).values({ companyId: companyBId, name: "foreign", label: "Foreign", effectiveFrom: "2027-01", pattern: {} })).then(() => null, (reason: unknown) => reason);
     expect(String((rejection as { cause?: unknown } | null)?.cause ?? rejection)).toMatch(/row-level security/i);
   });
+  it("isolates editable decision drafts under the company policy", async context => {
+    if (!appDatabase) { context.skip(`skipped: ${unavailable}`); return; }
+    for (const companyId of [companyAId, companyBId]) await database.insert(operatingDrafts).values({ companyId, name: "Synthetic draft", definition: { prompt: "Synthetic question", model: null, selectedCase: "base" } });
+    await withCompanyTransaction(appDatabase, companyAId, async tx => {
+      const rows = await tx.select().from(operatingDrafts);
+      expect(rows.map(row => row.companyId)).toEqual([companyAId]);
+    });
+    const rejection = await withCompanyTransaction(appDatabase, companyAId, tx => tx.insert(operatingDrafts).values({ companyId: companyBId, name: "Foreign draft", definition: {} })).then(() => null, reason => reason);
+    expect(String(rejection?.cause ?? rejection)).toMatch(/row-level security/i);
+  });
+
 });

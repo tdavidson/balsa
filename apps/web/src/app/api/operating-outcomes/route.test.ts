@@ -98,4 +98,12 @@ describe("operating outcome HTTP boundary", () => {
     expect(failed.status).toBe(500);
     expect(JSON.stringify(await failed.json())).not.toContain("secret");
   });
+  it("validates and scopes outcome selection to a preserved experiment", async () => {
+    expect((await GET(new Request("http://localhost/api/operating-outcomes?experiment=bad"))).status).toBe(400);
+    const id = "00000000-0000-4000-8000-000000000001";
+    mocks.workspace.mockResolvedValue({ companyId: "company-a", predictions: [] });
+    await GET(new Request(`http://localhost/api/operating-outcomes?experiment=${id}`));
+    expect(mocks.workspace).toHaveBeenCalledWith("company-a", id);
+  });
+
 });

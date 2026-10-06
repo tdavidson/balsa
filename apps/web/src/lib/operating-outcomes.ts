@@ -221,14 +221,14 @@ function sourceOf(row: Awaited<ReturnType<typeof factsWith>>[number]) {
     evidenceUpdatedAt: row.document.updatedAt.toISOString(),
   };
 }
-export async function loadOperatingOutcomeWorkspace(companyId: string) {
+export async function loadOperatingOutcomeWorkspace(companyId: string, experimentId?: string) {
   return getDatabase().transaction(
     async (tx) => {
       await tx.execute(setCompanyScopeSql(companyId));
       const rows = await tx
         .select()
         .from(operatingPredictions)
-        .where(eq(operatingPredictions.companyId, companyId))
+        .where(and(eq(operatingPredictions.companyId, companyId), experimentId ? eq(operatingPredictions.experimentId, experimentId) : undefined))
         .orderBy(desc(operatingPredictions.createdAt))
         .limit(50);
       const reviews = await tx
@@ -249,6 +249,7 @@ export async function loadOperatingOutcomeWorkspace(companyId: string) {
           and(
             eq(goalDecisionReviews.companyId, companyId),
             eq(goalDecisionReviews.kind, "applied"),
+            experimentId ? eq(operatingExperiments.id, experimentId) : undefined,
           ),
         )
         .orderBy(desc(goalDecisionReviews.createdAt))
@@ -258,6 +259,7 @@ export async function loadOperatingOutcomeWorkspace(companyId: string) {
         predictions: rows.map((row) => ({
           id: row.id,
           reviewId: row.reviewId,
+          experimentId: row.experimentId,
           name: (row.snapshot as OperatingPredictionSnapshot).name,
           approvedAt: (row.snapshot as OperatingPredictionSnapshot).approvedAt,
         })),

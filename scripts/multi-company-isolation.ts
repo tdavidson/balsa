@@ -139,7 +139,7 @@ async function postFileEvidence(target: Browser, filename: string) {
 }
 
 /** Every read surface the plan requires to stay company-scoped. */
-const scopedEndpoints = ["/api/evidence", "/api/state", "/api/conversations", "/api/knowledge", "/api/journals", "/api/calculations", "/api/usage", "/api/goal-review", "/api/goal-decisions", "/api/forecast-reconciliation", "/api/financial-progress", "/api/import-review", "/api/financial-reviews", "/api/banks", "/api/operating-models", "/api/operating-connections", "/api/operating-outcomes", "/api/report-mapping", "/api/report-categories", "/api/standard-statements", "/api/driver-patterns", "/api/forecast-metrics", "/api/seasonality-profiles"] as const;
+const scopedEndpoints = ["/api/evidence", "/api/state", "/api/conversations", "/api/knowledge", "/api/journals", "/api/calculations", "/api/usage", "/api/goal-review", "/api/goal-decisions", "/api/forecast-reconciliation", "/api/financial-progress", "/api/import-review", "/api/financial-reviews", "/api/banks", "/api/operating-models", "/api/operating-drafts", "/api/operating-connections", "/api/operating-outcomes", "/api/report-mapping", "/api/report-categories", "/api/standard-statements", "/api/driver-patterns", "/api/forecast-metrics", "/api/seasonality-profiles"] as const;
 
 async function readScopedSurfaces(target: Browser, expectedCompanyId: string) {
   const snapshot: Record<string, string> = {};
