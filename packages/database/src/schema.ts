@@ -231,7 +231,12 @@ export const companies = pgTable("companies", {
   faviconStorageReference: text("favicon_storage_reference"),
   faviconMime: text("favicon_mime"),
   faviconHash: text("favicon_hash"),
+  /** Fiscal year end month as two digits, "01" through "12"; null means December. */
   fiscalYearEnd: text("fiscal_year_end"),
+  /** The model timeline the user sets: first and last month shown and forecast, as YYYY-MM. */
+  modelFirstPeriod: text("model_first_period"), modelLastPeriod: text("model_last_period"),
+  /** Default escalation drivers opt into (finance-engine EscalationRule); null when unset. */
+  defaultEscalation: jsonb("default_escalation").$type<unknown>(),
   /** Monotonic revision of included financial state; calculation runs name the revision they reproduce. */
   financialStateRevision: text("financial_state_revision").default("0").notNull(),
   /** CFO-set cash floor for the forecast's cash-out month, in base-currency minor units. */
@@ -489,6 +494,8 @@ export const decisions = pgTable(
     effect: text("effect"),
     status: text("status").default("applied").notNull(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The evidence the decision came from, such as a returned workbook whose edits were proposed. */
+    evidenceId: uuid("evidence_id").references((): AnyPgColumn => evidence.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => [index("decisions_company_index").on(table.companyId, table.createdAt)],
@@ -662,8 +669,50 @@ export const chartAccounts = pgTable("chart_accounts", {
   statementSection: text("statement_section"), statementLine: text("statement_line"), /** Explicit current/non-current classification for balance-sheet presentation. */ balanceTiming: text("balance_timing"), /** Exact bank/brokerage account identifier for statement cash reconciliation. */ bankAccountIdentifier: text("bank_account_identifier"), cashFlowCategory: text("cash_flow_category"), workingCapitalCategory: text("working_capital_category"), /** Only an explicitly configured monetary account may be remeasured at closing FX rates. */ fxMonetary: char("fx_monetary", { length: 1 }).default("N").notNull(),
   entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
   activeFrom: text("active_from"), activeTo: text("active_to"), active: char("active", { length: 1 }).default("Y").notNull(),
+  /** User-confirmed Standard statement line (presentation only); null means the deterministic suggestion applies. */
+  reportLine: text("report_line"), reportCategoryId: uuid("report_category_id"),
+  /** User override of the cash default: "cash" or "not_cash"; null means bank-linked or named-cash assets count as cash. */
+  cashTreatment: text("cash_treatment"),
   ...timestamps,
 }, (table) => [uniqueIndex("chart_accounts_company_id").on(table.companyId, table.id), uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
+
+/** An operating metric (customers, headcount): a forecast series drivers reference that never posts. */
+export const forecastMetrics = pgTable("forecast_metrics", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), label: text("label").notNull(), unit: text("unit"),
+  effectiveFrom: text("effective_from").notNull(), effectiveTo: text("effective_to"), pattern: jsonb("pattern").$type<unknown>().notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("forecast_metrics_company_name").on(table.companyId, table.name)]);
+
+/** A recorded value of an operating metric for one month, with its source: a user, or an evidence fact, possibly through a decision. */
+export const forecastMetricActuals = pgTable("forecast_metric_actuals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  metricId: uuid("metric_id").notNull().references(() => forecastMetrics.id, { onDelete: "cascade" }),
+  month: text("month").notNull(), value: text("value").notNull(),
+  evidenceId: uuid("evidence_id").references((): AnyPgColumn => evidence.id, { onDelete: "set null" }),
+  factId: uuid("fact_id").references((): AnyPgColumn => factRecords.id, { onDelete: "set null" }),
+  decisionId: uuid("decision_id").references((): AnyPgColumn => decisions.id, { onDelete: "set null" }),
+  createdByUserId: uuid("created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (table) => [uniqueIndex("forecast_metric_actuals_metric_month").on(table.metricId, table.month), index("forecast_metric_actuals_company").on(table.companyId)]);
+
+/** Twelve calendar-month deviations a driver can apply; they sum to zero. */
+export const seasonalityProfiles = pgTable("seasonality_profiles", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), deviations: jsonb("deviations").$type<string[]>().notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("seasonality_profiles_company_name").on(table.companyId, sql`lower(${table.name})`)]);
+
+/** A user-defined category under one Standard statement line, such as Subscriptions under Revenues. */
+export const reportCategories = pgTable("report_categories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  line: text("line").notNull(), name: text("name").notNull(), sortOrder: integer("sort_order").default(0).notNull(),
+  ...timestamps,
+}, (table) => [uniqueIndex("report_categories_company_line_name").on(table.companyId, table.line, sql`lower(${table.name})`), uniqueIndex("report_categories_company_id").on(table.companyId, table.id)]);
 
 /** Approved reciprocal account pair for one intercompany relationship. */
 export const intercompanyAccountMappings = pgTable("intercompany_account_mappings", {
@@ -829,6 +878,8 @@ export const economicItems = pgTable(
     amount: text("amount"),
     /** A driver formula over the forecast model, in major units. When set, `amount` is the display fallback only. */
     amountFormula: text("amount_formula"),
+    /** Standard-model driver pattern (finance-engine DriverPattern); exclusive with amountFormula. */
+    pattern: jsonb("pattern").$type<unknown>(),
     cadence: text("cadence"),
     accountingTreatment: text("accounting_treatment").default("cash").notNull(),
     recognitionStart: text("recognition_start"),

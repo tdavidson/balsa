@@ -4,19 +4,20 @@ import { buildProjectedEntries, type ForecastDriver, type ForecastEntryTemplate,
 import type { ForecastedCloseMatch } from "./forecasted-closes";
 import { settleForecastLines, type CashSettlementInput, type CashOccurrenceResult } from "./forecast-settlement";
 import { monthRange, resolveFormulaDrivers, type ForecastModel, type ForecastModelSummary } from "./forecast-model";
+import { resolvePatternDrivers, type PatternContext } from "./driver-patterns";
 import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
 
-export const forecastFormulaVersion = "forecast-run-2026-09-26.2";
+export const forecastFormulaVersion = "forecast-run-2026-10-07.1";
 
-export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory">;
+export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory" | "isCash"> & { /** Resolved Standard statement line, for drivers that reference a line such as total revenue. */ reportLine?: string };
 export type ForecastOpenMonth = { month: string; throughDate: string; actualLines: PostedJournalLine[]; forecastedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[] };
-export type ForecastRunInput = { recognitionProofs?: RecognitionProof[]; actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string; /** The open month combines posted actuals through the cutoff with approved remaining expectations. */ openMonth?: ForecastOpenMonth; settlement?: CashSettlementInput; recurrence?: RecurrenceState[]; /** Dimensions and variables that formula drivers read; omitted when the company has none. */ model?: ForecastModel };
+export type ForecastRunInput = { recognitionProofs?: RecognitionProof[]; actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string; /** The open month combines posted actuals through the cutoff with approved remaining expectations. */ openMonth?: ForecastOpenMonth; settlement?: CashSettlementInput; recurrence?: RecurrenceState[]; /** Dimensions and variables that formula drivers read; omitted when the company has none. */ model?: ForecastModel; /** Operating metrics, seasonality profiles and the company escalation that pattern drivers read. */ patterns?: PatternContext };
 export type ForecastNodeKind = "ending_cash" | "net_burn" | "trailing_burn_3m" | "cash_over_trailing_burn" | "cash_out_month" | "runway_months";
 export type ForecastNode = { id: string; kind: ForecastNodeKind; month: string; label: string; formula: string; formulaVersion: string; value: string | null; inputNodeIds: string[]; driverIds: string[] };
 export type ForecastMonth = { month: string; basis: "actual" | "forecast"; openingCashMinor: string; endingCashMinor: string; receiptsMinor: string; spendingMinor: string; driverIds: string[] };
 export type ForecastRunway = { cashOutMonth: string | null; runwayMonths: number | null; trailingBurn3mMinor: string; cashOverTrailingBurn: string | null; minimumCashMinor: string; horizonMonths: number };
-export type ForecastRun = { formulaVersion: string; asOfMonth: string; horizon: { start: string; end: string }; currency: string; months: ForecastMonth[]; nodes: ForecastNode[]; projectedLines: PostedJournalLine[]; forecastedCloseMatches?: ForecastedCloseMatch[]; settlements?: CashOccurrenceResult[]; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[]; runway: ForecastRunway; verificationStatus: "verified" | "exception"; /** The model variables formula drivers used, with monthly totals; only when a driver has a formula. */ modelSummary?: ForecastModelSummary };
+export type ForecastRun = { formulaVersion: string; asOfMonth: string; horizon: { start: string; end: string }; currency: string; months: ForecastMonth[]; nodes: ForecastNode[]; projectedLines: PostedJournalLine[]; forecastedCloseMatches?: ForecastedCloseMatch[]; settlements?: CashOccurrenceResult[]; drivers: ForecastDriver[]; exceptions: { driverId: string; reason: string }[]; runway: ForecastRunway; verificationStatus: "verified" | "exception"; /** The model variables formula drivers used, with monthly totals; only when a driver has a formula. */ modelSummary?: ForecastModelSummary; /** Operating metric values pattern drivers used, by month; only when a driver has a pattern. */ metrics?: Record<string, Record<string, string>> };
 
 const monthsBetween = (from: string, to: string) => { const [fromYear, fromMonth] = from.split("-").map(Number); const [toYear, toMonth] = to.split("-").map(Number); return (toYear! - fromYear!) * 12 + (toMonth! - fromMonth!); };
 const tenths = (value: bigint) => { const negative = value < 0n; const magnitude = negative ? -value : value; return `${negative ? "-" : ""}${magnitude / 10n}.${magnitude % 10n}`; };
@@ -39,12 +40,15 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   // Formula drivers take monthly amounts from the model over [as-of, horizon end]; the as-of month is
   // the base for prev. A run without a formula driver takes exactly the fixed-amount path.
   const resolution = sortedDrivers.some((driver) => driver.amountFormula !== undefined) ? resolveFormulaDrivers(sortedDrivers, input.model, monthRange(input.asOfMonth, horizon.end)) : null;
-  const drivers = resolution ? resolution.drivers : sortedDrivers;
-  const unresolved = new Set((resolution?.exceptions ?? []).map((exception) => exception.driverId));
+  const formulaDrivers = resolution ? resolution.drivers : sortedDrivers;
   const templates = [...input.templates].sort((left, right) => left.id.localeCompare(right.id));
+  // Pattern drivers resolve after formulas, since a pattern may reference a formula driver's amounts.
+  const patterns = formulaDrivers.some((driver) => driver.pattern) ? resolvePatternDrivers(formulaDrivers, { months: monthRange(input.asOfMonth, horizon.end), templates, accountLines: new Map(input.accounts.flatMap((account) => account.reportLine ? [[account.accountId, account.reportLine] as const] : [])), ...(input.model ? { model: input.model } : {}), ...(input.patterns ? { context: input.patterns } : {}) }) : null;
+  const drivers = patterns ? patterns.drivers : formulaDrivers;
+  const unresolved = new Set([...(resolution?.exceptions ?? []), ...(patterns?.exceptions ?? [])].map((exception) => exception.driverId));
   const accountById = new Map(input.accounts.map((account) => [account.accountId, account]));
   const projection = buildProjectedEntries(unresolved.size ? drivers.filter((driver) => !unresolved.has(driver.id)) : drivers, templates, horizon, undefined, input.accounts, input.recognitionProofs?.map((proof) => ({ ...proof, valid: proof.valid && proof.currency === input.currency })));
-  const exceptions = [...(resolution?.exceptions ?? []), ...projection.exceptions];
+  const exceptions = [...(resolution?.exceptions ?? []), ...(patterns?.exceptions ?? []), ...projection.exceptions];
   for (const state of input.recurrence ?? []) if (state.state === "stale" || state.pendingCount > 0) exceptions.push({ driverId: state.policy.driverId, reason: state.reason ?? `${state.policy.definition.driver.label}: ${state.pendingCount} recurring expectations are waiting for the next forecast update.` });
   const excluded = new Set(exceptions.map((exception) => exception.driverId));
   for (const entry of projection.entries) {
@@ -111,7 +115,7 @@ export function buildForecastRun(input: ForecastRunInput): ForecastRun {
   nodes.push(node("runway_months", input.asOfMonth, "Runway", "full months funded before the cash-out month", runwayMonths === null ? null : String(runwayMonths), [`cash_out_month:${input.asOfMonth}`], []));
 
   return {
-    formulaVersion: forecastFormulaVersion, asOfMonth: input.asOfMonth, horizon, currency: input.currency, months, nodes, projectedLines, ...(settlement ? { settlements: settlement.results } : {}), drivers, exceptions, ...(resolution ? { modelSummary: resolution.summary } : {}),
+    formulaVersion: forecastFormulaVersion, asOfMonth: input.asOfMonth, horizon, currency: input.currency, months, nodes, projectedLines, ...(settlement ? { settlements: settlement.results } : {}), drivers, exceptions, ...(resolution ? { modelSummary: resolution.summary } : {}), ...(patterns ? { metrics: patterns.metrics } : {}),
     runway: { cashOutMonth, runwayMonths, trailingBurn3mMinor: trailingBurn.toString(), cashOverTrailingBurn: ratio, minimumCashMinor: input.minimumCashMinor, horizonMonths: input.horizonMonths },
     verificationStatus: exceptions.length ? "exception" : "verified",
   };

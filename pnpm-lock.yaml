@@ -14,6 +14,15 @@ importers:
 
   apps/web:
     dependencies:
+      '@balsa/finance-engine':
+        specifier: workspace:*
+        version: link:../../packages/finance-engine
+      '@balsa/ingestion':
+        specifier: workspace:*
+        version: link:../../packages/ingestion
+      '@balsa/model-export':
+        specifier: workspace:*
+        version: link:../../packages/model-export
       '@finance/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -23,12 +32,6 @@ importers:
       '@finance/model-providers':
         specifier: workspace:*
         version: link:../../packages/model-providers
-      '@balsa/finance-engine':
-        specifier: workspace:*
-        version: link:../../packages/finance-engine
-      '@balsa/ingestion':
-        specifier: workspace:*
-        version: link:../../packages/ingestion
       better-auth:
         specifier: 1.7.4
         version: 1.7.4(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.15.6)(kysely@0.29.5)(pg@8.16.3)(postgres@3.4.9))(next@16.3.4(@babel/core@7.29.7)(@types/node@26.4.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(pg@8.16.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@5.0.0(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.25.12)(jiti@2.7.0)(tsx@4.23.13)))
@@ -225,6 +228,25 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+    devDependencies:
+      '@types/node':
+        specifier: 26.4.1
+        version: 26.4.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.0.0
+        version: 5.0.0(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.25.12)(jiti@2.7.0)(tsx@4.23.13))
+
+  packages/model-export:
+    dependencies:
+      '@balsa/finance-engine':
+        specifier: workspace:*
+        version: link:../finance-engine
+      exceljs:
+        specifier: ^4.4.0
+        version: 4.4.0
     devDependencies:
       '@types/node':
         specifier: 26.4.1

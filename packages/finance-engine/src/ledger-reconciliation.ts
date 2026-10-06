@@ -1,3 +1,4 @@
+import { cashFlag } from "./cash-flag";
 import type { JournalStatements } from "./statements";
 import type { TrialBalance } from "./ledger";
 import type { AccountBalanceReconciliation } from "./account-reconciliation";
@@ -55,7 +56,7 @@ export function reconcileLedgerMonth(input: { period: string; sourceRows: Reconc
     if (!statement.chartAccountId) { unmappedStatements.push({ currency, journalCashMinor: "0", statementCashMinor: parsed?.toString() ?? "0", differenceMinor: "0", sourceIds: [statement.sourceId], ...(statement.accountIdentifier ? { accountIdentifier: statement.accountIdentifier } : {}), status: "unmapped_statement" }); continue; }
   }
   const journalCashByAccount = new Map<string, { accountId: string; accountName: string; currency: string; amount: bigint }>();
-  for (const line of input.trialBalance.lines.filter((line) => /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`))) { const key = `${line.accountId}:${line.currency}`; const current = journalCashByAccount.get(key) ?? { accountId: line.accountId, accountName: line.accountName, currency: line.currency, amount: 0n }; current.amount += BigInt(line.netMinor); journalCashByAccount.set(key, current); }
+  for (const line of input.trialBalance.lines.filter((line) => cashFlag(line, () => /\bcash\b/i.test(`${line.statementLine ?? ""} ${line.accountName}`)))) { const key = `${line.accountId}:${line.currency}`; const current = journalCashByAccount.get(key) ?? { accountId: line.accountId, accountName: line.accountName, currency: line.currency, amount: 0n }; current.amount += BigInt(line.netMinor); journalCashByAccount.set(key, current); }
   const statementByAccount = new Map<string, { currency: string; accountId: string; amount: bigint; sourceIds: string[]; invalid: boolean }>();
   for (const statement of input.cashStatements ?? []) { if (!statement.chartAccountId) continue; const currency = statement.currency ?? "USD"; const key = `${statement.chartAccountId}:${currency}`; const current = statementByAccount.get(key) ?? { currency, accountId: statement.chartAccountId, amount: 0n, sourceIds: [], invalid: false }; const parsed = minor(statement.endingBalance); current.sourceIds.push(statement.sourceId); current.invalid ||= parsed === undefined; if (parsed !== undefined) current.amount += parsed; statementByAccount.set(key, current); }
   const accountKeys = new Set([...journalCashByAccount.keys(), ...statementByAccount.keys()]);

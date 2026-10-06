@@ -1,3 +1,5 @@
+import { readWorkbookEdits, type WorkbookEdits } from "@balsa/model-export";
+import { proposeWorkbookEditsWith } from "@/lib/workbook-round-trip";
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -84,6 +86,7 @@ export async function POST(request: Request) {
   let deferExtraction = false;
   let sourceRole: "reference_model" | undefined;
   let workbookStructure: WorkbookStructure | undefined;
+  let returnedExport: WorkbookEdits | null = null;
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     const file = form.get("file");
@@ -103,6 +106,12 @@ export async function POST(request: Request) {
     sourceMime = file.type || undefined;
     sourceSize = buffer.byteLength;
     sourceHash = createHash("sha256").update(buffer).digest("hex");
+    // A workbook Balsa exported comes back as edits to propose, not as a source to extract.
+    if (/\.xlsx$/i.test(file.name)) {
+      returnedExport = await readWorkbookEdits(buffer);
+      if (returnedExport && returnedExport.manifest.companyId !== context.company.id) return NextResponse.json({ error: "This workbook was exported from a different company. Switch to that company, then upload it again." }, { status: 400 });
+      if (returnedExport) deferExtraction = false;
+    }
     if (deferExtraction) {
       // Durable intake ends after hashing and storage. Parsing, OCR, and model
       // work belong to the extraction worker so upload latency stays bounded.
@@ -111,6 +120,9 @@ export async function POST(request: Request) {
       const pdf = await extractPdfDocument(buffer);
       rawText = pdf.text;
       pdfQuality = pdf.quality;
+    } else if (returnedExport) {
+      // Read through its manifest, so the workbook's text (statements, lineage) is not extracted.
+      rawText = `A workbook Balsa exported on ${returnedExport.manifest.exportedAt.slice(0, 10)} (${returnedExport.manifest.exportFormat}), returned with edits for review.`;
     } else if (/\.(xlsx|xls)$/i.test(file.name)) {
       const workbook = await inspectSpreadsheet(buffer);
       rawText = workbook.text;
@@ -154,6 +166,15 @@ export async function POST(request: Request) {
     { companyId: context.company.id, sourceId: source.id, stage: "extraction", status: deferExtraction ? "waiting" : "running", metadata: JSON.stringify({ deferred: deferExtraction }) },
   ]);
   if (deferExtraction) return NextResponse.json({ id: row?.id, queued: true, extraction: null });
+  if (returnedExport && row?.id && source?.id) {
+    const edits = returnedExport;
+    const proposal = await getDatabase().transaction((tx) => proposeWorkbookEditsWith(tx, { companyId: context.company.id, actorUserId: context.user.id, evidenceId: row.id, edits }));
+    const summary = [`A workbook Balsa exported on ${edits.manifest.exportedAt.slice(0, 10)}, returned with ${proposal.proposed.length} proposed change${proposal.proposed.length === 1 ? "" : "s"} to review under Decisions.`, ...proposal.notes].join("\n");
+    await getDatabase().update(evidence).set({ extractedJson: JSON.stringify({ summary, facts: [], questions: [] }), updatedAt: new Date() }).where(and(eq(evidence.id, row.id), eq(evidence.companyId, context.company.id)));
+    await getDatabase().update(sources).set({ ingestionStatus: "review", processedAt: new Date(), metadata: JSON.stringify({ reportingMonth, sourceSize, classification: sourceClassification, workbook: workbookStructure, balsaExport: { exportedAt: edits.manifest.exportedAt, exportFormat: edits.manifest.exportFormat, proposedDecisionIds: proposal.proposed.map((item) => item.id), notes: proposal.notes } }) }).where(and(eq(sources.id, source.id), eq(sources.companyId, context.company.id)));
+    await getDatabase().insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.id, stage: "extraction", status: "succeeded", completedAt: new Date(), metadata: JSON.stringify({ balsaExport: true, proposed: proposal.proposed.length, notes: proposal.notes.length }) });
+    return NextResponse.json({ id: row.id, balsaExport: { exportedAt: edits.manifest.exportedAt, proposed: proposal.proposed, notes: proposal.notes }, extraction: { summary, facts: [], questions: [] } });
+  }
   const csv = /\.csv$/i.test(sourceName) ? normalizeCsv(rawText) : rawText;
   const provider = getModelProvider(resolveModelOverrides(modelChoice));
   const extracted = await provider.generateStructured({

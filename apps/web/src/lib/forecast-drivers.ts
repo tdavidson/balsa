@@ -1,4 +1,5 @@
-import { addMonths, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@balsa/finance-engine";
+import { parseStoredPattern } from "@/lib/driver-pattern-schema";
+import { addMonths, resolveAccountIsCash, type ForecastAccount, type ForecastDriver, type ForecastEntryTemplate, type WorkingCapitalCategory } from "@balsa/finance-engine";
 
 const cadences = ["once", "monthly", "quarterly", "annual"] as const;
 const cashFlowCategories = ["operating", "investing", "financing", "none"] as const;
@@ -11,14 +12,14 @@ export function amountToMinor(value: string | null | undefined): string {
   return `${whole}${fraction.padEnd(2, "0")}`.replace(/^0+(?=\d)/, "");
 }
 
-export type EconomicItemDriverRow = { expectedDay?: number | null; accountingTreatment?: string | null; recognitionStart?: string | null; recognitionEnd?: string | null; forecastTemplateId?: string | null; id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; amountFormula?: string | null; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
+export type EconomicItemDriverRow = { expectedDay?: number | null; accountingTreatment?: string | null; recognitionStart?: string | null; recognitionEnd?: string | null; forecastTemplateId?: string | null; id: string; label: string; type: string; direction: "receipt" | "spend"; category: string | null; amount: string | null; amountFormula?: string | null; pattern?: unknown; cadence: string | null; effectiveFrom: string | null; effectiveTo: string | null; scenarioId: string | null; decisionId: string | null; evidenceId: string | null; factId: string | null; counterpartyEntityId: string | null };
 export function economicItemToDriver(item: EconomicItemDriverRow): ForecastDriver {
   return {
     ...(item.expectedDay ? { expectedDay: item.expectedDay } : {}),
     ...(item.forecastTemplateId ? { templateId: item.forecastTemplateId } : {}),
     ...(item.accountingTreatment && item.accountingTreatment !== "cash" ? { accountingTreatment: item.accountingTreatment } : {}), ...(item.recognitionStart ? { recognitionStart: item.recognitionStart } : {}), ...(item.recognitionEnd ? { recognitionEnd: item.recognitionEnd } : {}),
     id: item.id, label: item.label, itemType: item.type === "obligation" ? "obligation" : "agreement", direction: item.direction,
-    ...(item.category ? { category: item.category } : {}), amountMinor: amountToMinor(item.amount), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), cadence: cadences.find((cadence) => cadence === item.cadence) ?? "once", effectiveFrom: item.effectiveFrom ?? "",
+    ...(item.category ? { category: item.category } : {}), amountMinor: amountToMinor(item.amount), ...(item.amountFormula ? { amountFormula: item.amountFormula } : {}), ...(parseStoredPattern(item.pattern) ? { pattern: parseStoredPattern(item.pattern)! } : {}), cadence: cadences.find((cadence) => cadence === item.cadence) ?? "once", effectiveFrom: item.effectiveFrom ?? "",
     ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), ...(item.scenarioId ? { scenarioId: item.scenarioId } : {}), ...(item.decisionId ? { decisionId: item.decisionId } : {}),
     ...(item.evidenceId ? { evidenceId: item.evidenceId } : {}), ...(item.factId ? { factId: item.factId } : {}), ...(item.counterpartyEntityId ? { counterpartyEntityId: item.counterpartyEntityId } : {}),
   };
@@ -29,8 +30,9 @@ export function templateRowToTemplate(row: TemplateRow): ForecastEntryTemplate {
   return { id: row.id, itemType: row.itemType === "obligation" ? "obligation" : "agreement", direction: row.direction, ...(row.category ? { category: row.category } : {}), debitAccountId: row.debitAccountId, creditAccountId: row.creditAccountId, ...(row.decisionId ? { decisionId: row.decisionId } : {}), ...(row.policyId ? { policyId: row.policyId } : {}) };
 }
 
-export type ChartAccountRow = { id: string; code: string; name: string; accountType: string; normalBalance: "debit" | "credit"; statementSection: string | null; statementLine: string | null; balanceTiming: string | null; cashFlowCategory: string | null; workingCapitalCategory: string | null };
-export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAccount {
+export type ChartAccountRow = { id: string; code: string; name: string; accountType: string; normalBalance: "debit" | "credit"; statementSection: string | null; statementLine: string | null; balanceTiming: string | null; cashFlowCategory: string | null; workingCapitalCategory: string | null; cashTreatment?: string | null; bankAccountIdentifier?: string | null };
+/** `linkedIds`: chart accounts a connected bank account points at, which count as cash by default. */
+export function chartAccountToForecastAccount(row: ChartAccountRow, linkedIds: Set<string> = new Set()): ForecastAccount {
   const timing = row.balanceTiming === "current" || row.balanceTiming === "noncurrent" ? row.balanceTiming : undefined;
   const cashFlow = cashFlowCategories.find((category) => category === row.cashFlowCategory);
   const workingCapital: WorkingCapitalCategory | undefined = workingCapitalCategories.find((category) => category === row.workingCapitalCategory);
@@ -38,6 +40,7 @@ export function chartAccountToForecastAccount(row: ChartAccountRow): ForecastAcc
     accountId: row.id, accountCode: row.code, accountName: row.name, accountType: row.accountType, normalBalance: row.normalBalance,
     ...(row.statementSection ? { statementSection: row.statementSection } : {}), ...(row.statementLine ? { statementLine: row.statementLine } : {}),
     ...(timing ? { balanceTiming: timing } : {}), ...(cashFlow ? { cashFlowCategory: cashFlow } : {}), ...(workingCapital ? { workingCapitalCategory: workingCapital } : {}),
+    isCash: resolveAccountIsCash({ accountType: row.accountType, statementSection: row.statementSection, statementLine: row.statementLine, name: row.name, cashTreatment: row.cashTreatment ?? null, bankLinked: Boolean(row.bankAccountIdentifier) || linkedIds.has(row.id) }),
   };
 }
 

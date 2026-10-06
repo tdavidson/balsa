@@ -18,7 +18,8 @@ import { withVariable } from "@/lib/forecast-model-rows";
  * like decision effects. "Remove an item" is `end_item` at the forecast as-of.
  */
 export type ScenarioChange =
-  | { kind: "add_driver"; label: string; direction: "receipt" | "spend"; amount: number; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; category?: Category }
+  /** `accountId` and `cashAccountId` (both or neither): the account the amount posts to and the one that settles it, for a category with no posting template. */
+  | { kind: "add_driver"; label: string; direction: "receipt" | "spend"; amount: number; cadence: "once" | "monthly" | "quarterly" | "annual"; effectiveFrom: string; effectiveTo?: string; category?: Category; accountId?: string; cashAccountId?: string }
   | { kind: "change_amount"; itemId: string; amount: number; effectiveFrom: string }
   | { kind: "end_item"; itemId: string; effectiveTo: string }
   | { kind: "set_input"; variable: string; coords: Record<string, string>; from: string; value: string }
@@ -35,7 +36,7 @@ const dollars = z.number().positive().refine((value) => /^\d+(?:\.\d{1,2})?$/.te
 const cadence = z.enum(["once", "monthly", "quarterly", "annual"]);
 
 export const scenarioChangeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("add_driver"), label: z.string().trim().min(1).max(200), direction: z.enum(["receipt", "spend"]), amount: dollars, cadence, effectiveFrom: month, effectiveTo: month.optional(), category: z.enum(categories).optional() }),
+  z.object({ kind: z.literal("add_driver"), label: z.string().trim().min(1).max(200), direction: z.enum(["receipt", "spend"]), amount: dollars, cadence, effectiveFrom: month, effectiveTo: month.optional(), category: z.enum(categories).optional(), accountId: z.string().uuid().optional(), cashAccountId: z.string().uuid().optional() }),
   z.object({ kind: z.literal("change_amount"), itemId: z.string().uuid(), amount: dollars, effectiveFrom: month }),
   z.object({ kind: z.literal("end_item"), itemId: z.string().uuid(), effectiveTo: month }),
   z.object({ kind: z.literal("set_input"), variable: modelNameSchema, coords: variableInputSchema.shape.coords, from: modelMonthSchema, value: variableInputSchema.shape.value }),
@@ -49,7 +50,8 @@ export function parseScenarioChange(value: unknown): ScenarioChange | null {
   const change = parsed.data;
   if (change.kind === "add_driver") {
     if (change.effectiveTo && change.effectiveTo < change.effectiveFrom) return null;
-    return { kind: "add_driver", label: change.label, direction: change.direction, amount: change.amount, cadence: change.cadence, effectiveFrom: change.effectiveFrom, ...(change.effectiveTo ? { effectiveTo: change.effectiveTo } : {}), ...(change.category ? { category: change.category } : {}) };
+    if (Boolean(change.accountId) !== Boolean(change.cashAccountId) || (change.accountId && change.accountId === change.cashAccountId)) return null;
+    return { kind: "add_driver", label: change.label, direction: change.direction, amount: change.amount, cadence: change.cadence, effectiveFrom: change.effectiveFrom, ...(change.effectiveTo ? { effectiveTo: change.effectiveTo } : {}), ...(change.category ? { category: change.category } : {}), ...(change.accountId && change.cashAccountId ? { accountId: change.accountId, cashAccountId: change.cashAccountId } : {}) };
   }
   if (change.kind === "change_amount") return { kind: "change_amount", itemId: change.itemId, amount: change.amount, effectiveFrom: change.effectiveFrom };
   if (change.kind === "end_item") return { kind: "end_item", itemId: change.itemId, effectiveTo: change.effectiveTo };
@@ -79,7 +81,7 @@ export function scenarioChangeFromFlat(value: unknown): ScenarioChange | null {
 /** The decision effect a change stands for. A missing category becomes "other", both here and in promotion. */
 export function scenarioChangeToEffect(change: ScenarioChange): DecisionEffect {
   if (change.kind === "add_driver") {
-    return { kind: "add_item", item: { label: change.label, direction: change.direction, amount: change.amount, cadence: change.cadence, effectiveFrom: change.effectiveFrom, ...(change.effectiveTo ? { effectiveTo: change.effectiveTo } : {}), category: change.category ?? "other", accountingTreatment: "cash" } };
+    return { kind: "add_item", item: { label: change.label, direction: change.direction, amount: change.amount, cadence: change.cadence, effectiveFrom: change.effectiveFrom, ...(change.effectiveTo ? { effectiveTo: change.effectiveTo } : {}), category: change.category ?? "other", accountingTreatment: "cash", ...(change.accountId && change.cashAccountId ? { accountId: change.accountId, cashAccountId: change.cashAccountId } : {}) } };
   }
   if (change.kind === "change_amount") return { kind: "change_amount", itemId: change.itemId, amount: change.amount, effectiveFrom: change.effectiveFrom };
   if (change.kind === "end_item") return { kind: "end_item", itemId: change.itemId, effectiveTo: change.effectiveTo };
@@ -94,7 +96,7 @@ export function effectToScenarioChange(effect: DecisionEffect | undefined): Scen
   if (!effect) return null;
   if (effect.kind === "add_item") {
     const { item } = effect;
-    return { kind: "add_driver", label: item.label, direction: item.direction, amount: item.amount, cadence: item.cadence, effectiveFrom: item.effectiveFrom, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), category: item.category };
+    return { kind: "add_driver", label: item.label, direction: item.direction, amount: item.amount, cadence: item.cadence, effectiveFrom: item.effectiveFrom, ...(item.effectiveTo ? { effectiveTo: item.effectiveTo } : {}), category: item.category, ...(item.accountId && item.cashAccountId ? { accountId: item.accountId, cashAccountId: item.cashAccountId } : {}) };
   }
   if (effect.kind === "change_amount") return { kind: "change_amount", itemId: effect.itemId, amount: effect.amount, effectiveFrom: effect.effectiveFrom };
   if (effect.kind === "end_item") return { kind: "end_item", itemId: effect.itemId, effectiveTo: effect.effectiveTo };

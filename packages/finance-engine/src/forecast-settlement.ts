@@ -1,3 +1,4 @@
+import { cashFlag } from "./cash-flag";
 import type { PostedJournalLine } from "./ledger";
 
 export type CashOccurrence = {
@@ -25,7 +26,7 @@ export function cashMovement(lines: PostedJournalLine[]): Omit<CashActual, "id" 
   const debit = lines.find((line) => BigInt(line.debitMinor) > 0n && BigInt(line.creditMinor) === 0n);
   const credit = lines.find((line) => BigInt(line.creditMinor) > 0n && BigInt(line.debitMinor) === 0n);
   if (!debit || !credit || BigInt(debit.debitMinor) !== BigInt(credit.creditMinor)) return null;
-  const cash = lines.filter((line) => line.accountType === "asset" && /cash/i.test(line.statementLine ?? line.accountName));
+  const cash = lines.filter((line) => line.accountType === "asset" && cashFlag(line, () => /cash/i.test(line.statementLine ?? line.accountName)));
   if (cash.length !== 1) return null;
   return { postingDate: a.postingDate ?? `${a.period}-01`, currency: a.currency, amountMinor: BigInt(debit.debitMinor).toString(), debitAccountId: debit.accountId, creditAccountId: credit.accountId, entityId: a.entityId ?? null };
 }

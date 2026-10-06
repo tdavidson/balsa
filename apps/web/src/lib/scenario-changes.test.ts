@@ -171,3 +171,22 @@ describe("runSimulation", () => {
     expect(runSimulation(fixtureBaseInput(), []).consequence).toBeNull();
   });
 });
+
+describe("an added driver's accounts", () => {
+  const base = { kind: "add_driver", label: "Contractor", direction: "spend", amount: 2000, cadence: "monthly", effectiveFrom: "2027-01" } as const;
+  const accountId = "00000000-0000-4000-8000-0000000000a1"; const cashAccountId = "00000000-0000-4000-8000-0000000000c1";
+
+  it("takes both accounts or neither, and never the same one twice", () => {
+    expect(parseScenarioChange({ ...base, accountId, cashAccountId })).toEqual({ ...base, accountId, cashAccountId });
+    expect(parseScenarioChange({ ...base, accountId })).toBeNull();
+    expect(parseScenarioChange({ ...base, cashAccountId })).toBeNull();
+    expect(parseScenarioChange({ ...base, accountId, cashAccountId: accountId })).toBeNull();
+  });
+
+  it("carries them into the decision it promotes to, and back", () => {
+    const change = parseScenarioChange({ ...base, accountId, cashAccountId })!;
+    const effect = scenarioChangeToEffect(change);
+    expect(effect).toMatchObject({ kind: "add_item", item: { accountId, cashAccountId, category: "other" } });
+    expect(effectToScenarioChange(effect)).toEqual({ ...change, category: "other" });
+  });
+});

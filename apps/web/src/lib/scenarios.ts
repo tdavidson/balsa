@@ -1,9 +1,9 @@
 import "server-only";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { decisions, economicItems, getDatabase, recordAudit, scenarios } from "@finance/database";
-import { isCategory, validateModel, type ForecastModel, type ForecastVariable } from "@balsa/finance-engine";
+import { chartAccounts, decisions, economicItems, getDatabase, recordAudit, scenarios } from "@finance/database";
+import { isCategory, matchingForecastTemplates, validateModel, type ForecastModel, type ForecastVariable } from "@balsa/finance-engine";
 import { decisionEffectSchema, describeEffect, parseStoredEffect, type DecisionEffect } from "@/lib/decision-effects";
-import { applyScenarioChanges, describeScenarioChange, effectToScenarioChange, parseStoredChanges, ScenarioChangeInvalid, scenarioChangeToEffect, type ScenarioChange, type ScenarioDetail, type ScenarioSummary } from "@/lib/scenario-changes";
+import { applyScenarioChanges, scenarioDriverId, describeScenarioChange, effectToScenarioChange, parseStoredChanges, ScenarioChangeInvalid, scenarioChangeToEffect, type ScenarioChange, type ScenarioDetail, type ScenarioSummary } from "@/lib/scenario-changes";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 import { findActiveScenarioByName, lockScenarioName } from "@/lib/scenario-name-lock";
 import { loadForecastBaseWith } from "@/lib/forecast-base";
@@ -68,10 +68,35 @@ async function assertChangeTargets(db: DbExecutor, companyId: string, changes: S
   if (rows.length !== ids.length) throw new ScenarioInvalid("A change targets an item that is not a confirmed base-forecast item of this company");
 }
 
+/** An added driver's accounts must be this company's active accounts, and the one that settles it an asset. */
+async function assertChangeAccounts(db: DbExecutor, companyId: string, changes: ScenarioChange[]) {
+  const named = changes.flatMap((change) => change.kind === "add_driver" && change.accountId && change.cashAccountId ? [change] : []);
+  if (!named.length) return;
+  const ids = [...new Set(named.flatMap((change) => [change.accountId!, change.cashAccountId!]))];
+  const rows = await db.select({ id: chartAccounts.id, accountType: chartAccounts.accountType }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"), inArray(chartAccounts.id, ids)));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const change of named) {
+    if (!byId.has(change.accountId!) || !byId.has(change.cashAccountId!)) throw new ScenarioInvalid(`${change.label}: choose accounts from this company's active chart of accounts`);
+    if (byId.get(change.cashAccountId!)!.accountType !== "asset") throw new ScenarioInvalid(`${change.label}: the account that pays or receives it must be an asset, such as a bank account`);
+  }
+}
+
 export type ScenarioInput = { name: string; description?: string | null; changes?: ScenarioChange[] };
 async function validateScenarioChangesWith(db: DbExecutor, companyId: string, changes: ScenarioChange[], now = new Date()) {
-  try { applyScenarioChanges(await loadForecastBaseWith(db, companyId, now), changes, "validation"); }
+  await assertChangeAccounts(db, companyId, changes);
+  let applied: ReturnType<typeof applyScenarioChanges>;
+  try { applied = applyScenarioChanges(await loadForecastBaseWith(db, companyId, now), changes, "validation"); }
   catch (error) { if (error instanceof ScenarioChangeInvalid) throw new ScenarioInvalid(error.message); throw error; }
+  // An added driver posts through exactly one template: its category's, or the one its accounts make. Without one it could only be a forecast exception.
+  changes.forEach((change, index) => {
+    if (change.kind !== "add_driver") return;
+    const driver = applied.drivers.find((candidate) => candidate.id === scenarioDriverId("validation", index));
+    const matches = driver ? matchingForecastTemplates(driver, applied.templates).length : 0;
+    if (matches === 1) return;
+    throw new ScenarioInvalid(matches === 0
+      ? `${change.label}: Balsa has no posting template for the ${(change.category ?? "other").replace(/_/g, " ")} category. Choose the account it posts to and the account that ${change.direction === "spend" ? "pays" : "receives"} it.`
+      : `${change.label}: more than one posting template matches the ${(change.category ?? "other").replace(/_/g, " ")} category. Choose the account it posts to and the account that ${change.direction === "spend" ? "pays" : "receives"} it.`);
+  });
 }
 
 export async function createScenarioWith(tx: DbTransaction, companyId: string, input: ScenarioInput, actorUserId: string | null, now = new Date()): Promise<ScenarioDetail> {
