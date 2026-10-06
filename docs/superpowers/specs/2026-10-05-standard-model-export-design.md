@@ -5,6 +5,13 @@ Status: phases 1 (mapping, categories, Standard view and timeline), 2 (values wo
 Audience: product and engineering.
 Builds on: [driver formulas](2026-09-18-driver-formulas-design.md), [forecast scenarios](2026-09-18-forecast-scenarios-design.md), [goal-directed financial model](2026-09-25-goal-directed-financial-model-design.md).
 
+Review update (2026-10-06): returned Model edits now merge changed cells into one
+proposal per variable, with approval-time conflict checks. Recognition and
+reviewed-settlement driver rows are fixed values until their accounting treatment
+can be compiled. Recognized export manifests are validated before intake. See the
+[implementation review](../../standard-model-review.md) for corrections, tests,
+and remaining support boundaries. The design below records intended behavior.
+
 ## Intent
 
 Give every Balsa company a downloadable workbook that looks and works like the Hemrock Standard Financial Model: the same sheet names, the same three-statement layout, the same annual rollups and the same driver columns. A founder or CFO who knows the Standard model should be able to open the export and find their way around without instructions. Someone who has never seen Balsa should be able to read it as an ordinary financial model.

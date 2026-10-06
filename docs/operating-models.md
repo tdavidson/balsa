@@ -1,6 +1,6 @@
 # AI-drafted operating models
 
-For the planned observation, review, adaptive-plan, and simulation work, see the
+For the observation, review, adaptive-plan, and simulation implementation history, see the
 [operating decision roadmap](superpowers/plans/2026-10-05-operating-decision-roadmap.md).
 The sections below describe current behavior.
 
@@ -340,3 +340,18 @@ Uniform ranges are user assumptions. A named rank group shares one draw, either 
 Optional valuation names a cash-flow node in the reporting currency and requires an explicit enterprise/equity cash-flow basis. It discounts end-of-month flows to the start of the model using nominal annual discount divided by twelve, then adds an explicit multiple of annualized final-month cash flow. The exact discount trace is preserved. The closest sampled combinations to an entered price are shown; price does not identify a unique distribution. Debt, taxes, terminal growth or other adjustments must be represented explicitly in the chosen model and stated basis.
 
 Studies are company-scoped, immutable, idempotent analytical records in `operating_studies` (migration `0091`; revision links use `0090`). Saving rechecks the preview and never posts or changes a forecast. Snapshots are limited to 16 MB; request size, sampling, graph dimensions, entities and model counts are bounded. API failures redact internal details and name missing migrations. Original study results are read as preserved instead of being regenerated with newer formulas. No unattended trigger scheduler, automatic retraining, empirical distribution fitter or external business execution is included.
+
+## Relationship to the Standard model and workbooks
+
+[Forecast drivers](forecast-drivers.md) and [Standard statements](standard-statements.md)
+serve the company forecast and its workbook export. Operating studies serve a
+particular decision: their cases, observations, calibration, and sampled runs
+remain reviewable records. Both reach financial results through the shared
+journal/forecast engine, but their authoring models and metric records are distinct.
+
+Saving an operating case creates a frozen scenario for approval, not a live
+binding from the study into the company model. The workbook's Model sheet exports
+the company forecast model; it does not export an operating study's simulation
+runtime, adaptive policies, or calibration history. Returned workbook edits target
+supported forecast inputs and still require decision approval. See the
+[Standard model review](standard-model-review.md) for current interchange controls and limits.

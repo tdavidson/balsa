@@ -31,3 +31,10 @@ export function metricExportPattern(metric: OperatingMetric, profileName: (id: s
   const basis = metricForecastBasis(metric);
   return exportPattern(basis.pattern, basis.window, profileName);
 }
+
+/** Workbook deltas support same-month cash postings only. */
+export function driverValuesOnlyReason(driver: Pick<ForecastDriver, "id" | "accountingTreatment">, reviewedDriverIds: ReadonlySet<string>, unknownSettlements = false): string | null {
+  if (driver.accountingTreatment && driver.accountingTreatment !== "cash") return "Recognition schedule: recalculate changes in Balsa";
+  if (reviewedDriverIds.has(driver.id) || unknownSettlements) return "Reviewed settlements: recalculate changes in Balsa";
+  return null;
+}

@@ -1,16 +1,22 @@
 # Balsa
 
-**A radical approach to LLM-native financial operations.**
+**Evidence-backed financial modeling and decisions.**
 
-Balsa turns the evidence a company already produces into an auditable,
-continuously maintained financial model. Upload bank activity, invoices,
-contracts, spreadsheets, or accounting exports; review what the system learned;
-then ask questions, close periods, and change the forecast in plain language.
+Balsa turns company evidence into auditable books, driver-based forecasts, and
+reviewable operating decisions. Upload bank activity, invoices, contracts,
+spreadsheets, or accounting exports; review what the system learned; then explore
+what could happen, approve changes, and compare expectations with outcomes.
 
-[Standard statements](docs/standard-statements.md) show the books in the Standard Financial Model layout, with a user-set statement mapping and model timeline, and download as a Standard-shaped Excel workbook. [Forecast drivers](docs/forecast-drivers.md) bring the Standard model's driver patterns: % of another line, per unit of an operating metric, growth, caps, per-driver seasonality and escalation on any cycle.
+Review the model through statements, driver tables, charts, calculation traces,
+and editable Excel exports. [Standard statements](docs/standard-statements.md)
+and [forecast drivers](docs/forecast-drivers.md) connect the accounting model to a
+formula-bearing workbook; supported returned edits become proposals for review.
 
-[Goals & reviews](docs/goal-reviews.md) adds cash targets, preserved plan baselines,
-saved reviews of the latest outlook, and atomic scenario decisions with preserved outcome reviews.
+[Operating models](docs/operating-models.md) let AI draft a decision-specific
+structure of assumptions, relationships, and alternatives. Deterministic runs,
+conditional policies, and bounded simulations help compare those alternatives.
+[Goals & reviews](docs/goal-reviews.md) connect the outlook to cash targets,
+preserved plans, approvals, and outcome reviews.
 
 Language models interpret meaning. Deterministic code owns the ledger, schedules,
 calculations, controls, and statements. The model is never the calculator and
@@ -32,16 +38,19 @@ Balsa is built around a different operating loop:
 ```text
 evidence → extracted observations → CFO review → company state
          → journal and calculation graph → statements and forecast
+         → alternatives → approval → observed outcomes → review
 ```
 
 When the treatment is clear, the system does the work. When it requires
 judgment, Balsa asks a precise question. The answer becomes a durable
 decision or policy instead of disappearing into a chat transcript.
 
-This is not Excel in a browser: there is no grid and no collection of formulas
-to maintain. It is not a chatbot wrapped around accounting software either:
-the AI proposes meaning and treatment, while controlled application code posts,
-calculates, reconciles, and reports.
+The aim is an adaptable operating model: analysts describe the mechanics that
+matter for a decision, inspect the assumptions and consequences, and revise the
+model as evidence changes. AI drafts the structure and explanations; controlled
+application code validates, calculates, reconciles, and reports. Spreadsheet
+exports extend that review surface. They are snapshots, with supported edits
+returning through approval rather than live synchronization.
 
 ## What it does
 
@@ -59,6 +68,15 @@ calculates, reconciles, and reports.
   and cash flow derive from the same journal and calculation path.
 - **Forecasts from economic reality.** Contractual obligations, recurring
   schedules, assumptions, and actual settlements remain distinct and traceable.
+- **Makes assumptions inspectable.** Linked drivers, operating metrics, growth,
+  seasonality, escalation, and model variables expose how the forecast is built.
+- **Compares operating decisions.** AI-drafted models, named cases, conditional
+  policies, sampled outcomes, and saved experiments support review before a
+  scenario changes the approved forecast. Simulation results depend on supplied
+  assumptions; they are not automatically calibrated predictions.
+- **Exchanges editable workbooks.** Standard-shaped exports carry live formulas,
+  checks, and lineage. Supported returned inputs become proposed decisions;
+  [round-trip controls and limits](docs/standard-model-review.md) define the supported scope.
 - **Handles multi-entity finance.** Legal entities, allocations, intercompany
   balances, eliminations, consolidation, and foreign-currency translation share
   the same accounting foundation.
@@ -91,9 +109,12 @@ boundary.
 
 The repository contains a working Next.js application, PostgreSQL data layer,
 evidence-ingestion pipeline, controlled finance agent, deterministic accounting
-engine, and local accounting evaluation suite. The current development focus is
-deepening the month-close workflow, calculation graph, and representative
-real-company test corpus.
+engine, operating-decision tools, and a local accounting evaluation suite with
+synthetic fixtures. Standard statement mapping, driver patterns, a live workbook
+export, and approval-based workbook return are implemented. These are bounded
+workflows, not a universal business simulator or an unattended accounting service.
+See the [Standard model review](docs/standard-model-review.md) for corrections,
+support boundaries, and the distinction between exported formulas and engine replay.
 
 ## Deployment model and direction
 
@@ -201,6 +222,16 @@ containers after configuring `.env`, use `docker compose --profile full up --bui
 
 Reusable sample inputs live in [`fixtures/company-zero`](fixtures/company-zero).
 
+Financial planning review starts at `/progress`, with `/goals` for draft/primary
+goals and preserved plans, `/reconciliation` for expectations and coverage,
+`/goal-decisions` for scenario attribution and approval, and `/imports` for
+reviewing full or partial evidence changes before financial posting. `/reviews`
+adds forecast accuracy, named cases, timing sensitivity, assigned exceptions and
+preserved sign-off. The progress page includes a guided first review, recognition
+continuity and dated weekly cash. See
+[goal reviews](docs/goal-reviews.md) for controls and supported accounting scope.
+
+
 ## Development
 
 ```bash
@@ -228,6 +259,7 @@ packages/company-state   canonical company-state types and operations
 packages/database        PostgreSQL schema, migrations, and repositories
 packages/finance-engine  ledger, calculations, statements, and forecasts
 packages/ingestion       evidence ingestion and normalization
+packages/model-export    Standard workbook formulas, checks, and edit parsing
 packages/model-providers OpenAI and OpenRouter adapters
 templates                company knowledge templates
 ```
@@ -251,14 +283,6 @@ modify, and distribute it for personal or commercial purposes under its terms.
 
 Built by [Taylor Davidson](https://taylordavidson.com).
 
-Financial planning review starts at `/progress`, with `/goals` for draft/primary
-goals and preserved plans, `/reconciliation` for expectations and coverage,
-`/goal-decisions` for scenario attribution and approval, and `/imports` for
-reviewing full or partial evidence changes before financial posting. `/reviews`
-adds forecast accuracy, named cases, timing sensitivity, assigned exceptions and
-preserved sign-off. The progress page includes a guided first review, recognition
-continuity and dated weekly cash. See
-[goal reviews](docs/goal-reviews.md) for controls and supported accounting scope.
 
 ## Optional bank connections
 

@@ -10,7 +10,7 @@ import { resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
 import { getOrCreateActiveScenario } from "@/lib/scenario-name-lock";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
 import { dimensionDraftSchema, modelFormulaSchema, variableDraftSchema } from "@/lib/forecast-model-schema";
-import { setItemFormulaWith, upsertDimensionByNameWith, upsertVariableByNameWith } from "@/lib/forecast-model-store";
+import { ModelWriteError, setItemFormulaWith, upsertDimensionByNameWith, upsertVariableByNameWith } from "@/lib/forecast-model-store";
 import { enqueueCalculationRefreshWith, processEnqueuedCalculationRefresh } from "@/lib/refresh-calculation-run";
 
 /**
@@ -48,7 +48,7 @@ export const decisionEffectSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("end_item"), itemId: z.string().uuid(), effectiveTo: month }),
   z.object({ kind: z.literal("change_amount"), itemId: z.string().uuid(), amount: z.number().positive(), effectiveFrom: month }),
   z.object({ kind: z.literal("set_category"), entityId: z.string().uuid(), category: z.enum(categories) }),
-  z.object({ kind: z.literal("set_variable"), variable: variableDraftSchema }),
+  z.object({ kind: z.literal("set_variable"), variable: variableDraftSchema, expectedVariable: variableDraftSchema.optional() }),
   z.object({ kind: z.literal("set_dimension"), dimension: dimensionDraftSchema }),
   z.object({ kind: z.literal("set_item_formula"), itemId: z.string().uuid(), amountFormula: modelFormulaSchema }),
   z.object({ kind: z.literal("set_item_pattern"), itemId: z.string().uuid(), pattern: driverPatternSchema.nullable() }),
@@ -195,7 +195,7 @@ async function appendAssumption(db: DbExecutor, companyId: string, line: string)
  */
 export async function applyDecisionEffectWith(db: DbTransaction, companyId: string, decisionId: string, effect: DecisionEffect, actorUserId: string | null): Promise<{ applied: string; itemId?: string | undefined }> {
   if (effect.kind === "set_variable") {
-    await upsertVariableByNameWith(db, companyId, effect.variable, decisionId);
+    await upsertVariableByNameWith(db, companyId, effect.variable, decisionId, effect.expectedVariable);
     return { applied: describeEffect(effect)! };
   }
   if (effect.kind === "set_dimension") {
@@ -292,11 +292,12 @@ async function applyLegacyTargetWith(db: DbTransaction, companyId: string, appli
 
 /** Executor-only, durable exactly-once application of a stored structured or legacy effect. */
 export async function applyDecisionIfEffectiveWith(db: DbTransaction, companyId: string, decisionId: string, actorUserId: string | null) {
-  const [decision] = await db.select({ effect: decisions.effect, appliesTo: decisions.appliesTo }).from(decisions).where(and(eq(decisions.id, decisionId), eq(decisions.companyId, companyId))).limit(1).for("update");
+  const [decision] = await db.select({ effect: decisions.effect, appliesTo: decisions.appliesTo, evidenceId: decisions.evidenceId }).from(decisions).where(and(eq(decisions.id, decisionId), eq(decisions.companyId, companyId))).limit(1).for("update");
   if (!decision) throw new Error("Decision not found");
   const [marker] = await db.select({ result: decisionEffectApplications.result }).from(decisionEffectApplications).where(and(eq(decisionEffectApplications.companyId, companyId), eq(decisionEffectApplications.decisionId, decisionId))).limit(1);
   if (marker) return { result: boundedResult(marker.result), newlyApplied: false };
   const effect = parseStoredEffect(decision.effect);
+  if (decision.evidenceId && effect?.kind === "set_variable" && !effect.expectedVariable) throw new ModelWriteError("This workbook proposal predates conflict checks. Export a fresh workbook and review its changes.", 409);
   if (!effect && !decision.appliesTo) return { result: null, newlyApplied: false };
   const result = effect ? await applyDecisionEffectWith(db, companyId, decisionId, effect, actorUserId) : await applyLegacyTargetWith(db, companyId, decision.appliesTo!);
   const stored = boundedResult(result);

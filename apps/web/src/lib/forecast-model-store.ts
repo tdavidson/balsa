@@ -1,4 +1,5 @@
 import "server-only";
+import { sameVariable } from "./workbook-model-inputs";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { companies, decisions, economicItems, forecastDimensions, forecastVariables, getDatabase } from "@finance/database";
 import { addMonths, evaluateFormula, evaluateModel, formatDecimal, monthRange, validateModel, type ForecastModel, type ModelIssue } from "@balsa/finance-engine";
@@ -115,10 +116,11 @@ export async function deactivateVariableWith(db: DbTransaction, companyId: strin
 }
 export const deactivateVariable = (companyId: string, id: string) => getDatabase().transaction((tx) => deactivateVariableWith(tx, companyId, id));
 
-export async function upsertVariableByNameWith(db: DbTransaction, companyId: string, draft: VariableDraft, decisionId: string) {
+export async function upsertVariableByNameWith(db: DbTransaction, companyId: string, draft: VariableDraft, decisionId: string, expected?: VariableDraft) {
   await lockCompany(db, companyId);
   await assertDecisionLineage(db, companyId, decisionId);
   const [row] = await db.select().from(forecastVariables).where(and(eq(forecastVariables.companyId, companyId), eq(forecastVariables.name, draft.name), eq(forecastVariables.active, "Y"))).limit(1);
+  if (expected && (!row || !sameVariable(row, expected))) throw new ModelWriteError("The model input changed since this workbook proposal was created. Export a fresh workbook and review its changes.", 409);
   if (!row) return createVariableWith(db, companyId, draft, { decisionId });
   const updated = await updateVariableWith(db, companyId, row.id, draft);
   const [lineage] = await db.update(forecastVariables).set({ decisionId, updatedAt: new Date() }).where(and(eq(forecastVariables.id, row.id), eq(forecastVariables.companyId, companyId))).returning();
