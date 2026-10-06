@@ -7,9 +7,9 @@ import { monthRange, resolveFormulaDrivers, type ForecastModel, type ForecastMod
 import type { PostedJournalLine } from "./ledger";
 import { addMonths, isValidMonth } from "./periods";
 
-export const forecastFormulaVersion = "forecast-run-2026-09-26.2";
+export const forecastFormulaVersion = "forecast-run-2026-10-06.1";
 
-export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory">;
+export type ForecastAccount = Pick<PostedJournalLine, "accountId" | "accountCode" | "accountName" | "accountType" | "normalBalance" | "statementSection" | "statementLine" | "balanceTiming" | "cashFlowCategory" | "workingCapitalCategory" | "isCash">;
 export type ForecastOpenMonth = { month: string; throughDate: string; actualLines: PostedJournalLine[]; forecastedLines: PostedJournalLine[]; matches: ForecastedCloseMatch[] };
 export type ForecastRunInput = { recognitionProofs?: RecognitionProof[]; actuals: ActualCashSummary; drivers: ForecastDriver[]; templates: ForecastEntryTemplate[]; accounts: ForecastAccount[]; currency: string; asOfMonth: string; horizonMonths: number; minimumCashMinor: string; /** The open month combines posted actuals through the cutoff with approved remaining expectations. */ openMonth?: ForecastOpenMonth; settlement?: CashSettlementInput; recurrence?: RecurrenceState[]; /** Dimensions and variables that formula drivers read; omitted when the company has none. */ model?: ForecastModel };
 export type ForecastNodeKind = "ending_cash" | "net_burn" | "trailing_burn_3m" | "cash_over_trailing_burn" | "cash_out_month" | "runway_months";

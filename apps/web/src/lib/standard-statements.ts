@@ -4,18 +4,21 @@ import { chartAccounts, getDatabase, journalLines, reportCategories } from "@fin
 import { buildStandardStatements, isStandardLineId, monthRange, resolveStandardMapping, rollupStandardByFiscalYear, standardMappingComplete, type JournalStatementSelection, type PostedJournalLine, type ReportCategory, type ResolvedStandardMapping, type StandardMappingAccount, type StandardPeriodColumn } from "@balsa/finance-engine";
 import type { DbExecutor } from "@/lib/db-executor";
 import { loadReportLines } from "@/lib/journal-ledger";
+import { chartRowIsBankLinked, chartRowIsCash, loadBankLinkedAccountIds } from "@/lib/cash-accounts";
 import type { LatestForecast } from "@/lib/forecast-read";
 
 type ChartAccountRow = typeof chartAccounts.$inferSelect;
 
-export function toStandardMappingAccount(row: ChartAccountRow): StandardMappingAccount {
+/** `linkedIds`: chart accounts a connected bank account points at; they count as cash by default. */
+export function toStandardMappingAccount(row: ChartAccountRow, linkedIds: Set<string> = new Set()): StandardMappingAccount {
   return {
     accountId: row.id, accountCode: row.code, accountName: row.name, accountType: row.accountType, normalBalance: row.normalBalance,
     ...(row.statementSection ? { statementSection: row.statementSection } : {}), ...(row.statementLine ? { statementLine: row.statementLine } : {}),
     ...(row.balanceTiming === "current" || row.balanceTiming === "noncurrent" ? { balanceTiming: row.balanceTiming } : {}),
     ...(row.cashFlowCategory === "operating" || row.cashFlowCategory === "investing" || row.cashFlowCategory === "financing" || row.cashFlowCategory === "none" ? { cashFlowCategory: row.cashFlowCategory } : {}),
     ...(row.workingCapitalCategory ? { workingCapitalCategory: row.workingCapitalCategory as NonNullable<StandardMappingAccount["workingCapitalCategory"]> } : {}),
-    hasBankIdentifier: Boolean(row.bankAccountIdentifier),
+    hasBankIdentifier: chartRowIsBankLinked(row, linkedIds),
+    isCash: chartRowIsCash(row, linkedIds),
     reportLine: row.reportLine && isStandardLineId(row.reportLine) ? row.reportLine : null,
     reportCategoryId: row.reportCategoryId,
   };
@@ -39,15 +42,16 @@ export const summarizeMapping = (resolved: ResolvedStandardMapping[]): MappingSu
  * any inactive account that still carries posted lines.
  */
 export async function loadStandardMapping(companyId: string, db: DbExecutor = getDatabase()) {
-  const [rows, categoryRows] = await Promise.all([
+  const [rows, categoryRows, linkedIds] = await Promise.all([
     db.select().from(chartAccounts).where(eq(chartAccounts.companyId, companyId)),
     db.select().from(reportCategories).where(eq(reportCategories.companyId, companyId)),
+    loadBankLinkedAccountIds(companyId, db),
   ]);
   const inactiveIds = rows.filter((row) => row.active !== "Y").map((row) => row.id);
   const usedInactive = inactiveIds.length ? new Set((await db.selectDistinct({ accountId: journalLines.accountId }).from(journalLines).where(and(eq(journalLines.companyId, companyId), inArray(journalLines.accountId, inactiveIds)))).map((row) => row.accountId)) : new Set<string>();
   const accounts = rows.sort((left, right) => left.code.localeCompare(right.code));
   const categories = categoryRows.map(toReportCategory).filter((category): category is ReportCategory => Boolean(category)).sort((left, right) => left.line.localeCompare(right.line) || left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
-  const mappingAccounts = accounts.map(toStandardMappingAccount);
+  const mappingAccounts = accounts.map((row) => toStandardMappingAccount(row, linkedIds));
   const resolved = resolveStandardMapping(mappingAccounts, categories);
   const inUse = accounts.filter((row) => row.active === "Y" || usedInactive.has(row.id));
   return { rows: accounts, accounts: mappingAccounts, categories, resolved, inUseIds: new Set(inUse.map((row) => row.id)), summary: summarizeMapping(inUse.map((row) => resolved.get(row.id)!)) };

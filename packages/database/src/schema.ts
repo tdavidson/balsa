@@ -667,6 +667,8 @@ export const chartAccounts = pgTable("chart_accounts", {
   activeFrom: text("active_from"), activeTo: text("active_to"), active: char("active", { length: 1 }).default("Y").notNull(),
   /** User-confirmed Standard statement line (presentation only); null means the deterministic suggestion applies. */
   reportLine: text("report_line"), reportCategoryId: uuid("report_category_id"),
+  /** User override of the cash default: "cash" or "not_cash"; null means bank-linked or named-cash assets count as cash. */
+  cashTreatment: text("cash_treatment"),
   ...timestamps,
 }, (table) => [uniqueIndex("chart_accounts_company_id").on(table.companyId, table.id), uniqueIndex("chart_accounts_company_code_unique").on(table.companyId, table.code), uniqueIndex("chart_accounts_company_bank_identifier_unique").on(table.companyId, table.bankAccountIdentifier), index("chart_accounts_company_type_index").on(table.companyId, table.accountType)]);
 

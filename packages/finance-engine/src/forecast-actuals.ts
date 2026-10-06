@@ -1,11 +1,12 @@
 import type { PostedJournalLine } from "./ledger";
 import { addMonths } from "./periods";
+import { cashFlag } from "./cash-flag";
 
 export type ActualCashMonth = { month: string; openingCashMinor: string; endingCashMinor: string; receiptsMinor: string; spendingMinor: string };
 /** Everything the forecast needs from posted actuals: trailing monthly cash, and which balance groups count as cash. */
 export type ActualCashSummary = { currency: string; asOfMonth: string; months: ActualCashMonth[]; cashGroups: [string, boolean][] };
 
-type CashMetadata = Pick<PostedJournalLine, "accountCode" | "accountName" | "accountType" | "statementSection" | "statementLine">;
+type CashMetadata = Pick<PostedJournalLine, "accountCode" | "accountName" | "accountType" | "statementSection" | "statementLine" | "isCash">;
 
 const reportedBases = new Set(["actual", "adjustment", "elimination"]);
 /** ledger.ts `whole`: non-canonical amounts contribute nothing to balances. */
@@ -14,7 +15,7 @@ export const balanceSection = (line: { accountType: string; statementSection?: s
 /** cash.ts `isCashStatementLine`, applied to a statements.ts `aggregate` group. */
 export const isBalanceCashGroup = (key: string, label: string) => /\bcash\b/i.test(`${key} ${label}`);
 /** statements.ts cash-flow predicate: per line, any section, no word boundary. */
-export const isCashFlowLine = (line: { statementLine?: string; accountName: string }) => /cash/.test(`${line.statementLine ?? ""} ${line.accountName}`.toLowerCase());
+export const isCashFlowLine = (line: { statementLine?: string; accountName: string; isCash?: boolean }) => cashFlag(line, () => /cash/.test(`${line.statementLine ?? ""} ${line.accountName}`.toLowerCase()));
 const groupKey = (row: CashMetadata) => row.statementLine ?? row.accountCode;
 const rowKey = (line: Pick<PostedJournalLine, "accountId" | "entityId" | "currency">) => `${line.accountId}:${line.entityId ?? "consolidated"}:${line.currency}`;
 
@@ -28,13 +29,13 @@ export function resolveCashGroups(rows: CashMetadata[], known: Map<string, boole
   for (const row of [...rows].sort((left, right) => left.accountCode.localeCompare(right.accountCode))) {
     if (balanceSection(row) !== "asset") continue;
     const key = groupKey(row);
-    if (!groups.has(key)) groups.set(key, isBalanceCashGroup(key, row.statementLine ?? row.accountName));
+    if (!groups.has(key)) groups.set(key, cashFlag(row, () => isBalanceCashGroup(key, row.statementLine ?? row.accountName)));
   }
   return groups;
 }
 
 /** Receipts and spending for one month's lines: cash movement netted per entry. */
-export function cashFlowTotals(lines: Pick<PostedJournalLine, "id" | "entryId" | "statementLine" | "accountName" | "debitMinor" | "creditMinor">[]) {
+export function cashFlowTotals(lines: Pick<PostedJournalLine, "id" | "entryId" | "statementLine" | "accountName" | "debitMinor" | "creditMinor" | "isCash">[]) {
   const movements = new Map<string, bigint>();
   for (const line of lines) {
     if (!isCashFlowLine(line)) continue;
@@ -47,7 +48,7 @@ export function cashFlowTotals(lines: Pick<PostedJournalLine, "id" | "entryId" |
 }
 
 /** Is this row's balance counted as cash, given the resolved groups? */
-export const isCashBalanceRow = (row: CashMetadata, groups: Map<string, boolean>) => balanceSection(row) === "asset" && groups.get(groupKey(row)) === true;
+export const isCashBalanceRow = (row: CashMetadata, groups: Map<string, boolean>) => balanceSection(row) === "asset" && (row.isCash ?? groups.get(groupKey(row)) === true);
 
 /**
  * One sorted pass over posted actuals, equivalent to reading ending cash and

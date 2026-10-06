@@ -23,7 +23,9 @@ describe("forecast driver mapping", () => {
   });
   it("maps templates and chart accounts", () => {
     expect(templateRowToTemplate({ id: "t", itemType: "obligation", direction: "spend", category: null, debitAccountId: "d", creditAccountId: "c", decisionId: null, policyId: "p" })).toEqual({ id: "t", itemType: "obligation", direction: "spend", debitAccountId: "d", creditAccountId: "c", policyId: "p" });
-    expect(chartAccountToForecastAccount({ id: "a", code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementSection: null, statementLine: "Cash", balanceTiming: "current", cashFlowCategory: null, workingCapitalCategory: null })).toEqual({ accountId: "a", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash", balanceTiming: "current" });
+    expect(chartAccountToForecastAccount({ id: "a", code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementSection: null, statementLine: "Cash", balanceTiming: "current", cashFlowCategory: null, workingCapitalCategory: null })).toEqual({ accountId: "a", accountCode: "1000", accountName: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash", balanceTiming: "current" , isCash: true });
+    expect(chartAccountToForecastAccount({ id: "b", code: "1010", name: "Operating checking", accountType: "asset", normalBalance: "debit", statementSection: null, statementLine: null, balanceTiming: "current", cashFlowCategory: null, workingCapitalCategory: null }, new Set(["b"])).isCash).toBe(true);
+    expect(chartAccountToForecastAccount({ id: "b", code: "1010", name: "Operating checking", accountType: "asset", normalBalance: "debit", statementSection: null, statementLine: null, balanceTiming: "current", cashFlowCategory: null, workingCapitalCategory: null, cashTreatment: "not_cash" }, new Set(["b"])).isCash).toBe(false);
   });
   it("uses the last full calendar month without moving the cutoff into a prematurely closed month", () => {
     const now = new Date("2026-09-18T12:00:00Z");

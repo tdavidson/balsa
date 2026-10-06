@@ -1,4 +1,6 @@
 import "server-only";
+import { resolveAccountIsCash } from "@balsa/finance-engine";
+import { bankLinkedSql } from "@/lib/cash-accounts";
 import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { cashCoverageRecords, chartAccounts, evidence, sourceRows } from "@finance/database";
@@ -24,7 +26,7 @@ export function cashCoverageHash(lines: PostedJournalLine[], accountId: string, 
 const nextDay = (day: string) => { const date = new Date(`${day}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); };
 export async function loadCashCoverage(db: DbExecutor, companyId: string, lines: PostedJournalLine[], startDate: string, throughDate: string) {
   const [accounts, records, documents, sourceState] = await Promise.all([
-    db.select({ id: chartAccounts.id, name: chartAccounts.name, bankAccountIdentifier: chartAccounts.bankAccountIdentifier, statementLine: chartAccounts.statementLine, accountType: chartAccounts.accountType }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))),
+    db.select({ id: chartAccounts.id, name: chartAccounts.name, bankAccountIdentifier: chartAccounts.bankAccountIdentifier, statementLine: chartAccounts.statementLine, accountType: chartAccounts.accountType, statementSection: chartAccounts.statementSection, cashTreatment: chartAccounts.cashTreatment, bankLinked: bankLinkedSql }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))),
     db.select().from(cashCoverageRecords).where(eq(cashCoverageRecords.companyId, companyId)).orderBy(desc(cashCoverageRecords.createdAt), desc(cashCoverageRecords.id)),
     db.select({ id: evidence.id, name: evidence.sourceName, hash: evidence.sourceHash, status: evidence.status }).from(evidence).where(eq(evidence.companyId, companyId)),
     loadCoverageSourceState(db, companyId),
@@ -41,7 +43,7 @@ export async function loadCashCoverage(db: DbExecutor, companyId: string, lines:
     const changed = cashCoverageHash(lines, row.accountId, row.startDate, row.throughDate, sourceState, names) !== row.ledgerHash || Boolean(row.evidenceHash && (!support || support.status !== "approved" || (support.hash ?? "unhashed") !== row.evidenceHash));
     return { ...row, createdAt: row.createdAt.toISOString(), state: changed && row.status !== "revoked" ? "stale" : row.status };
   });
-  const cashAccounts = accounts.filter((account) => account.accountType === "asset" && /cash/i.test(account.statementLine ?? account.name)).sort((a, b) => a.id.localeCompare(b.id));
+  const cashAccounts = accounts.filter((account) => account.accountType === "asset" && resolveAccountIsCash({ ...account, bankLinked: Boolean(account.bankLinked) })).sort((a, b) => a.id.localeCompare(b.id));
   return {
     startDate, throughDate,
     accounts: cashAccounts.map((account) => {

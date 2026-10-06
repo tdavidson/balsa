@@ -10,6 +10,7 @@ import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import { loadSettlementInput } from "./forecast-settlement-load";
 import { forecastHorizonFor } from "./model-timeline";
+import { loadBankLinkedAccountIds } from "./cash-accounts";
 
 
 /** Confirmed items and active templates: the only inputs a projection may use. */
@@ -34,8 +35,8 @@ export const compareIds = (left: string, right: string) => (left < right ? -1 : 
 
 /** The company's active chart accounts as forecast accounts, in id order. */
 export async function loadForecastAccounts(companyId: string, db: DbExecutor = getDatabase()) {
-  const rows = await db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y")));
-  return rows.map(chartAccountToForecastAccount).sort((left, right) => compareIds(left.accountId, right.accountId));
+  const [rows, linkedIds] = await Promise.all([db.select().from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, "Y"))), loadBankLinkedAccountIds(companyId, db)]);
+  return rows.map((row) => chartAccountToForecastAccount(row, linkedIds)).sort((left, right) => compareIds(left.accountId, right.accountId));
 }
 
 /** The company's active forecast model in canonical order, or undefined when it has none. */
