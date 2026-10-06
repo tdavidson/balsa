@@ -9,8 +9,8 @@ import { rowsToModel } from "@/lib/forecast-model-rows";
 import { loadPostedJournalLines } from "@/lib/journal-ledger";
 import { loadRecurrenceReview } from "./forecast-recurrence";
 import { loadSettlementInput } from "./forecast-settlement-load";
+import { forecastHorizonFor } from "./model-timeline";
 
-export const forecastHorizonMonths = 24;
 
 /** Confirmed items and active templates: the only inputs a projection may use. */
 export async function loadForecastDrivers(companyId: string, options: { scenarioId?: string } = {}, db: DbExecutor = getDatabase()) {
@@ -63,7 +63,7 @@ export function resolveDriversForWindow(drivers: ForecastDriver[], model: Foreca
 export async function loadForecastInputs(companyId: string, options: { now?: Date; db?: DbExecutor } = {}): Promise<ForecastRunInput> {
   const db = options.db ?? getDatabase();
   const now = options.now ?? new Date();
-  const [company] = await db.select({ baseCurrency: companies.baseCurrency, minimumCashMinor: companies.minimumCashMinor }).from(companies).where(eq(companies.id, companyId)).limit(1);
+  const [company] = await db.select({ baseCurrency: companies.baseCurrency, minimumCashMinor: companies.minimumCashMinor, modelLastPeriod: companies.modelLastPeriod }).from(companies).where(eq(companies.id, companyId)).limit(1);
   if (!company) throw new Error("Company not found while loading forecast inputs");
   const asOfMonth = await forecastAsOfMonth(companyId, now, db);
   const currentMonth = now.toISOString().slice(0, 7);
@@ -81,5 +81,5 @@ export async function loadForecastInputs(companyId: string, options: { now?: Dat
   const baseCurrencyLines = actualLines.filter((line) => line.currency === company.baseCurrency);
   const openActualLines = openMonth ? baseCurrencyLines.filter((line) => line.period === openMonth && ["actual", "adjustment", "elimination"].includes(line.basis ?? "actual")) : [];
   const recognitionProofs = await loadRecognitionProofs(db, companyId, asOfMonth, company.baseCurrency, actualLines);
-  return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonMonths, minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}) };
+  return { recognitionProofs, actuals: summarizeActualCash(actualLines, company.baseCurrency, asOfMonth), drivers: drivers.sort((left, right) => compareIds(left.id, right.id)), templates: templates.sort((left, right) => compareIds(left.id, right.id)), accounts, currency: company.baseCurrency, asOfMonth, horizonMonths: forecastHorizonFor(asOfMonth, company.modelLastPeriod), minimumCashMinor: company.minimumCashMinor, settlement, recurrence: recurrence.states, ...(openMonth ? { openMonth: { month: openMonth, throughDate, actualLines: openActualLines, forecastedLines: [], matches: [] } } : {}), ...(model ? { model } : {}) };
 }

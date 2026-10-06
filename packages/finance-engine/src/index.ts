@@ -32,3 +32,4 @@ export * from "./opening-cash";
 export * from "./forecast-match-suggestions";
 export * from "./weekly-cash";
 export * from "./forecast-accuracy";
+export * from "./standard-layout";

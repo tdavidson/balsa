@@ -57,7 +57,8 @@ export function selectJournalLinesForReporting(lines: PostedJournalLine[], perio
 }
 
 const amount = (line: TrialBalanceLine) => BigInt(line.netMinor);
-const presentationAmount = (line: TrialBalanceLine) => {
+/** Statement sign: assets and expenses debit-positive; liabilities, equity and revenue credit-positive. */
+export const presentationAmount = (line: TrialBalanceLine) => {
   const section = line.accountType === "contra" ? line.statementSection : line.accountType;
   if (section === "asset" || section === "expense") return amount(line);
   if (section === "liability" || section === "equity" || section === "revenue") return -amount(line);
@@ -77,6 +78,23 @@ function aggregate(lines: TrialBalanceLine[]): StatementAccountLine[] {
     grouped.set(key, group);
   }
   return [...grouped.entries()].map(([key, group]) => ({ key, label: group.label, amountMinor: group.amount.toString(), accountIds: group.accountIds, lineIds: group.lineIds, provenance: group.provenance })).sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export type AccountPresentationBalance = { line: TrialBalanceLine; amountMinor: bigint };
+
+/**
+ * Per-account statement amounts using exactly the selection and sign rules of
+ * `buildJournalStatements`: `period` holds income-statement movement for the
+ * period (period-close entries excluded), `balance` holds balances through it.
+ * Alternative layouts regroup these rather than recalculating anything.
+ */
+export function buildAccountPresentationBalances(lines: PostedJournalLine[], period: string, entityId?: string, selection: JournalStatementSelection = {}) {
+  const included = selectJournalLinesForReporting(lines, period, selection).filter((line) => !entityId || line.entityId === entityId);
+  const toAmounts = (trial: ReturnType<typeof buildTrialBalance>) => trial.lines.map((line) => ({ line, amountMinor: presentationAmount(line) }));
+  return {
+    balance: toAmounts(buildTrialBalance(included, period, entityId)),
+    period: toAmounts(buildTrialBalance(included.filter((line) => line.period === period && line.entrySource !== "period_close"), period, entityId)),
+  };
 }
 
 /**
