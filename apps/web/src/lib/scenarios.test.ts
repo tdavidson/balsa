@@ -183,6 +183,40 @@ describe.skipIf(!process.env.DATABASE_URL)("scenarios", async () => {
     expect(after.months.filter((month) => month.basis === "forecast").map((month) => month.endingCashMinor)).toEqual(expected.months.map((month) => month.endingCashMinor));
   });
 
+  it("refuses an added driver that cannot post, and posts one that names its accounts", async () => {
+    // Templates here are tied to a category, so an expense in "other" has none: before this check it saved and became a forecast exception.
+    const [company] = await db.insert(companies).values({ name: `Scenario accounts ${Date.now()}` }).returning({ id: companies.id });
+    const id = company!.id; companyIds.push(id);
+    const accounts = await db.insert(chartAccounts).values([
+      { companyId: id, code: "1000", name: "Cash", accountType: "asset", normalBalance: "debit", statementLine: "Cash" },
+      { companyId: id, code: "6000", name: "Payroll", accountType: "expense", normalBalance: "debit" },
+      { companyId: id, code: "6400", name: "Contractors", accountType: "expense", normalBalance: "debit" },
+    ]).returning({ id: chartAccounts.id, code: chartAccounts.code });
+    const account = (code: string) => accounts.find((row) => row.code === code)!.id;
+    await db.insert(forecastEntryTemplates).values({ companyId: id, name: "Salaries", itemType: "obligation", direction: "spend", category: "salary", debitAccountId: account("6000"), creditAccountId: account("1000") });
+    const firstMonth = addMonths(await forecastAsOfMonth(id, new Date()), 1);
+    await db.insert(economicItems).values({ companyId: id, type: "obligation", direction: "spend", label: "Payroll", amount: "1000", cadence: "monthly", effectiveFrom: firstMonth, category: "salary", status: "confirmed" });
+    await refreshCurrentCalculationRun(id, { cause: { kind: "entity_changed", subjectType: "company", subjectId: id, actorUserId: null, via: "worker" } });
+    const contractor = { kind: "add_driver" as const, label: "Contractor", direction: "spend" as const, amount: 2000, cadence: "monthly" as const, effectiveFrom: firstMonth };
+
+    await expect(createScenario(id, { name: "No account", changes: [contractor] }, null)).rejects.toThrow(/Contractor: Balsa has no posting template for the other category/);
+    await expect(createScenario(id, { name: "Foreign account", changes: [{ ...contractor, accountId: (await db.select({ id: chartAccounts.id }).from(chartAccounts).where(eq(chartAccounts.companyId, other.id)).limit(1))[0]!.id, cashAccountId: account("1000") }] }, null)).rejects.toBeInstanceOf(ScenarioInvalid);
+    await expect(createScenario(id, { name: "Expense as cash", changes: [{ ...contractor, accountId: account("6400"), cashAccountId: account("6000") }] }, null)).rejects.toThrow(/must be an asset/);
+
+    const scenario = await createScenario(id, { name: "Hire a contractor", changes: [{ ...contractor, accountId: account("6400"), cashAccountId: account("1000") }] }, null);
+    const view = await loadScenarioForecast(id, scenario.id);
+    expect(view.exceptions).toEqual([]);
+    expect(view.consequence).not.toBeNull();
+
+    const { decisionIds } = await promoteScenario(id, scenario.id, null);
+    await db.update(decisions).set({ status: "applied" }).where(eq(decisions.id, decisionIds[0]!));
+    await applyDecisionIfEffective(id, decisionIds[0]!, null);
+    const run = buildForecastRun(await loadForecastInputs(id));
+    expect(run.exceptions).toEqual([]);
+    expect(run.projectedLines.some((line) => line.accountId === account("6400") && line.debitMinor === "200000")).toBe(true);
+    expect(run.runway).toEqual(view.runway);
+  });
+
   it("round-trips a proposed decision through a scenario", async () => {
     const effect = { kind: "add_item", item: { label: "Designer", direction: "spend", amount: 300, cadence: "monthly", effectiveFrom: main.firstMonth, category: "contractor", accountingTreatment: "cash" } };
     const [decision] = await db.insert(decisions).values({ companyId: main.id, question: "Hire a designer?", answer: "Yes", status: "proposed", effect: JSON.stringify(effect) }).returning({ id: decisions.id });

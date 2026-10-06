@@ -13,17 +13,18 @@ import { useModelDryRun } from "@/components/item-formula-field";
 export type ScenarioItemOption = { id: string; label: string; direction: "receipt" | "spend"; amount: number | null };
 
 type Cadence = "once" | "monthly" | "quarterly" | "annual";
-type Draft = { kind: ScenarioChange["kind"]; label: string; direction: "receipt" | "spend"; amount: string; cadence: Cadence; effectiveFrom: string; effectiveTo: string; category: string; itemId: string; endMonth: string; variable: string; coords: Record<string, string>; value: string; formula: string };
+type Draft = { accountId: string; cashAccountId: string; kind: ScenarioChange["kind"]; label: string; direction: "receipt" | "spend"; amount: string; cadence: Cadence; effectiveFrom: string; effectiveTo: string; category: string; itemId: string; endMonth: string; variable: string; coords: Record<string, string>; value: string; formula: string };
+type ChartAccount = { id: string; code: string; name: string; accountType: string; active: string; isCash: boolean };
 type ModelVariable = { name: string; kind: "money" | "number"; dims: string[]; formula: string | null; inputs: { coords: Record<string, string>; from: string; value: string }[] };
 type ModelResponse = { dimensions: { name: string; items: string[] }[]; variables: ModelVariable[] };
 
 const field = "h-8 rounded-md border border-rule bg-background px-2 text-[13px] text-ink";
 const cadences: Cadence[] = ["monthly", "quarterly", "annual", "once"];
-const emptyDraft = (asOfMonth: string | null): Draft => ({ kind: "add_driver", label: "", direction: "spend", amount: "", cadence: "monthly", effectiveFrom: "", effectiveTo: "", category: "other", itemId: "", endMonth: asOfMonth ?? "", variable: "", coords: {}, value: "", formula: "" });
+const emptyDraft = (asOfMonth: string | null): Draft => ({ accountId: "", cashAccountId: "", kind: "add_driver", label: "", direction: "spend", amount: "", cadence: "monthly", effectiveFrom: "", effectiveTo: "", category: "other", itemId: "", endMonth: asOfMonth ?? "", variable: "", coords: {}, value: "", formula: "" });
 
 function draftToCandidate(draft: Draft): unknown {
   const amount = Number(draft.amount);
-  if (draft.kind === "add_driver") return { kind: "add_driver", label: draft.label, direction: draft.direction, amount, cadence: draft.cadence, effectiveFrom: draft.effectiveFrom, ...(draft.effectiveTo ? { effectiveTo: draft.effectiveTo } : {}), category: draft.category };
+  if (draft.kind === "add_driver") return { kind: "add_driver", label: draft.label, direction: draft.direction, amount, cadence: draft.cadence, effectiveFrom: draft.effectiveFrom, ...(draft.effectiveTo ? { effectiveTo: draft.effectiveTo } : {}), category: draft.category, ...(draft.accountId && draft.cashAccountId ? { accountId: draft.accountId, cashAccountId: draft.cashAccountId } : {}) };
   if (draft.kind === "change_amount") return { kind: "change_amount", itemId: draft.itemId, amount, effectiveFrom: draft.effectiveFrom };
   if (draft.kind === "end_item") return { kind: "end_item", itemId: draft.itemId, effectiveTo: draft.endMonth };
   if (draft.kind === "set_input") return { kind: "set_input", variable: draft.variable, coords: draft.coords, from: draft.effectiveFrom, value: draft.value };
@@ -46,6 +47,11 @@ export function ScenarioEditorDialog({ open, onOpenChange, scenario, items, asOf
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [model, setModel] = useState<ModelResponse>({ dimensions: [], variables: [] });
+  const [accounts, setAccounts] = useState<ChartAccount[]>([]);
+  useEffect(() => { if (open) void fetch("/api/chart-accounts").then((response) => response.ok ? response.json() as Promise<{ accounts: ChartAccount[] }> : Promise.reject()).then((body) => setAccounts(body.accounts.filter((account) => account.active === "Y"))).catch(() => setAccounts([])); }, [open]);
+  // A receipt posts to an income account and a spend to an expense; the other side is the asset that receives or pays it, cash first.
+  const postingAccounts = accounts.filter((account) => draft.direction === "receipt" ? account.accountType === "revenue" : account.accountType === "expense");
+  const settlementAccounts = accounts.filter((account) => account.accountType === "asset").sort((left, right) => Number(right.isCash) - Number(left.isCash));
   useEffect(() => { if (open) void fetch("/api/forecast/model").then((response) => response.ok ? response.json() as Promise<ModelResponse> : Promise.reject()).then(setModel).catch(() => setModel({ dimensions: [], variables: [] })); }, [open]);
   const itemLabels = new Map(items.map((item) => [item.id, item.label]));
   const selectedVariable = model.variables.find((variable) => variable.name === draft.variable);
@@ -137,7 +143,7 @@ export function ScenarioEditorDialog({ open, onOpenChange, scenario, items, asOf
             {draft.kind === "add_driver" ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input aria-label="Label" placeholder="Label" value={draft.label} onChange={(event) => update({ label: event.target.value })} />
-                <select aria-label="Direction" className={field} value={draft.direction} onChange={(event) => update({ direction: event.target.value === "receipt" ? "receipt" : "spend" })}>
+                <select aria-label="Direction" className={field} value={draft.direction} onChange={(event) => update({ direction: event.target.value === "receipt" ? "receipt" : "spend", accountId: "", cashAccountId: "" })}>
                   <option value="spend">Expense</option>
                   <option value="receipt">Receipt</option>
                 </select>
@@ -150,6 +156,15 @@ export function ScenarioEditorDialog({ open, onOpenChange, scenario, items, asOf
                 <select aria-label="Category" className={field} value={draft.category} onChange={(event) => update({ category: event.target.value })}>
                   {categories.map((category) => <option key={category} value={category}>{category.replace(/_/g, " ")}</option>)}
                 </select>
+                <select aria-label="Posts to" className={field} value={draft.accountId} onChange={(event) => update({ accountId: event.target.value, cashAccountId: event.target.value ? draft.cashAccountId || settlementAccounts[0]?.id || "" : "" })}>
+                  <option value="">Posts to: the category&apos;s template</option>
+                  {postingAccounts.map((account) => <option key={account.id} value={account.id}>Posts to {account.code} {account.name}</option>)}
+                </select>
+                {draft.accountId ? (
+                  <select aria-label={draft.direction === "spend" ? "Paid from" : "Received into"} className={field} value={draft.cashAccountId} onChange={(event) => update({ cashAccountId: event.target.value })}>
+                    {settlementAccounts.map((account) => <option key={account.id} value={account.id}>{draft.direction === "spend" ? "Paid from" : "Received into"} {account.code} {account.name}</option>)}
+                  </select>
+                ) : null}
               </div>
             ) : draft.kind === "change_amount" || draft.kind === "end_item" ? (
               <div className="grid gap-2 sm:grid-cols-2">
