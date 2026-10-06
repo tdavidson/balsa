@@ -1,7 +1,7 @@
 # Standard Financial Model export and driver extensions
 
 Date: 2026-10-05
-Status: phases 1 (mapping, categories, Standard view and timeline) and 2 (values workbook) implemented; see [Standard statements](../../standard-statements.md). Phases 3–6 not started. Rulings from review on 2026-10-05 are marked **Ruling**.
+Status: phases 1 (mapping, categories, Standard view and timeline), 2 (values workbook) and 3 (driver patterns) implemented; see [Standard statements](../../standard-statements.md) and [forecast drivers](../../forecast-drivers.md). Phases 4–6 not started. Deviations from this text: seasonality profiles store deviations from an average month and multiply the output (growth compounds unseasoned), rather than the Standard workbook's ratio of consecutive index values; event and custom flags are not implemented; agent proposals for patterns are not yet available. Rulings from review on 2026-10-05 are marked **Ruling**.
 Audience: product and engineering.
 Builds on: [driver formulas](2026-09-18-driver-formulas-design.md), [forecast scenarios](2026-09-18-forecast-scenarios-design.md), [goal-directed financial model](2026-09-25-goal-directed-financial-model-design.md).
 
@@ -28,6 +28,7 @@ Balsa stays the system of record and its engine stays the calculator for every r
 - **Ruling: seasonality** is per driver, not one company profile.
 - **Ruling: statement views.** The statements page offers both the ledger-native view and the Standard layout, and the user swaps between them. Ledger is the default until the mapping has no unmapped accounts; the user's own choice always wins once made.
 - **Ruling: categories** live in Balsa: revenue and expense categories and the Standard line layout are a statement view inside Balsa, not only an export format.
+- **Ruling: cash.** A bank-linked account counts as cash by default, and the user can override any account (cash or not cash).
 - **Ruling: timeline.** Not fixed. The user sets the model timeline in Balsa, and the export uses it.
 - **Ruling: scenarios.** One file holds the base and every exported scenario.
 - **Ruling: Google Sheets.** The file must work in Google Sheets as well as Excel, including recalculation after edits.

@@ -12,6 +12,14 @@ export const exportFormatVersion = "standard-export-2026-10-06.1";
 
 export type ExportScenario = { id: string; name: string; description: string | null; months: StandardPeriodColumn[]; runway: { runwayMonths: number | null; cashOutMonth: string | null } };
 export type ExportAccount = { id: string; code: string; name: string; section: string | null; lineLabel: string | null; categoryName: string | null; status: string; reason: string };
+/** One driver row in the Standard model's Forecast columns. Text is already in the reader's words; amounts are minor units by period. */
+export type ExportDriver = {
+  label: string; direction: "receipt" | "spend"; lineLabel: string | null;
+  columns: { initialValue: string; startsIn: string; repeatsEvery: string; changingBasedOn: string; changesEvery: string; changingBy: string; usingDriver: string; maxMonths: string; maxValue: string; seasonality: string; escalation: string };
+  amountsByPeriod: Record<string, string>; exception: string | null;
+};
+export type ExportMetric = { label: string; unit: string | null; summary: string; valuesByPeriod: Record<string, string> };
+
 export type StandardWorkbookInput = {
   company: { name: string; currency: string };
   generatedAt: string;
@@ -25,6 +33,9 @@ export type StandardWorkbookInput = {
   scenarios: ExportScenario[];
   accounts: ExportAccount[];
   mapping: { confirmed: number; total: number; complete: boolean };
+  /** Forecast drivers and operating metrics; the Forecast sheet is omitted when there are none. */
+  drivers?: ExportDriver[];
+  metrics?: ExportMetric[];
 };
 
 /** Functions every formula may use: identical in Excel, Google Sheets and LibreOffice. */
@@ -167,6 +178,7 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
   const readme = workbook.addWorksheet("README");
   const getStarted = workbook.addWorksheet("Get Started");
   const summary = workbook.addWorksheet("Summary", { views: [{ state: "frozen", xSplit: 2, ySplit: 5 }] });
+  const forecastSheet = (input.drivers?.length || input.metrics?.length) ? workbook.addWorksheet("Forecast", { views: [{ state: "frozen", xSplit: 1, ySplit: 5 }] }) : null;
   const statements = statementSheet(workbook, "Statements", "Monthly statements in the Standard layout. Blue figures are Balsa's; black figures are formulas.", input.base, input);
   const plan = input.plan ? statementSheet(workbook, "Plan", "The pinned plan's income statement over the same months.", input.plan, input, ["Income statement"]) : null;
 
@@ -255,6 +267,34 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
         Object.assign(scenarioSheet.getCell(rowsFor.deltaCash, column), { value: { formula: `${letter}${rowsFor.cash}-${letter}${baseRows.cash}` }, numFmt: moneyFormat });
       });
       row = rowsFor.deltaCash + 2;
+    }
+  }
+
+  // Forecast: each driver in the Standard model's driver columns, with the monthly amounts Balsa resolved.
+  if (forecastSheet) {
+    const sheet = forecastSheet;
+    title(sheet, "Forecast", "Each forecast driver in the Standard model's driver columns, with the amounts Balsa calculated for each month. Change a driver in Balsa (Accounting, Drivers) and export again.");
+    const columns: [keyof ExportDriver["columns"], string, number][] = [["initialValue", "Initial value", 13], ["startsIn", "Starts in", 10], ["repeatsEvery", "Repeats every N months", 11], ["changingBasedOn", "Changing based on", 16], ["changesEvery", "Changes every N months", 11], ["changingBy", "Changing by % or #", 11], ["usingDriver", "Using driver", 22], ["maxMonths", "For a max of N months", 11], ["maxValue", "To a max value of", 12], ["seasonality", "Seasonality", 14], ["escalation", "Escalation", 22]];
+    const first = 4 + columns.length; // A label, B direction, C line, then the driver columns, then months
+    sheet.getColumn(1).width = 34; sheet.getColumn(2).width = 9; sheet.getColumn(3).width = 22;
+    ["Driver", "Direction", "Statement line"].forEach((label, index) => Object.assign(sheet.getCell(5, 1 + index), { value: label, font: { bold: true } }));
+    columns.forEach(([, label, width], index) => { sheet.getColumn(4 + index).width = width; Object.assign(sheet.getCell(5, 4 + index), { value: label, font: { bold: true }, alignment: { wrapText: true, vertical: "bottom" } }); });
+    input.base.forEach((month, index) => { const column = first + index; sheet.getColumn(column).width = 12; Object.assign(sheet.getCell(5, column), { value: monthEnd(month.period), numFmt: dateFormat, font: { bold: true }, alignment: { horizontal: "right" } }); Object.assign(sheet.getCell(4, column), { value: month.period <= input.timeline.asOfPeriod ? "Actual" : "Forecast", font: { color: { argb: colors.muted }, size: 9 }, alignment: { horizontal: "right" } }); });
+    let row = 6;
+    for (const driver of input.drivers ?? []) {
+      sheet.getRow(row).values = [driver.label, driver.direction === "receipt" ? "Receipt" : "Spend", driver.lineLabel ?? "", ...columns.map(([key]) => driver.columns[key])];
+      input.base.forEach((month, index) => { const minor = driver.amountsByPeriod[month.period]; Object.assign(sheet.getCell(row, first + index), { value: minor === undefined || month.period <= input.timeline.asOfPeriod ? null : major(minor), numFmt: moneyFormat, font: { color: { argb: colors.input } } }); });
+      if (driver.exception) Object.assign(sheet.getCell(row, first + input.base.length), { value: driver.exception, font: { color: { argb: "FFB00020" } } });
+      row += 1;
+    }
+    if (input.metrics?.length) {
+      row += 1;
+      Object.assign(sheet.getCell(row, 1), { value: "OPERATING METRICS", font: { bold: true, color: { argb: colors.muted }, size: 9 } }); row += 1;
+      for (const metric of input.metrics) {
+        sheet.getCell(row, 1).value = metric.label; sheet.getCell(row, 2).value = metric.unit ?? ""; sheet.getCell(row, 4).value = metric.summary;
+        input.base.forEach((month, index) => { const value = metric.valuesByPeriod[month.period]; Object.assign(sheet.getCell(row, first + index), { value: value === undefined ? null : Number(value), numFmt: "#,##0.0", font: { color: { argb: colors.input } } }); });
+        row += 1;
+      }
     }
   }
 
@@ -366,6 +406,7 @@ export async function buildStandardWorkbook(input: StandardWorkbookInput): Promi
     "Sheets",
     "Get Started: the model's structure and the check summary.",
     "Summary: annual totals by fiscal year.",
+    ...(input.drivers?.length || input.metrics?.length ? ["Forecast: each forecast driver in the Standard model's driver columns (initial value, repeats, changing based on, using driver, maximums, seasonality, escalation), with the amount Balsa calculated for each forecast month, and the operating metrics drivers use."] : []),
     "Statements: monthly income statement, balance sheet and cash flow, with actual and forecast months marked.",
     ...(input.plan ? ["Plan and Budget: the pinned plan, and plan versus actuals over a month range you choose."] : []),
     ...(input.scenarios.length ? ["Scenarios: each scenario's net income and cash beside the base outlook."] : []),

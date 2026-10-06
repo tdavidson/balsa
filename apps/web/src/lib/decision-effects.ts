@@ -2,7 +2,8 @@ import "server-only";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { assumptions, cashEvents, decisionEffectApplications, decisions, economicItems, entities, getDatabase, knowledgeDocuments, recordAudit, reviewItems } from "@finance/database";
-import { addMonths, categories, isValidMonth } from "@balsa/finance-engine";
+import { addMonths, categories, isValidMonth, patternAfterAmountChange } from "@balsa/finance-engine";
+import { parseStoredPattern } from "@/lib/driver-pattern-schema";
 import { resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
 import { getOrCreateActiveScenario } from "@/lib/scenario-name-lock";
 import type { DbExecutor, DbTransaction } from "@/lib/db-executor";
@@ -169,7 +170,7 @@ export async function applyDecisionEffectWith(db: DbTransaction, companyId: stri
     void _id; void _createdAt; void _updatedAt;
     // The replacement row is written by whoever applied this decision, not by
     // the author of the row it supersedes, so the copied attribution is dropped.
-    const [row] = await db.insert(economicItems).values({ ...copy, forecastOrigin: null, createdByUserId: actorUserId, amount: String(effect.amount), effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
+    const [row] = await db.insert(economicItems).values({ ...copy, forecastOrigin: null, createdByUserId: actorUserId, amount: String(effect.amount), pattern: patternAfterAmountChange(parseStoredPattern(original.pattern), effect.amount) ?? null, effectiveFrom: effect.effectiveFrom, effectiveTo: null, basis: "assumed", decisionId, status: "confirmed" }).returning({ id: economicItems.id });
     await appendAssumption(db, companyId, `- [decision:${decisionId}] ${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`);
     return { applied: `${original.label} changes to $${effect.amount.toLocaleString("en-US")} from ${effect.effectiveFrom}`, itemId: row?.id };
   }

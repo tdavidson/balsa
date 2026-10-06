@@ -50,6 +50,8 @@ const input: StandardWorkbookInput = {
   scenarios: [{ id: "hire", name: "Hire an engineer", description: "Adds $2,500 a month", months: scenario, runway: { runwayMonths: null, cashOutMonth: null } }],
   accounts: chart.map((item) => ({ id: item.accountId, code: item.accountCode, name: item.accountName, section: item.accountType, lineLabel: null, categoryName: null, status: "suggested", reason: "" })),
   mapping: { confirmed: 2, total: chart.length, complete: false },
+  drivers: [{ label: "Hosting", direction: "spend", lineLabel: "COGS", columns: { initialValue: "4%", startsIn: "2026-09", repeatsEvery: "1", changingBasedOn: "% of", changesEvery: "", changingBy: "", usingDriver: "Total revenues", maxMonths: "", maxValue: "", seasonality: "", escalation: "" }, amountsByPeriod: { "2026-09": "48000", "2026-10": "49000" }, exception: null }],
+  metrics: [{ label: "Customers", unit: "customers", summary: "100 every month, changing 5% every month", valuesByPeriod: { "2026-09": "100", "2026-10": "105" } }],
 };
 const minor = (statement: Pick<StandardPeriodColumn["statement"], "incomeStatement" | "balanceSheet" | "cashFlow">, key: string) => Number(BigInt([...statement.incomeStatement, ...statement.balanceSheet, ...statement.cashFlow].find((row) => row.key === key)!.amountMinor)) / 100;
 /** LibreOffice stores no cached value for a zero result, so a formula without one reads as zero; an error result stays NaN. */
@@ -67,7 +69,7 @@ describe("buildStandardWorkbook", () => {
   beforeAll(async () => { workbook = new ExcelJS.Workbook(); await workbook.xlsx.load((await buildStandardWorkbook(input)).buffer as ArrayBuffer); });
 
   it("follows the Standard model's sheet order", () => {
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Statements", "Plan", "Budget", "Scenarios", "Mapping", "Lineage", "Checks"]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Forecast", "Statements", "Plan", "Budget", "Scenarios", "Mapping", "Lineage", "Checks"]);
   });
 
   it("writes line items as Balsa values and totals as formulas", () => {
@@ -80,9 +82,20 @@ describe("buildStandardWorkbook", () => {
     expect(sheet.getCell(rowOf("Net income (loss)"), 3).value).toMatchObject({ formula: expect.any(String) });
   });
 
+  it("lists drivers in the Standard driver columns with forecast-month amounts only", () => {
+    const sheet = workbook.getWorksheet("Forecast")!;
+    expect(sheet.getCell(5, 4).value).toBe("Initial value");
+    expect(sheet.getRow(6).values).toEqual(expect.arrayContaining(["Hosting", "Spend", "COGS", "4%", "% of", "Total revenues"]));
+    const septemberColumn = 4 + 11 + periods.indexOf("2026-09"); const augustColumn = 4 + 11 + periods.indexOf("2026-08");
+    expect(sheet.getCell(6, septemberColumn).value).toBe(480);
+    expect(sheet.getCell(6, augustColumn).value).toBeNull();
+    let metricRow = 0; sheet.eachRow((row, number) => { if (row.getCell(1).value === "Customers") metricRow = number; });
+    expect(sheet.getCell(metricRow, 4 + 11 + periods.indexOf("2026-10")).value).toBe(105);
+  });
+
   it("omits Plan, Budget and Scenarios when there is nothing to show", async () => {
     const bare = new ExcelJS.Workbook();
-    await bare.xlsx.load((await buildStandardWorkbook({ ...input, plan: null, scenarios: [] })).buffer as ArrayBuffer);
+    await bare.xlsx.load((await buildStandardWorkbook({ ...input, plan: null, scenarios: [], drivers: [], metrics: [] })).buffer as ArrayBuffer);
     expect(bare.worksheets.map((sheet) => sheet.name)).toEqual(["README", "Get Started", "Summary", "Statements", "Mapping", "Lineage", "Checks"]);
   });
 });
