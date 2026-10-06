@@ -59,6 +59,9 @@ export function StandardStatementsView({ period, view, onReviewMapping, onShowIn
   if (error) return <p className="text-[13px] text-destructive">{error}</p>;
   if (!data) return <p className="text-[13px] text-muted-foreground">Loading Standard view…</p>;
   const failing = data.months.flatMap((month) => (month.statement.checks ?? []).filter((check) => !check.ok).map((check) => `${formatMonth(month.period)}: ${check.label}`));
+  // Net cash flow should equal the movement in the Cash line. When it doesn't, the ledger's cash flow (which finds cash accounts by "cash" in the account name or statement line) and the mapping disagree about which accounts are cash.
+  const amountOf = (statement: Statement, key: string) => BigInt(statement.cashFlow.find((row) => row.key === key)?.amountMinor ?? "0");
+  const cashGaps = data.months.slice(1).filter((month, index) => amountOf(month.statement, "cf_net") !== amountOf(month.statement, "cf_cash_end") - amountOf(data.months[index]!.statement, "cf_cash_end")).length;
   const section = (title: string, pick: (statement: Statement) => Row[]) => <>
     <tr><th className="sticky left-0 z-10 bg-background pt-5 pb-1 text-left text-[11px] font-normal uppercase tracking-[.12em] text-muted-foreground" colSpan={columns.length + 1} scope="colgroup">{title}</th></tr>
     {pick(columns[0]!.statement).map((row, index) => <tr className={cn(row.kind === "total" && "font-medium", (row.kind === "subtotal" || row.kind === "total") && "border-t border-border")} key={row.key}>
@@ -72,10 +75,12 @@ export function StandardStatementsView({ period, view, onReviewMapping, onShowIn
       <span>{data.mapping.total - data.mapping.confirmed} of {data.mapping.total} accounts use a suggested line. Figures are complete; their placement is not yet confirmed.</span>
       <Button onClick={onReviewMapping} size="sm" type="button" variant="outline">Review mapping</Button>
     </div>}
+    {cashGaps > 0 && <p className="text-[13px] text-destructive">In {cashGaps} month{cashGaps === 1 ? "" : "s"}, net cash flow does not equal the change in the Cash line. The ledger&apos;s cash flow treats an account as cash only when its name or statement line says &ldquo;cash&rdquo;; check that every account mapped to Cash does.</p>}
     {failing.length > 0 && <p className="text-[13px] text-destructive">Does not tie to the ledger: {failing.slice(0, 3).join("; ")}{failing.length > 3 ? ` and ${failing.length - 3} more` : ""}.</p>}
     <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
       <span>{formatMonth(data.start)} to {formatMonth(data.end)} · actuals through {formatMonth(data.asOfPeriod)} · fiscal year ends {new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, data.fiscalYearEndMonth - 1, 1)))}</span>
-      <div className="flex rounded-md border border-border" role="tablist" aria-label="Columns">{(["monthly", "annual"] as const).map((value) => <button aria-selected={scale === value} className={cn("px-3 py-1", scale === value ? "bg-muted text-foreground" : "hover:text-foreground")} key={value} onClick={() => { setScale(value); setDrill(null); }} role="tab" type="button">{value === "monthly" ? "Monthly" : "Annual"}</button>)}</div>
+      <div className="flex items-center gap-3"><a className="text-foreground underline underline-offset-4 hover:text-muted-foreground" download href="/api/exports/standard-model" title="Every scenario, the pinned plan, mapping and checks, over the model timeline">Download model (.xlsx)</a>
+      <div className="flex rounded-md border border-border" role="tablist" aria-label="Columns">{(["monthly", "annual"] as const).map((value) => <button aria-selected={scale === value} className={cn("px-3 py-1", scale === value ? "bg-muted text-foreground" : "hover:text-foreground")} key={value} onClick={() => { setScale(value); setDrill(null); }} role="tab" type="button">{value === "monthly" ? "Monthly" : "Annual"}</button>)}</div></div>
     </div>
     <div className="overflow-x-auto" ref={tableScroll}>
       <table className="text-[13px]">

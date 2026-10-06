@@ -1,7 +1,7 @@
 # Standard Financial Model export and driver extensions
 
 Date: 2026-10-05
-Status: phase 1 (mapping, categories, Standard view and timeline) implemented; see [Standard statements](../../standard-statements.md). Phases 2–6 not started. Rulings from review on 2026-10-05 are marked **Ruling**.
+Status: phases 1 (mapping, categories, Standard view and timeline) and 2 (values workbook) implemented; see [Standard statements](../../standard-statements.md). Phases 3–6 not started. Rulings from review on 2026-10-05 are marked **Ruling**.
 Audience: product and engineering.
 Builds on: [driver formulas](2026-09-18-driver-formulas-design.md), [forecast scenarios](2026-09-18-forecast-scenarios-design.md), [goal-directed financial model](2026-09-25-goal-directed-financial-model-design.md).
 
