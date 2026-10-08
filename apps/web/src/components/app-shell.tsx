@@ -1612,8 +1612,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               )}
             </div>
           </form>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-3 [&>button]:whitespace-nowrap [&>a]:whitespace-nowrap">
               <button className={quietButton} type="button" onClick={newChat}>
                 <Plus className="size-3.5" aria-hidden="true" /> New chat
               </button>
@@ -1630,11 +1630,6 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <Link href="/knowledge" className={quietButton}>
                 <BookOpenText className="size-3.5" aria-hidden="true" /> Knowledge
               </Link>
-              <Link href="/operating-models" className={quietButton}>Decision workspace</Link>
-              <Link href="/progress#cash-outlook" className={quietButton}>Cash outlook & progress</Link>
-              <Link href="/reviews" className={quietButton}>Reports & sign-off</Link>
-              <Link href="/goals" className={quietButton}>Goals & reviews</Link>
-              <Link href="/goal-decisions" className={quietButton}>Decisions & outcomes</Link>
             </div>
             {siteUrl && (
               <a href={siteUrl} target="_blank" rel="noreferrer" className={quietButton}>
@@ -1647,6 +1642,17 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               {notice}
             </p>
           )}
+        </section>
+
+        <section className="grid gap-3.5" aria-labelledby="workspace-heading">
+          <h2 id="workspace-heading" className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Workspace</h2>
+          <nav className="flex flex-wrap items-center gap-x-5 gap-y-3 border-y border-rule py-4 [&>a]:whitespace-nowrap" aria-label="Workspace">
+            <Link href="/operating-models" className={quietButton}>Decision workspace</Link>
+            <Link href="/progress#cash-outlook" className={quietButton}>Cash outlook & progress</Link>
+            <Link href="/reviews" className={quietButton}>Reports & sign-off</Link>
+            <Link href="/goals" className={quietButton}>Goals & reviews</Link>
+            <Link href="/goal-decisions" className={quietButton}>Decisions & outcomes</Link>
+          </nav>
         </section>
 
         {evidence.length > 0 && <section className="grid min-w-0 gap-3.5 overflow-hidden" aria-live="polite" aria-label="Documents processing">
