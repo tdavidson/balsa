@@ -8,6 +8,9 @@ loadEnv({ path: "../../.env" });
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Preserve authored hrefs during SSR and hydration, including fragment links.
+  // Automatic trailing-slash normalization can differ between server and client.
+  skipTrailingSlashRedirect: true,
   async headers() {
     return [{
       source: "/(.*)",
