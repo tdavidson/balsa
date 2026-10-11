@@ -3,13 +3,13 @@ import { proposeWorkbookEditsWith } from "@/lib/workbook-round-trip";
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getDatabase, recordAudit, approvalEvents, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sourceRows, sources, users } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
-import { adaptStatementFacts, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, parseCsvRows, type PdfExtractionQuality, type SourceKind } from "@balsa/ingestion";
+import { adaptStatementFacts, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, parseCsvRows, type PdfExtractionQuality } from "@balsa/ingestion";
 import { parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
 import { matchStatementAccount } from "@/lib/account-matching";
@@ -17,11 +17,10 @@ import { storeSourceBlob } from "@/lib/blob-store";
 import { assertExtractedTextSize, assertUploadSize } from "@/lib/ingestion-guardrails";
 import { inspectSpreadsheet, type WorkbookStructure } from "@/lib/spreadsheet-extraction";
 import { takeRateLimit } from "@/lib/request-rate-limit";
-import { recordReviewedKnowledge } from "@/lib/company-knowledge";
 import { buildOnboardingQuestions } from "@/lib/onboarding-review";
 import { policyAppliesInContext } from "@/lib/company-policy-engine";
-import { buildEvidencePublication } from "@/lib/evidence-publication";
-import { applyApprovedEvidence } from "@/lib/apply-evidence";
+import { publishEvidenceIfComplete } from "@/lib/evidence-publish";
+import { assessDocumentIdentity, assessFact, assumptionFromApprovals, documentMaxAmount, reopenedFromApprovals } from "@/lib/review-assessment";
 import { refreshCurrentCalculationRun } from "@/lib/refresh-calculation-run";
 import { optionalStatementDateSchema } from "@/lib/statement-date";
 import { validQuestionsForSource } from "@/lib/source-review-questions";
@@ -33,7 +32,6 @@ const inputSchema = modelRequestSchema.extend({
   defer: z.boolean().optional(),
 });
 
-const sourceProvesCash = (kind: SourceKind | undefined) => ["bank_statement", "brokerage_statement", "quickbooks_transactions"].includes(kind ?? "");
 const accountingRoles = ["transaction", "opening_balance", "ending_balance", "transfer", "investment_movement", "revenue", "expense", "financing", "summary", "agreement", "unknown"] as const;
 const reviewSchema = z.object({ id: z.string().uuid(), status: z.enum(["pending", "approved", "rejected"]).optional(), extractedJson: z.string().optional(), factId: z.string().uuid().optional(), layer: z.enum(["document", "fact", "treatment"]).optional(), accountingRole: z.enum(accountingRoles).optional() });
 
@@ -313,7 +311,25 @@ export async function GET() {
   const openReviews = uniqueReviewQuestions([...openReviewRows, ...derivedOnboarding]);
 
   return NextResponse.json({
-    evidence: rows.map((row) => ({ ...row, sourceMetadata: (() => { try { return JSON.parse(row.sourceMetadata ?? "{}"); } catch { return {}; } })(), sourceExcerpt: row.rawText.slice(0, 280), rawText: undefined, extraction: row.extractedJson ? (() => { const extraction = JSON.parse(row.extractedJson) as { summary: string; facts: { label: string; value: string; accountingRole?: string; confidence: number }[]; questions: string[] }; const storedFacts = factsByEvidence.get(row.id) ?? []; return { ...extraction, facts: extraction.facts.map((fact) => { const stored = storedFacts.find((candidate) => candidate.label === fact.label && candidate.value === fact.value); return { ...fact, accountingRole: stored?.accountingRole ?? fact.accountingRole, factId: stored?.id, factStatus: stored?.status ?? "pending", sourceLocation: stored?.sourceLocation, currency: stored?.currency ?? row.currency }; }) }; })() : null, ingestionRuns: row.sourceId ? runsBySource.get(row.sourceId) ?? [] : [], approvals: approvalsByEvidence.get(row.id) ?? [] })),
+    evidence: rows.map((row) => {
+      const sourceMetadata = (() => { try { return JSON.parse(row.sourceMetadata ?? "{}") as { sourceRole?: string; classification?: { kind?: string; confidence?: string } }; } catch { return {}; } })();
+      const approvals = approvalsByEvidence.get(row.id) ?? [];
+      const extraction = row.extractedJson ? (() => {
+        const parsed = JSON.parse(row.extractedJson) as { summary: string; facts: { label: string; value: string; accountingRole?: string; confidence: number }[]; questions: string[] };
+        const storedFacts = factsByEvidence.get(row.id) ?? [];
+        const maxAmount = documentMaxAmount(parsed.facts);
+        return { ...parsed, facts: parsed.facts.map((fact) => {
+          const stored = storedFacts.find((candidate) => candidate.label === fact.label && candidate.value === fact.value);
+          const accountingRole = stored?.accountingRole ?? fact.accountingRole;
+          const factStatus = stored?.status ?? "pending";
+          const assessment = assessFact({ label: fact.label, value: fact.value, accountingRole: accountingRole ?? null, confidence: stored?.confidence ?? fact.confidence }, { rawText: row.rawText, documentMaxAmount: maxAmount });
+          const assumed = stored && factStatus === "treatment_approved" ? assumptionFromApprovals(approvals, stored.id) : null;
+          return { ...fact, accountingRole, factId: stored?.id, factStatus, sourceLocation: stored?.sourceLocation, currency: stored?.currency ?? row.currency, assessment: { ...assessment, assumed, reopened: stored ? reopenedFromApprovals(approvals, stored.id) : false } };
+        }) };
+      })() : null;
+      const identityAssessment = assessDocumentIdentity({ classificationConfidence: sourceMetadata.classification?.confidence ?? null, kind: sourceMetadata.classification?.kind ?? null, sourceRole: sourceMetadata.sourceRole ?? null, reportingMonth: row.reportingMonth });
+      return { ...row, sourceMetadata, sourceExcerpt: row.rawText.slice(0, 280), rawText: undefined, extraction, identityAssessment: { ...identityAssessment, assumed: row.identityStatus === "approved" ? assumptionFromApprovals(approvals, null) : null }, ingestionRuns: row.sourceId ? runsBySource.get(row.sourceId) ?? [] : [], approvals };
+    }),
     reviewItems: openReviews,
     factRecords: facts,
   });
@@ -374,55 +390,10 @@ export async function PATCH(request: Request) {
     if (identityStatus !== "pending") await recordAudit(db, { companyId: context.company.id, actorUserId: context.user.id, via: "ui", action: `evidence.${identityStatus}`, entityType: "evidence", entityId: body.data.id, summary: `${identityStatus === "approved" ? "Approved" : "Rejected"} ${existing.sourceName} (document layer)`, before: { identityStatus: existing.identityStatus }, after: { identityStatus } });
   }
 
-  const [document] = await db.select({ id: evidence.id, sourceId: evidence.sourceId, identityStatus: evidence.identityStatus, status: evidence.status, currency: evidence.currency, reportingMonth: evidence.reportingMonth, extractedJson: evidence.extractedJson, sourceMetadata: sources.metadata }).from(evidence).leftJoin(sources, eq(evidence.sourceId, sources.id)).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
-  if (!document || document.identityStatus !== "approved" || !document.extractedJson) return NextResponse.json(factResult ? { fact: factResult, status: document?.status ?? "pending" } : document);
-  const approvedFacts = await db.select({ status: factRecords.status, label: factRecords.label, value: factRecords.value, accountingRole: factRecords.accountingRole }).from(factRecords).where(and(eq(factRecords.companyId, context.company.id), eq(factRecords.evidenceId, body.data.id)));
-  if (!approvedFacts.length || !approvedFacts.every((fact) => fact.status === "treatment_approved")) return NextResponse.json(factResult ? { fact: factResult, status: document.status } : document);
-
-  let sourceKind: SourceKind | undefined;
-  let sourceRole: "reference_model" | undefined;
-  try {
-    const metadata = JSON.parse(document.sourceMetadata ?? "{}") as { sourceRole?: string; classification?: { kind?: SourceKind } };
-    sourceKind = metadata.classification?.kind;
-    sourceRole = metadata.sourceRole === "reference_model" ? "reference_model" : undefined;
-  } catch { /* unknown sources cannot prove cash */ }
-  const policyRows = await db.select({ id: policies.id, name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom }).from(policies).where(and(eq(policies.companyId, context.company.id), eq(policies.active, "Y")));
-  const publication = buildEvidencePublication({ facts: approvedFacts, ...(sourceKind ? { sourceKind } : {}), ...(sourceRole ? { sourceRole } : {}), reportingMonth: document.reportingMonth, currency: document.currency, policies: policyRows });
-  if (publication.blocked.length) {
-    const existingBlocks = await db.select({ reviewKey: reviewItems.reviewKey }).from(reviewItems).where(and(eq(reviewItems.companyId, context.company.id), eq(reviewItems.evidenceId, body.data.id)));
-    const keys = new Set(existingBlocks.map((item) => item.reviewKey));
-    const blocks = publication.blocked.map((item) => ({ reviewKey: `publication:${body.data.id}:${item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 80)}`, question: `${item.label} cannot be published: ${item.reason}` })).filter((item) => !keys.has(item.reviewKey));
-    if (blocks.length) await db.insert(reviewItems).values(blocks.map((item) => ({ companyId: context.company.id, evidenceId: body.data.id, ...item, status: "open" })));
-    return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), status: "pending", publicationBlocked: publication.blocked });
-  }
-  const eventMonths = [...new Set(publication.cashEvents.map((event) => event.month))];
-  if (eventMonths.length) {
-    const [closed] = await db.select({ month: reportingPeriods.month }).from(reportingPeriods).where(and(eq(reportingPeriods.companyId, context.company.id), inArray(reportingPeriods.month, eventMonths), eq(reportingPeriods.status, "closed")));
-    if (closed) return NextResponse.json({ error: `Evidence references closed reporting month: ${closed.month}` }, { status: 409 });
-  }
-  // Publication: staged import rows become actuals, derived rows from any earlier
-  // publication are cleared, and the source is marked published. The typed
-  // Company State (agreements, obligations, transactions, balances) is then
-  // produced by the interpretation step, whose items stay drafts until the CFO
-  // confirms them.
-  await db.transaction(async (tx) => {
-    await tx.delete(cashEvents).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id), isNull(cashEvents.externalKey)));
-    // A GL, P&L, balance sheet, or agreement can support recognition and
-    // mappings, but cannot publish staged rows as cash actuals by itself.
-    await tx.update(cashEvents).set(sourceProvesCash(sourceKind) ? { isActual: "Y", accountingTreatment: "cash", updatedAt: new Date() } : { isActual: "N", accountingTreatment: "pending", updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.evidenceId, body.data.id)));
-    // Reference-model rows remain a separately marked learning layer. They
-    // cannot enter ledger reconciliation or posting merely because the file
-    // itself has been reviewed.
-    await tx.update(sourceRows).set({ status: sourceRole === "reference_model" ? "reference" : "approved", updatedAt: new Date() }).where(and(eq(sourceRows.companyId, context.company.id), eq(sourceRows.evidenceId, body.data.id)));
-    await tx.delete(economicItems).where(and(eq(economicItems.companyId, context.company.id), eq(economicItems.evidenceId, body.data.id)));
-    await tx.update(evidence).set({ status: "approved", publishedAt: new Date(), updatedAt: new Date() }).where(and(eq(evidence.id, body.data.id), eq(evidence.companyId, context.company.id)));
-    if (document.sourceId) await tx.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: document.sourceId, stage: "reconciliation", status: "waiting", metadata: JSON.stringify({ trigger: "publication", evidenceId: body.data.id }) });
-  });
-  let summary: string | undefined;
-  try { summary = (JSON.parse(document.extractedJson) as { summary?: string }).summary; } catch { /* the facts carry the content */ }
-  const interpretation = await applyApprovedEvidence({ context, actorUserId: context.user.id, evidenceId: body.data.id, evidenceStatus: "approved", extraction: { ...(summary ? { summary } : {}), facts: approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })) }, ...(sourceKind ? { sourceKind } : {}), ...(sourceRole ? { sourceRole } : {}), ...(document.currency ? { currency: document.currency } : {}), modelChoice: {}, replace: false });
-  if ("error" in interpretation && interpretation.status === 409) return NextResponse.json({ error: interpretation.error }, { status: 409 });
-  await recordReviewedKnowledge(db, context.company.id, body.data.id, approvedFacts.map((fact) => ({ label: fact.label, value: fact.value, ...(fact.accountingRole ? { accountingRole: fact.accountingRole } : {}) })));
-  const calculationRun = await refreshCurrentCalculationRun(context.company.id, { cause: { kind: "evidence_published", subjectType: "evidence", subjectId: document.id, actorUserId: context.user.id, via: "ui" } });
-  return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), id: document.id, identityStatus: document.identityStatus, status: "approved", interpretation: "error" in interpretation ? { error: interpretation.error } : { items: interpretation.items, transactions: interpretation.transactions, balances: interpretation.balances, questions: interpretation.questions }, calculationRun });
+  const outcome = await publishEvidenceIfComplete(context, body.data.id, context.user.id);
+  if (outcome.kind === "not_ready") return NextResponse.json(factResult ? { fact: factResult, status: outcome.document?.status ?? "pending" } : outcome.document);
+  if (outcome.kind === "blocked") return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), status: "pending", publicationBlocked: outcome.blocked });
+  if (outcome.kind === "closed_month") return NextResponse.json({ error: `Evidence references closed reporting month: ${outcome.month}` }, { status: 409 });
+  if (outcome.kind === "conflict") return NextResponse.json({ error: outcome.error }, { status: 409 });
+  return NextResponse.json({ ...(factResult ? { fact: factResult } : {}), id: outcome.document.id, identityStatus: outcome.document.identityStatus, status: "approved", interpretation: outcome.interpretation, calculationRun: outcome.calculationRun });
 }
