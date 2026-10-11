@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, FlaskConical, LoaderCircle, MessageSquareText, Paperclip, Pencil, Plus, Square, Trash2 } from "lucide-react";
+import { ArrowUp, BookOpenText, ChartColumn, Check, ChevronDown, CircleHelp, FileText, FlaskConical, LoaderCircle, MessageSquareText, Paperclip, Plus, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStoredChoice } from "@/lib/use-stored-choice";
@@ -24,6 +24,12 @@ import type { ModelCommitResult } from "@/components/forecast-model-panel";
 import { ForecastWhatChanged } from "@/components/forecast-what-changed";
 import { ScenarioEditorDialog, type ScenarioItemOption } from "@/components/scenario-editor-dialog";
 import { ScenarioVsBaseLine } from "@/components/scenario-vs-base-line";
+import { CashBalanceChart, NetCashFlowChart, RevenueExpenseChart, type CashBalancePoint, type NetFlowBar, type RevenueExpenseRow } from "@/components/cash-charts";
+import { DecisionReview } from "@/components/decision-review";
+import { ResizableColumns } from "@/components/resizable-columns";
+import { provisionalCashSeries } from "@/lib/provisional-cash-series";
+import { buildReviewQueue, evidenceReadyToAssume, type QueueItem } from "@/lib/review-queue";
+import type { Assumption, FactAssessment } from "@/lib/review-assessment";
 import type { ScenarioForecastView, ScenarioSummary } from "@/lib/scenario-changes";
 
 // Next inlines NEXT_PUBLIC_ variables at build time, so this is a build-time constant.
@@ -61,7 +67,8 @@ function accountingValue(value: string | undefined) {
 }
 
 function money(amount: number, currency = "$") {
-  const formatted = Math.abs(amount).toLocaleString();
+  // Whole amounts stay whole; any cents always show two digits ($46,305.10, not $46,305.1).
+  const formatted = Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(Math.round(Math.abs(amount) * 100) / 100) ? 0 : 2, maximumFractionDigits: 2 });
   return amount < 0 ? `−${currency}${formatted}` : `${currency}${formatted}`;
 }
 
@@ -175,7 +182,7 @@ function ingestionStatusLabel(item: EvidenceItem) {
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
   if (latestExtraction?.status === "interrupted") return "Extraction interrupted";
   if (status === "extracting" && latestExtraction?.status === "waiting") return "Queued for extraction";
-  if (status === "extracting") return "Extracting facts and evidence";
+  if (status === "extracting") return "Reading the source";
   if (status === "stored") return "Stored; waiting for extraction";
   if (status === "reconciling") return "Checking against other sources";
   if (status === "review") return "Ready for review";
@@ -190,7 +197,7 @@ type ProcessingStage = { key: string; label: string; status: "waiting" | "runnin
 function aggregateProcessingTimeline(items: EvidenceItem[]) {
   const labels = [
     ["identify", "Classify sources"],
-    ["extract", "Extract facts and provenance"],
+    ["extract", "Read the source and its provenance"],
     ["validate", "Validate balances"],
     ["match", "Match transactions"],
     ["review", "Prepare grouped review"],
@@ -365,7 +372,8 @@ type EvidenceItem = {
   createdAt?: string;
   status: string;
   identityStatus: string;
-  extraction: { summary: string; facts: { label: string; value: string; accountingRole?: string; confidence: number; factId?: string; factStatus?: string; sourceLocation?: string | null; currency?: string | null }[]; questions: string[] } | null;
+  extraction: { summary: string; facts: { label: string; value: string; accountingRole?: string; confidence: number; factId?: string; factStatus?: string; sourceLocation?: string | null; currency?: string | null; assessment?: FactAssessment & { assumed?: Assumption | null; reopened?: boolean } }[]; questions: string[] } | null;
+  identityAssessment?: { score: number; reasons: string[]; assumed?: Assumption | null };
   ingestionRuns?: { id: string; stage: string; status: string; error?: string | null; startedAt: string; completedAt?: string | null; metadata: string }[];
   approvals?: { id: string; factId?: string | null; layer: string; action: string; previousValue?: string | null; nextValue?: string | null; createdAt: string; userName?: string | null; userEmail?: string | null }[];
 };
@@ -469,8 +477,10 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const [draftingWorkbookProposalId, setDraftingWorkbookProposalId] = useState<string | null>(null);
   const [reviewingWorkbookProposalKey, setReviewingWorkbookProposalKey] = useState<string | null>(null);
   const [applyingWorkbookProposalKey, setApplyingWorkbookProposalKey] = useState<string | null>(null);
-  const [batchApprovalEvidenceId, setBatchApprovalEvidenceId] = useState<string | null>(null);
-  const [treatmentDrafts, setTreatmentDrafts] = useState<Record<string, string>>({});
+  const [reviewThreshold, setReviewThreshold] = useState<number | null>(null);
+  const [canChangeReviewThreshold, setCanChangeReviewThreshold] = useState(false);
+  const [reviewBusyKey, setReviewBusyKey] = useState<string | null>(null);
+  const autoAssumeAttempts = useRef(new Set<string>());
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploadSourceRole, setUploadSourceRole] = useState<"standard" | "reference_model">("standard");
@@ -614,7 +624,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     else groups.push({ evidenceId: item.evidenceId ?? null, sourceName: item.sourceName ?? null, items: [item] });
     return groups;
   }, []);
-  const needsInputCount = pendingEvidence.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length + draftItems.length;
+  const reviewQueue = buildReviewQueue(evidence, reviewThreshold);
+  const needsInputCount = reviewQueue.documents.length + reviewQueue.decisions.length + reviewQuestions.length + agentDecisions.filter((decision) => decision.status === "proposed").length + draftItems.length;
   useEffect(() => {
     const updatePlaceholder = () => setComposerPlaceholder(composerCallToAction(new Date(), { needsInputCount, hasConversation: turns.length > 0, hasFiles: files.length > 0 }));
     updatePlaceholder();
@@ -648,6 +659,11 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       }
     }
     loadEvidence().catch(() => undefined);
+    fetch("/api/review-policy").then((response) => response.ok ? response.json() : null).then((payload: { confidenceThreshold?: number | null; canChange?: boolean } | null) => {
+      if (!payload) return;
+      setReviewThreshold(payload.confidenceThreshold ?? null);
+      setCanChangeReviewThreshold(Boolean(payload.canChange));
+    }).catch(() => undefined);
   }, []);
 
   const loadCalculationTrace = (runId?: string, engine: "journal" | "forecast" = calculationTraceEngine) => {
@@ -723,6 +739,35 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   // job is claimed; subsequent UI choices apply only to subsequent jobs.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evidence, model, effort]);
+
+  // Under the owner's confidence level, accept what Balsa can check without asking.
+  // Each document is attempted once per state, so a fact the server declines
+  // (for example, one a person reopened) never causes a request loop.
+  useEffect(() => {
+    if (reviewThreshold === null) return;
+    const ready = evidenceReadyToAssume(evidence, reviewThreshold).filter((item) => {
+      const open = item.extraction?.facts.filter((fact) => fact.factStatus === "pending" || fact.factStatus === "approved").length ?? 0;
+      const key = `${item.id}:${reviewThreshold}:${item.identityStatus}:${open}`;
+      if (autoAssumeAttempts.current.has(key)) return false;
+      autoAssumeAttempts.current.add(key);
+      return true;
+    });
+    if (!ready.length) return;
+    void (async () => {
+      let accepted = 0;
+      for (const item of ready) {
+        const response = await fetch(`/api/evidence/${item.id}/accept`, { method: "POST", headers: { "Content-Type": "application/json", "x-company-id": company.id }, body: JSON.stringify({ scope: "assumed" }) }).catch(() => null);
+        if (!response?.ok) continue;
+        const payload = await readJson(response);
+        accepted += (payload.accepted ?? 0) + (payload.identity === "assumed" ? 1 : 0);
+      }
+      if (!accepted) return;
+      setNotice(`Balsa accepted ${accepted} item${accepted === 1 ? "" : "s"} it checked at ${Math.round(reviewThreshold * 100)}% confidence or higher. They are listed under Assumed, where you can reopen any of them.`);
+      await refreshFinancialState();
+    })();
+  // `refreshFinancialState` reads current filters when the pass finishes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evidence, reviewThreshold, company.id]);
 
   // Ingestion may continue after the upload/chat request returns. Keep the shell
   // current while the documents modal is open or any source reports active work.
@@ -914,7 +959,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
       const response = await fetch("/api/journal-financials");
       const payload = response.ok ? await readJson(response) : null;
       applyJournalDashboard(payload);
-      if (payload?.months) { const initialMonth = payload.months[0]?.month ?? ""; setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
+      // Open on the latest closed month, where there is something to show; fall back to the first month.
+      if (payload?.months) { const months = payload.months as { month: string }[]; const initialMonth = months.find((month) => month.month === payload.asOfPeriod)?.month ?? months[0]?.month ?? ""; setSelectedMonth(initialMonth); setRangeEnd(lastDayOfMonth(initialMonth)); }
       const reconciliationResponse = await fetch("/api/reconciliation");
       const reconciliationPayload = reconciliationResponse.ok ? await readJson(reconciliationResponse) : null;
       if (reconciliationPayload?.months) setReconciliation(reconciliationPayload.months);
@@ -1370,47 +1416,48 @@ export function AppShell({ company, companies, role, staleSelection, user, model
     }
   }
 
-  async function reviewItem(id: string, status: "approved" | "rejected") {
-    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status, layer: "document" }) });
-    if (response.ok) {
-      setEvidence((current) => current.map((item) => item.id === id ? { ...item, identityStatus: status, status: status === "rejected" ? "rejected" : item.status } : item));
-      await refreshFinancialState();
-    } else {
-      const payload = await readJson(response);
-      setNotice(payload.error ?? "Unable to update this document.");
-    }
+  async function patchEvidence(body: Record<string, unknown>) {
+    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error((await readJson(response)).error ?? "Unable to update this approval.");
   }
 
-  async function reviewFact(evidenceId: string, factId: string, status: "approved" | "rejected", layer: "fact" | "treatment", accountingRole?: string) {
-    const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: evidenceId, factId, status, layer, ...(accountingRole ? { accountingRole } : {}) }) });
-    if (!response.ok) {
-      const payload = await readJson(response);
-      setNotice(payload.error ?? "Unable to update this approval.");
-      return;
-    }
-    setEvidence((current) => current.map((item) => item.id === evidenceId && item.extraction ? { ...item, extraction: { ...item.extraction, facts: item.extraction.facts.map((fact) => fact.factId === factId ? { ...fact, ...(accountingRole ? { accountingRole } : {}), factStatus: layer === "treatment" ? "treatment_approved" : status } : fact) } } : item));
-    await refreshFinancialState();
-  }
-
-  async function reviewFactBatch(item: EvidenceItem, layer: "fact" | "treatment") {
-    const facts = item.extraction?.facts.filter((fact) => fact.factId && (layer === "fact" ? fact.factStatus === "pending" : fact.factStatus === "approved")) ?? [];
-    if (!facts.length) return;
-    setBatchApprovalEvidenceId(item.id);
+  async function runReviewAction(key: string, action: () => Promise<void>) {
+    setReviewBusyKey(key);
     setNotice(null);
     try {
-      for (const fact of facts) {
-        const response = await fetch("/api/evidence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, factId: fact.factId, status: "approved", layer }) });
-        if (!response.ok) {
-          const payload = await readJson(response);
-          throw new Error(payload.error ?? "Unable to update this approval.");
-        }
-      }
+      await action();
       await refreshFinancialState();
-      setNotice(`${facts.length} ${layer === "fact" ? "extracted fact" : "proposed treatment"}${facts.length === 1 ? "" : "s"} approved.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to update this approval.");
     } finally {
-      setBatchApprovalEvidenceId(null);
+      setReviewBusyKey(null);
+    }
+  }
+
+  /** One click for a decision: the fact, then its treatment, as the two audited layers. */
+  const acceptQueuedFact = (item: QueueItem, accountingRole: string) => runReviewAction(item.fact.factId, async () => {
+    if (item.fact.factStatus === "pending") await patchEvidence({ id: item.evidence.id, factId: item.fact.factId, status: "approved", layer: "fact" });
+    await patchEvidence({ id: item.evidence.id, factId: item.fact.factId, status: "approved", layer: "treatment", accountingRole });
+  });
+  const rejectQueuedFact = (item: QueueItem) => runReviewAction(item.fact.factId, () => patchEvidence({ id: item.evidence.id, factId: item.fact.factId, status: "rejected", layer: "fact" }));
+  /** Send an assumption back to review; the server will not assume it again. */
+  const reopenQueuedFact = (item: QueueItem) => runReviewAction(item.fact.factId, () => patchEvidence({ id: item.evidence.id, factId: item.fact.factId, status: "pending", layer: "fact" }));
+  const confirmQueuedDocument = (evidenceId: string) => runReviewAction(evidenceId, () => patchEvidence({ id: evidenceId, status: "approved", layer: "document" }));
+  const rejectQueuedDocument = (evidenceId: string) => runReviewAction(evidenceId, () => patchEvidence({ id: evidenceId, status: "rejected", layer: "document" }));
+  const acceptMinorFacts = (evidenceId: string) => runReviewAction(`minor:${evidenceId}`, async () => {
+    const response = await fetch(`/api/evidence/${evidenceId}/accept`, { method: "POST", headers: { "Content-Type": "application/json", "x-company-id": company.id }, body: JSON.stringify({ scope: "minor" }) });
+    const payload = await readJson(response);
+    if (!response.ok) throw new Error(payload.error ?? "Unable to accept these facts.");
+    setNotice(`${payload.accepted ?? 0} less important fact${payload.accepted === 1 ? "" : "s"} accepted.${payload.publication === "failed" ? " The document could not be published yet; it will publish on the next approval or retry." : ""}`);
+  });
+
+  async function changeReviewThreshold(value: number | null) {
+    const previous = reviewThreshold;
+    setReviewThreshold(value);
+    const response = await fetch("/api/review-policy", { method: "PATCH", headers: { "Content-Type": "application/json", "x-company-id": company.id }, body: JSON.stringify({ confidenceThreshold: value }) });
+    if (!response.ok) {
+      setReviewThreshold(previous);
+      setNotice((await readJson(response)).error ?? "Unable to change when Balsa asks.");
     }
   }
 
@@ -1443,31 +1490,37 @@ export function AppShell({ company, companies, role, staleSelection, user, model
   const scenarioView = scenarioForecast && selectedScenarioId !== baseScenario && scenarioForecast.scenario.id === selectedScenarioId ? scenarioForecast : null;
   const forecastAsOfMonth = runway ? shiftMonth(runway.horizonEnd, -runway.horizonMonths) : null;
   const scenarioItemOptions: ScenarioItemOption[] = proposedItems.filter((item) => item.status === "confirmed" && !item.scenarioId).map((item) => ({ id: item.id, label: item.label, direction: item.direction, amount: item.amount }));
-  // Scenario net per displayed period, summed over forecast months in range, on the same cadence keys as the base bars.
+  // Charts show the whole timeline from its first month with cash or activity;
+  // the selected period is highlighted and drives the figures and statements.
+  const hasMonthActivity = (row: ForecastMonth) => row.hasCashBalance !== false || row.receipts !== 0 || row.spending !== 0 || row.actualReceipts !== 0 || row.actualSpending !== 0;
+  const chartStartIndex = forecast.findIndex(hasMonthActivity);
+  const chartForecastRows = chartStartIndex < 0 ? [] : forecast.slice(chartStartIndex);
+  const chartStartMonth = chartForecastRows[0]?.month ?? "";
+  // Scenario net per displayed period, summed over its months, on the same cadence keys as the base bars.
   const scenarioNetByPeriod = new Map<string, number>();
-  if (scenarioView && customRangeIsValid) {
+  if (scenarioView) {
     for (const month of scenarioView.months) {
-      if (month.month < periodStartMonth || month.month > periodEndMonth) continue;
+      if (month.month < chartStartMonth) continue;
       const key = cadenceKey(month.month, statementCadence);
       scenarioNetByPeriod.set(key, (scenarioNetByPeriod.get(key) ?? 0) + Number(BigInt(month.receiptsMinor) - BigInt(month.spendingMinor)) / 100);
     }
   }
-  const bars = displayedForecastRows.map((month) => {
+  const bars = aggregateForecastRows(chartForecastRows, statementCadence).map((month) => {
     const actual = month.actualReceipts !== 0 || month.actualSpending !== 0;
     const net = actual ? month.actualReceipts - month.actualSpending : month.receipts - month.spending;
     const scenarioNet = actual ? null : scenarioNetByPeriod.get(month.month) ?? null;
     return { month: month.month, endMonth: month.endMonth, actual, net, scenarioNet };
   });
-  const maxAbs = Math.max(1, ...bars.map((bar) => Math.abs(bar.net)), ...bars.map((bar) => Math.abs(bar.scenarioNet ?? 0)));
-  const zeroY = 95;
+  const netFlowBars: NetFlowBar[] = bars.map((bar) => ({ ...bar, label: statementCadence === "monthly" ? monthLabel(bar.month, shortMonthFormatter) : cadenceLabel(bar.month, statementCadence), tooltipLabel: cadenceLabel(bar.month, statementCadence) }));
+  // Charts draw the engine's monthly ending cash; they never recalculate it.
+  const cashBalancePoints: CashBalancePoint[] = chartForecastRows.filter((row) => row.hasCashBalance !== false).map((row) => ({ month: row.month, value: row.endingCash, kind: row.status === "history" || row.status === "closed" || row.actualReceipts !== 0 || row.actualSpending !== 0 ? "actual" : "forecast" }));
+  const scenarioCashLine = scenarioView ? { name: scenarioView.scenario.name, points: scenarioView.months.filter((month) => month.month >= chartStartMonth).map((month) => ({ month: month.month, value: Number(BigInt(month.endingCashMinor)) / 100 })) } : null;
+  const revenueExpenseRows: RevenueExpenseRow[] = aggregatePnlRows(pnl.filter((row) => row.month >= chartStartMonth), statementCadence).map((row) => ({ month: row.month, label: statementCadence === "monthly" ? monthLabel(row.month, shortMonthFormatter) : cadenceLabel(row.month, statementCadence), tooltipLabel: cadenceLabel(row.month, statementCadence), revenue: row.revenue, expenses: row.expenses }));
+  const showPositionCharts = hasFinancialOutput || chartForecastRows.length > 0;
+  const provisionalCash = provisionalCashSeries(evidence, company.currency);
 
-  return (
-    <div className="flex min-h-screen flex-col" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
-      <header className="flex h-14 items-center justify-end px-7">
-        <AccountMenu company={{ id: company.id, name: company.name, baseCurrency: company.currency }} companies={companies} role={role} staleSelection={staleSelection} user={user} loginEnabled={loginEnabled} />
-      </header>
-
-      <main className="mx-auto grid w-full max-w-[776px] flex-1 content-start gap-10 px-7 pt-6 pb-16">
+  const chatColumn = (
+    <div className="mx-auto grid w-full max-w-[776px] content-start gap-10 px-7 pt-6 pb-16">
         <section className="grid gap-5" aria-label="Conversation">
           {Object.keys(threads).length > 1 && <div className="flex min-w-0 gap-1 overflow-x-auto border-b border-rule pb-1" role="tablist" aria-label="Chat threads">
             {Object.entries(threads).map(([id, thread], index) => <span key={id} className={cn("inline-flex shrink-0 items-center rounded-md", id === activeThreadId && "bg-rule")}><button type="button" role="tab" aria-selected={id === activeThreadId} className={cn("rounded-md px-3 py-1.5 text-[13px] text-ink-2 hover:bg-rule", id === activeThreadId && "text-ink")} onClick={() => { setActiveThreadId(id); setMessage(""); setActiveReviewQuestion(null); setActiveReviewQuestionId(null); setActiveDecision(null); }}>{id === "main" ? "Chat" : `Chat ${index + 1}`}{thread.length ? <span className="ml-1 text-pencil">· {thread.length}</span> : null}</button><button type="button" aria-label={`Clear ${id === "main" ? "chat" : `Chat ${index + 1}`}`} className="px-1.5 text-ink-2 hover:text-ink" onClick={() => { if (submittingThreadId === id) requestAbortController.current?.abort(); setThreads((current) => { const next = { ...current }; delete next[id]; const remaining = Object.keys(next); if (!remaining.length) next.main = []; if (activeThreadId === id) setActiveThreadId(remaining[0] ?? "main"); return next; }); }}>×</button></span>)}
@@ -1670,8 +1723,8 @@ export function AppShell({ company, companies, role, staleSelection, user, model
             </div>
             <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-rule pt-3 text-[12px] sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
               <span><strong className="block text-[17px] font-normal text-ink">{evidence.length}</strong>documents loaded</span>
-              <span><strong className="block text-[17px] font-normal text-ink">{evidence.reduce((total, item) => total + (item.extraction?.facts.length ?? 0), 0)}</strong>facts extracted</span>
-              <span><strong className="block text-[17px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.transactionCount, 0)}</strong>transactions checked</span>
+              <span><strong className="block text-[17px] font-normal text-ink">{reviewQueue.documents.length + reviewQueue.decisions.length}</strong>need your decision</span>
+              <span><strong className="block text-[17px] font-normal text-ink">{reviewQueue.assumed.length + reviewQueue.assumedDocuments.length}</strong>assumed</span>
               <span><strong className="block text-[17px] font-normal text-ink">{reconciliation.reduce((total, row) => total + row.exceptions.length, 0)}</strong>exceptions</span>
             </div>
           </div>
@@ -1689,13 +1742,31 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           </div>
         </section>}
 
-        {needsInputCount > 0 && <section className="grid gap-3.5">
+        {(needsInputCount > 0 || evidence.length > 0) && <section className="grid gap-3.5">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Needs your input</h2>
-            <span className="text-[13px] text-ink-2">{`${needsInputCount} item${needsInputCount === 1 ? "" : "s"}`}</span>
+            <span className="text-[13px] text-ink-2">{needsInputCount ? `${needsInputCount} item${needsInputCount === 1 ? "" : "s"}` : "Nothing waiting"}</span>
           </div>
           {
             <div className="border-t border-rule">
+              {evidence.length > 0 && (
+                <DecisionReview
+                  queue={reviewQueue}
+                  threshold={reviewThreshold}
+                  canChangeThreshold={canChangeReviewThreshold}
+                  roleOptions={accountingRoleOptions}
+                  busyKey={reviewBusyKey}
+                  onThresholdChange={(value) => { changeReviewThreshold(value).catch(() => setNotice("Unable to change when Balsa asks.")); }}
+                  onConfirmDocument={confirmQueuedDocument}
+                  onRejectDocument={rejectQueuedDocument}
+                  onEditDocument={(evidenceId) => { const item = evidence.find((entry) => entry.id === evidenceId); if (item) editItem(item).catch(() => undefined); }}
+                  onOpenEvidence={openEvidence}
+                  onAcceptFact={acceptQueuedFact}
+                  onRejectFact={rejectQueuedFact}
+                  onReopenFact={reopenQueuedFact}
+                  onAcceptMinor={acceptMinorFacts}
+                />
+              )}
               {reviewQuestions.length > 0 && (
                 <div>
                   <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Clarifications · answer in chat</div>
@@ -1706,52 +1777,6 @@ export function AppShell({ company, companies, role, staleSelection, user, model
                       </button>
                       <div className="text-[12px] text-pencil">Regarding {item.evidenceId ? (evidence.find((source) => source.id === item.evidenceId)?.sourceName ?? "uploaded evidence") : "company evidence"}</div>
                       <div className="text-[13px] text-ink-2">Opens a chat with this question ready to answer.</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {pendingEvidence.length > 0 && (
-                <div>
-                  <div className="border-b border-rule py-2.5 text-[12px] uppercase tracking-[0.12em] text-ink-2">Evidence review · edit, approve, or reject</div>
-                  {pendingEvidence.slice(0, 4).map((item) => (
-                    <div className="grid grid-cols-[1fr_auto] items-start gap-4 border-b border-rule py-3.5" key={`evidence-${item.id}`}>
-                      <div className="min-w-0">
-                        <div>{item.extraction?.summary ?? item.sourceName}</div>
-                        <div className="mt-0.5 text-[13px] text-ink-2">
-                          {item.sourceName}
-                          {item.sourceSize ? ` · ${Math.round(Number(item.sourceSize) / 1024)} KB` : ""}
-                          {` · ${item.extraction?.facts.length ?? 0} facts extracted`}
-                        </div>
-                        {item.sourceExcerpt && !repeatsSummary(item.sourceExcerpt, item.extraction?.summary) && (
-                          <div className="mt-1 truncate text-[13px] text-ink-2">
-                            “{item.sourceExcerpt.replace(/\s+/g, " ").trim()}”
-                          </div>
-                        )}
-                        <div className="mt-3 grid gap-2 border-l-2 border-rule pl-3 text-[13px]">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">1 · Document identity</span>{item.identityStatus === "approved" ? <span className="text-ink">Confirmed</span> : item.identityStatus === "rejected" ? <span className="text-red-ink">Rejected</span> : <span className="text-ink-2">Confirm this is the right source, entity, and period.</span>}</span>
-                            {item.identityStatus === "pending" && <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewItem(item.id, "approved")}>Confirm document</button>}
-                          </div>
-                          <div><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">2 · Extracted facts</span><span className="text-ink-2">Approve each fact after the document is confirmed.</span></div>
-                          <div><span className="mr-2 text-[11px] uppercase tracking-[0.12em] text-pencil">3 · Accounting treatment</span><span className="text-ink-2">Approve the proposed role before it can affect financial state.</span></div>
-                        </div>
-                        {item.identityStatus === "approved" && item.extraction?.facts.length ? <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]"><span className="text-ink-2">{item.extraction.facts.filter((fact) => fact.factStatus === "pending").length} facts awaiting review · {item.extraction.facts.filter((fact) => fact.factStatus === "approved").length} treatments awaiting approval</span>{item.extraction.facts.some((fact) => fact.factStatus === "pending") ? <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule disabled:opacity-50" type="button" disabled={batchApprovalEvidenceId === item.id} onClick={() => reviewFactBatch(item, "fact")}>{batchApprovalEvidenceId === item.id ? "Approving…" : "Approve all extracted facts"}</button> : null}{item.extraction.facts.some((fact) => fact.factStatus === "approved") ? <button className="rounded border border-rule px-2 py-1 text-[11px] text-ink-2 hover:bg-rule disabled:opacity-50" type="button" disabled={batchApprovalEvidenceId === item.id} onClick={() => reviewFactBatch(item, "treatment")}>{batchApprovalEvidenceId === item.id ? "Approving…" : "Approve all proposed treatments"}</button> : null}</div> : null}
-                        {item.extraction?.facts.length ? (
-                          <div className="mt-2 grid gap-1.5 text-[13px] text-ink-2">
-                            {item.extraction.facts.map((fact, factIndex) => (
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1" key={fact.factId ?? `${item.id}-fact-${factIndex}`}>
-                                <span>{fact.label} <span className={cn("font-medium", fact.confidence >= 0.8 ? "text-ink" : "text-ink-2")}>{fact.value}</span>{fact.currency ? <span className="text-pencil"> · {fact.currency}</span> : null}{fact.sourceLocation ? <span className="text-pencil"> · {fact.sourceLocation}</span> : null}{fact.accountingRole ? <span className="text-pencil"> · {fact.accountingRole.replace(/_/g, " ")}</span> : null}</span>
-                                {fact.factId && <span className="flex flex-wrap items-center gap-1">{item.identityStatus !== "approved" ? <span className="text-[11px] text-pencil">Document confirmation required</span> : fact.factStatus === "treatment_approved" ? <span className="text-[11px] text-ink">Treatment approved · {fact.accountingRole?.replace(/_/g, " ") ?? "unknown"}</span> : fact.factStatus === "approved" ? <><select aria-label={`Accounting treatment for ${fact.label}`} className="rounded border border-rule bg-background px-1.5 py-0.5 text-[11px] text-ink-2" value={treatmentDrafts[fact.factId] ?? fact.accountingRole ?? "unknown"} onChange={(event) => setTreatmentDrafts((current) => ({ ...current, [fact.factId!]: event.target.value }))}>{accountingRoleOptions.map((role) => <option value={role} key={role}>{role.replace(/_/g, " ")}</option>)}</select><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "approved", "treatment", treatmentDrafts[fact.factId!] ?? fact.accountingRole ?? "unknown")}>Approve treatment</button></> : <><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "approved", "fact")}>Approve fact</button><button className="rounded border border-rule px-1.5 py-0.5 text-[11px] text-ink-2 hover:bg-rule" type="button" onClick={() => reviewFact(item.id, fact.factId!, "rejected", "fact")}>Reject fact</button></>}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <span className="flex gap-1">
-                        <button className={actionButton} type="button" aria-label="Confirm document identity" title="Confirm document" onClick={() => reviewItem(item.id, "approved")}><Check /></button>
-                        <button className={actionButton} type="button" aria-label="Reject extracted evidence" title="Delete" onClick={() => reviewItem(item.id, "rejected")}><Trash2 /></button>
-                        <button className={actionButton} type="button" aria-label="Edit extracted evidence" title="Edit" onClick={() => editItem(item)}><Pencil /></button>
-                      </span>
                     </div>
                   ))}
                 </div>
@@ -1863,8 +1888,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           </section>;
         })()}
 
-        {!hasFinancialOutput ? (
-          evidence.length === 0 ? (
+        {!hasFinancialOutput && evidence.length === 0 && (
             <section className="grid gap-5 border-y border-rule py-6" aria-labelledby="getting-started-title">
               <div className="grid gap-2">
                 <span className="text-[12px] uppercase tracking-[0.12em] text-ink-2">Start here</span>
@@ -1878,14 +1902,18 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               </div>
               <p className="text-[12px] text-pencil">PDF, CSV, Excel, QBO, OFX, and text files are supported. Reference models use `.xlsx`.</p>
             </section>
-          ) : null
-        ) : (
-        <section className="grid gap-3.5">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+        )}
+    </div>
+  );
+  const chartsColumn = (
+    <div className="grid content-start gap-5 px-6 pt-6 pb-16">
+      {showPositionCharts ? (
+        <section className="grid gap-3.5" aria-label="Company position">
+          <div className="grid gap-3 @2xl:grid-cols-[minmax(0,1fr)_auto] @2xl:items-center">
             <h2 className="display min-w-0 text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>
               {selectedMonth ? periodLabel : "Company position"}
             </h2>
-            <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2 md:justify-end">
+            <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2 @2xl:justify-end">
               {entityStructure.legalEntities.length > 0 && (
                 <Select value={selectedEntity} onValueChange={setSelectedEntity}>
                   <SelectTrigger size="sm" className="h-7 rounded-md border-rule px-2 text-[13px] shadow-none dark:bg-transparent" aria-label="Entity view">
@@ -1971,7 +1999,7 @@ export function AppShell({ company, companies, role, staleSelection, user, model
             </div>
           </details>}
 
-          <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-6 border-y border-rule py-5 @lg:grid-cols-3 @3xl:grid-cols-5">
             <Figure
               label="Cash"
               value={currentForecast && currentForecast.hasCashBalance !== false ? money(currentForecast.endingCash) : "—"}
@@ -2025,40 +2053,42 @@ export function AppShell({ company, companies, role, staleSelection, user, model
           {scenarioView && <ScenarioVsBaseLine forecast={scenarioView} onOpenEvidence={openEvidence} />}
           {runway && <ForecastWhatChanged refreshKey={runway.revision} onOpenEvidence={openEvidence} />}
 
-          {bars.length ? (
-            <div className="grid gap-2.5">
-              <div className="flex gap-4 text-[13px] text-ink-2">
-                <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-ink align-[-1px]" />Actual</span>
-                <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] bg-pencil-2 align-[-1px]" />Forecast</span>
-                {scenarioView && <span><i className="mr-1.5 inline-block size-2.5 rounded-[2px] border-[1.5px] border-ink align-[-1px]" />{scenarioView.scenario.name}</span>}
-              </div>
-              <svg viewBox="0 0 720 170" preserveAspectRatio="none" className="block aspect-[720/170] h-auto w-full" role="img" aria-label={`Net cash flow by ${statementCadence}. Closed periods in ink, forecast periods in pencil.${scenarioView ? ` Outlined bars: ${scenarioView.scenario.name}.` : ""}`}>
-                <line x1="0" y1={zeroY} x2="720" y2={zeroY} className="stroke-rule" strokeWidth="1" />
-                {bars.map((bar, index) => {
-                  const slot = 720 / bars.length;
-                  const overlay = scenarioView !== null;
-                  const width = overlay ? Math.min(20, slot * 0.34) : Math.min(28, slot * 0.5);
-                  const center = index * slot + slot / 2;
-                  const x = overlay ? center - width - 1 : center - width / 2;
-                  const height = Math.max(2, (Math.abs(bar.net) / maxAbs) * 65);
-                  const negative = bar.net < 0;
-                  const selected = bar.endMonth === selectedMonth;
-                  const scenarioHeight = bar.scenarioNet === null ? 0 : Math.max(2, (Math.abs(bar.scenarioNet) / maxAbs) * 65);
-                  return (
-                    <g key={bar.month} className="cursor-pointer" onClick={() => { setSelectedMonth(bar.endMonth); setRangeEnd(lastDayOfMonth(bar.endMonth)); }}>
-                      <title>{`${cadenceLabel(bar.month, statementCadence)}: ${money(bar.net)} ${bar.actual ? "actual" : "forecast"}${scenarioView && bar.scenarioNet !== null ? ` · ${money(bar.scenarioNet)} in ${scenarioView.scenario.name}` : ""}`}</title>
-                      <rect x={x} y={negative ? zeroY : zeroY - height} width={width} height={height} className={cn(negative ? "fill-red-ink" : bar.actual ? "fill-ink" : "fill-pencil-2")} opacity={negative && !bar.actual ? 0.35 : 1} />
-                      {bar.scenarioNet !== null && <rect x={center + 1} y={bar.scenarioNet < 0 ? zeroY : zeroY - scenarioHeight} width={width} height={scenarioHeight} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className={cn(bar.scenarioNet < 0 ? "stroke-red-ink" : "stroke-ink")} />}
-                      <text x={center} y="162" textAnchor="middle" fontSize="11" className={cn("font-sans", selected ? "fill-ink" : "fill-pencil")}>{statementCadence === "monthly" ? monthLabel(bar.month, shortMonthFormatter) : cadenceLabel(bar.month, statementCadence)}</text>
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
-          ) : (
-            <p className="max-w-[60ch] text-ink-2">Your forecast builds itself here once there is an opening cash balance and at least one approved agreement or obligation.</p>
-          )}
+          <div className="grid gap-7 border-t border-rule pt-5">
+            {cashBalancePoints.length > 0 && <CashBalanceChart points={cashBalancePoints} scenario={scenarioCashLine} selectedMonth={selectedMonth} onSelectMonth={(month) => { setSelectedMonth(month); setRangeEnd(lastDayOfMonth(month)); }} format={money} subtitle="Ending cash each month. Select a month to inspect it." />}
+            {netFlowBars.length ? <NetCashFlowChart bars={netFlowBars} scenarioName={scenarioView?.scenario.name ?? null} selectedMonth={selectedMonth} onSelect={(bar) => { setSelectedMonth(bar.endMonth); setRangeEnd(lastDayOfMonth(bar.endMonth)); }} format={money} /> : <p className="max-w-[60ch] text-ink-2">Your forecast builds itself here once there is an opening cash balance and at least one approved agreement or obligation.</p>}
+            {revenueExpenseRows.some((row) => row.revenue !== 0 || row.expenses !== 0) && <RevenueExpenseChart rows={revenueExpenseRows} format={money} />}
+          </div>
 
+        </section>
+      ) : (
+        <section className="grid gap-4" aria-labelledby="first-charts-title">
+          <div className="grid gap-1">
+            <h2 id="first-charts-title" className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Cash picture</h2>
+            <p className="text-[13px] text-ink-2">{provisionalCash.points.length ? "A first look from the statements you loaded. Balances stay in pencil until you approve them; they are not reported results." : "Charts start here. Load a bank statement and its balances appear right away, in pencil until approved."}</p>
+          </div>
+          {provisionalCash.points.length ? (
+            <CashBalanceChart points={provisionalCash.points.map((point) => ({ month: point.month, value: point.amount, kind: point.verified ? "actual" : "unverified" }))} format={money} subtitle={`Statement ending balances${provisionalCash.excludedCurrencies.length ? ` · ${provisionalCash.excludedCurrencies.join(", ")} balances not included` : ""}`} />
+          ) : (
+            <div className="grid min-h-[184px] place-items-center rounded-lg border border-dashed border-rule px-6 text-center">
+              <div className="grid justify-items-center gap-2">
+                <ChartColumn className="size-5 text-pencil" aria-hidden="true" />
+                <span className="text-[13px] text-ink-2">Cash balance, net cash flow, and revenue and expenses will draw here.</span>
+                <Button type="button" variant="outline" size="sm" className="cursor-pointer" onClick={() => chooseFiles()}><FileText className="size-4" aria-hidden="true" /> Upload a statement</Button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+  const tablesColumn = (
+    <div className="grid content-start gap-5 px-6 pt-6 pb-16">
+      <div className="grid gap-1">
+        <h2 className="display text-[22px] leading-[1.2]" style={{ fontVariationSettings: '"opsz" 22' }}>Statements</h2>
+        <p className="text-[13px] text-ink-2">{hasFinancialOutput ? periodLabel : showPositionCharts ? "Nothing was posted in the selected period. Select a period with activity in the charts." : "Statements and period tables appear here once a source is approved."}</p>
+      </div>
+      {hasFinancialOutput ? (
+        <>
           {currentForecast && (
             <section className="grid gap-3 border-t border-rule pt-5" aria-label="Financial statements">
               <div className="flex items-center justify-between gap-3"><h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Financial statements</h3>{selectedMonth && <div className="flex items-center gap-1">{statementTab === "cash" && <FinancialInspector period={selectedMonth} section="cash_to_bank" label="Bank tie" view="actual" />}<FinancialInspector period={selectedMonth} section={statementTab === "income" ? "income_statement" : statementTab === "cash" ? "cash_flow" : "balance_sheet"} label="Inspect" view={selectedMonth <= new Date().toISOString().slice(0, 7) ? "actual" : "projected"} /></div>}</div>
@@ -2129,9 +2159,31 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               </div>
             </details>
           ) : null}
+        </>
+      ) : !showPositionCharts && provisionalCash.points.length ? (
+        <section className="grid gap-2" aria-label="Extracted balances">
+          <h3 className="text-[13px] uppercase tracking-[0.12em] text-ink-2">Extracted balances · unverified</h3>
+          <div className="overflow-x-auto rounded-lg border border-rule"><table className="w-full text-[12px]"><thead><tr className="text-left text-ink-2"><th className="px-3 py-2 font-normal">Month</th><th className="px-3 py-2 text-right font-normal">Ending cash</th><th className="px-3 py-2 text-right font-normal">Accounts</th><th className="px-3 py-2 font-normal">Status</th></tr></thead><tbody>{provisionalCash.points.map((point) => <tr key={point.month} className="border-t border-rule"><td className="px-3 py-2">{monthLabel(point.month)}</td><td className={cn("px-3 py-2 text-right tabular-nums", point.verified ? "text-ink" : "text-ink-2")}>{money(point.amount)}</td><td className="px-3 py-2 text-right tabular-nums">{point.accounts}</td><td className="px-3 py-2 text-ink-2">{point.verified ? "Approved" : "Pending"}</td></tr>)}</tbody></table></div>
         </section>
-        )}
-      </main>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-screen flex-col lg:h-screen" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={(event) => { event.preventDefault(); collectFiles(event.dataTransfer.files); }}>
+      <header className="flex h-14 items-center justify-end px-7">
+        <AccountMenu company={{ id: company.id, name: company.name, baseCurrency: company.currency }} companies={companies} role={role} staleSelection={staleSelection} user={user} loginEnabled={loginEnabled} />
+      </header>
+
+      <ResizableColumns
+        storageKey="balsa.workspace.columns.v1"
+        className="flex-1 lg:min-h-0 lg:border-t lg:border-rule"
+        columns={[
+          { id: "chat", label: "Chat", minWidth: 380, defaultShare: 0.44, content: chatColumn },
+          { id: "charts", label: "Charts", minWidth: 300, defaultShare: 0.3, content: chartsColumn },
+          { id: "tables", label: "Statements", minWidth: 300, defaultShare: 0.26, content: tablesColumn },
+        ]}
+      />
 
       <UsageModal open={usageOpen} onOpenChange={setUsageOpen} companyName={company.name} />
       <AccountingModal open={accountingOpen} onOpenChange={setAccountingOpen} initialPeriod={selectedMonth} onForecastChanged={handleForecastChanged} />

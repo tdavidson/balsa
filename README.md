@@ -20,6 +20,8 @@ cash comparisons, calculation details, and outcome tracking into five views.
 Start with guided hiring inputs or describe a different decision.
 [Goals & reviews](docs/goal-reviews.md) connect the outlook to cash targets,
 preserved plans, approvals, and outcome reviews.
+[The workspace](docs/review-and-workspace.md) places charts and statements beside
+the chat in resizable columns.
 
 Language models interpret meaning. Deterministic code owns the ledger, schedules,
 calculations, controls, and statements. The model is never the calculator and
@@ -62,6 +64,8 @@ returning through approval rather than live synchronization.
   metadata.
 - **Turns evidence into reviewable accounting.** Extracted facts retain their
   source locations, confidence, and lineage. Models draft; people approve.
+  [Review by confidence](docs/review-and-workspace.md) asks only about what falls
+  below the owner's chosen level and keeps every assumption visible and reversible.
 - **Maintains a real ledger.** Posting proposals pass deterministic validation
   before becoming authoritative journal entries.
 - **Closes the books with controls.** Reconciliation, period-aware processing,
@@ -214,8 +218,9 @@ containers after configuring `.env`, use `docker compose --profile full up --bui
 ## Try the operating loop
 
 1. Enter an opening cash balance, such as `opening cash 2026-09 $10,000`.
-2. Attach source files and review the extracted facts, confidence, questions,
-   and provenance.
+2. Attach source files. A cash chart draws from the statements right away, in
+   pencil until approved. Choose how confident Balsa must be to proceed without
+   asking, then decide what remains.
 3. Confirm interpreted agreements and obligations so they can drive the forecast.
 4. Import bank activity or a general-ledger export and review proposed mappings
    and journals.

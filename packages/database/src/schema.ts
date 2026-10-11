@@ -241,6 +241,8 @@ export const companies = pgTable("companies", {
   financialStateRevision: text("financial_state_revision").default("0").notNull(),
   /** CFO-set cash floor for the forecast's cash-out month, in base-currency minor units. */
   minimumCashMinor: text("minimum_cash_minor").default("0").notNull(),
+  /** Owner-set confidence, 0.5 through 1, at or above which extracted facts are accepted as assumptions; null asks about every fact. */
+  reviewConfidenceThreshold: text("review_confidence_threshold"),
   ...timestamps,
 });
 
