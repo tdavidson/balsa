@@ -119,6 +119,11 @@ describe.skipIf(!process.env.DATABASE_URL)(
       if (actor) await db.delete(users).where(eq(users.id, actor));
       await closeDatabase();
     });
+    async function seedOtherCompany() {
+      const [company] = await db.insert(companies).values({ name: `Synthetic other company ${randomUUID()}` }).returning();
+      ids.push(company!.id);
+      return { companyId: company!.id };
+    }
     async function seed(modelDefinition: OperatingModel = model) {
       if (!actor) {
         const [u] = await db
@@ -1398,7 +1403,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
           .set({ triggerReviewId: randomUUID() })
           .where(eq(operatingPlanRevisions.experimentId, saved.saved.id)),
       ).rejects.toThrow();
-      const other = await seed();
+      const other = await seedOtherCompany();
       await expect(
         plans(other.companyId, review.id, now),
       ).rejects.toMatchObject({ status: 404 });
@@ -1568,7 +1573,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
     it("preserves conditional and sampled studies without applying cash, with immutable company-scoped history",async()=>{
       const {executeOperatingStudy:study,loadOperatingStudy:readStudy}=await import("./operating-studies");
       const {operatingStudies}=await import("@finance/database");
-      const f=await seed(),other=await seed();
+      const f=await seed(),other=await seedOtherCompany();
       const definition={kind:"conditional",source:{kind:"draft",model,caseId:"base"},mode:"simulated",plan:{startMonth:"2026-10",branches:[{id:"capacity",name:"Increase capacity",rationale:"Synthetic capacity response",rule:{kind:"review_date",dueDate:"2026-10-01"},leadMonths:0,minimumMonths:2,inputs:[{nodeId:"capacity",value:"120"}],switchCost:null,limits:[{nodeId:"capacity",maximum:"130"}]}]}};
       const before=await loadGoalReview(f.companyId,now);
       const result=await study(f.companyId,{action:"preview",definition},actor,now);if(!("preview" in result))throw Error("No preview");
@@ -1602,7 +1607,6 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(fresh.preview.previewToken).not.toBe(result.preview.previewToken);
       expect((await readStudy(f.companyId,saved.id)).snapshot.result).toEqual(result.preview.result);
     });
-    it("carries hiring, incremental pricing, and a new delayed receipt through approval into scoped outcomes", async () => {
       const hiring = buildHiringDecision({ startMonth: "2026-10", hires: 2, annualSalary: "120000", benefitsPercent: "25", recruitingPerHire: "1000", minimumCash: "0" }, { start: "2026-10", end: "2027-03" }, "USD");
       const pricing: OperatingModel = { ...model, name: "Incremental pricing", description: "Incremental collections only; existing revenue stays in the base forecast", nodes: [
         { ...model.nodes[0]!, id: "increase", label: "Additional price", values: [{ month: "2026-10", value: "10" }] },
@@ -1610,20 +1614,23 @@ describe.skipIf(!process.env.DATABASE_URL)(
         { ...model.nodes[0]!, id: "receipts", label: "Incremental collections", op: "multiply", args: ["increase", "customers"], values: [] },
       ], outputs: [{ nodeId: "receipts", label: "Incremental collections", direction: "receipt", category: "other" }], cases: [{ id: "lower_volume", name: "Fewer retained customers", rationale: "Explicit demand assumption", overrides: [{ nodeId: "customers", values: [{ month: "2026-10", value: "75" }] }] }] };
       const delayed: OperatingModel = { ...model, name: "New customer receipt delayed", description: "A new receipt not already included in the forecast", nodes: [{ ...model.nodes[0]!, values: [{ month: "2026-10", value: "0" }, { month: "2026-11", value: "20000" }, { month: "2026-12", value: "0" }] }], cases: [] };
-      for (const definition of [hiring, pricing, delayed]) {
-        const f = await seed(definition);
-        expect((await workspace(f.companyId, f.experimentId)).predictions).toEqual([]);
-        const approved = await approve(f);
-        const selected = await workspace(f.companyId, f.experimentId);
-        expect(selected.predictions.map(item => item.id)).toEqual([approved.id]);
-        expect(selected.predictions[0]?.experimentId).toBe(f.experimentId);
-        expect((await workspace(f.companyId, randomUUID())).predictions).toEqual([]);
-        const outcome = await load(f.companyId, approved.id, later);
-        expect(outcome.experimentId).toBe(f.experimentId);
-        expect(outcome.rows.length).toBeGreaterThan(0);
-        // A preserved prediction must keep the approved source model, not a later draft.
-        expect(outcome.rows.some(row => row.nodeId === definition.outputs[0]!.nodeId)).toBe(true);
-      }
+    it.each([
+      ["hiring", hiring],
+      ["incremental pricing", pricing],
+      ["delayed receipt", delayed],
+    ] as const)("carries %s through approval into scoped outcomes", async (_name, definition) => {
+      const f = await seed(definition);
+      expect((await workspace(f.companyId, f.experimentId)).predictions).toEqual([]);
+      const approved = await approve(f);
+      const selected = await workspace(f.companyId, f.experimentId);
+      expect(selected.predictions.map(item => item.id)).toEqual([approved.id]);
+      expect(selected.predictions[0]?.experimentId).toBe(f.experimentId);
+      expect((await workspace(f.companyId, randomUUID())).predictions).toEqual([]);
+      const outcome = await load(f.companyId, approved.id, later);
+      expect(outcome.experimentId).toBe(f.experimentId);
+      expect(outcome.rows.length).toBeGreaterThan(0);
+      // A preserved prediction must keep the approved source model, not a later draft.
+      expect(outcome.rows.some(row => row.nodeId === definition.outputs[0]!.nodeId)).toBe(true);
     });
 
   },

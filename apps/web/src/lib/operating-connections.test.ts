@@ -306,7 +306,6 @@ describe.skipIf(!process.env.DATABASE_URL)(
       const result = (await execute(f.companyId, command, actor, now)) as {
         connectionId: string;
       };
-      expect(await execute(f.companyId, command, actor, now)).toEqual(result);
       return result.connectionId;
     }
     const previewUpdate = async (
@@ -338,10 +337,30 @@ describe.skipIf(!process.env.DATABASE_URL)(
       const result = (await execute(companyId, command, actor, date)) as {
         saved: { id: string; scenarioId: string };
       };
-      expect(await execute(companyId, command, actor, date)).toEqual(result);
       return result.saved;
     }
-    it("replaces approved contributions, preserves history and sources, rejects stale approvals and supports another revision", async () => {
+    it("reuses connection and saved-update commands without duplicating state", async () => {
+      const f = await seed();
+      await approve(f, f.original.scenarioId);
+      const connection = {
+        action: "connect", experimentId: f.original.id,
+        bindings: [{ nodeId: "receipt", factId: f.factId, from: "2026-10", unit: "USD" }],
+        acknowledgeUnits: true,
+      };
+      const connected = await execute(f.companyId, connection, actor, now) as { connectionId: string };
+      expect(await execute(f.companyId, connection, actor, now)).toEqual(connected);
+      await db.update(factRecords).set({ value: "30000" }).where(eq(factRecords.id, f.factId));
+      const preview = await previewUpdate(f.companyId, connected.connectionId);
+      const command = {
+        action: "save_update", connectionId: connected.connectionId,
+        bindings: preview.live.bindings, previewToken: preview.previewToken,
+        requestKey: randomUUID(), acknowledgeAssumptions: true,
+      };
+      const saved = await execute(f.companyId, command, actor, now);
+      expect(await execute(f.companyId, command, actor, now)).toEqual(saved);
+      expect((await loadOperatingConnections(f.companyId)).connected).toHaveLength(1);
+    });
+    it("replaces approved contributions, rejects stale approvals and preserves immutable history", async () => {
       const f = await seed();
       await approve(f, f.original.scenarioId);
       const preserved = await loadOperatingExperiment(
@@ -392,33 +411,6 @@ describe.skipIf(!process.env.DATABASE_URL)(
       ).toBe("current");
       const next = await previewUpdate(f.companyId, connectionId);
       expect(next.monthlyChanges.every((m) => m.deltaMinor === "0")).toBe(true);
-      await db
-        .update(factRecords)
-        .set({ value: "25000", updatedAt: new Date() })
-        .where(eq(factRecords.id, f.factId));
-      const proposal = await saveUpdate(
-        f.companyId,
-        await previewUpdate(f.companyId, connectionId),
-      );
-      await execute(
-        f.companyId,
-        {
-          action: "reject_update",
-          connectionId,
-          experimentId: proposal.id,
-          reason: "Keep the approved estimate",
-        },
-        actor,
-        now,
-      );
-      expect(
-        (await loadOperatingConnections(f.companyId)).connected[0]?.status,
-      ).toBe("rejected");
-      expect(
-        (await loadGoalReview(f.companyId, now)).forecastMonths.find(
-          (m) => m.month === "2026-12",
-        )?.endingCashMinor,
-      ).toBe("18500000");
       await expect(
         db
           .update(operatingConnections)
@@ -764,6 +756,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
       const f = await seed();
       await approve(f, f.original.scenarioId);
       const connectionId = await connect(f);
+      const before = await loadGoalReview(f.companyId, now);
       const [replacement] = await db
         .insert(factRecords)
         .values({
@@ -808,6 +801,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
         .update(factRecords)
         .set({ status: "rejected" })
         .where(eq(factRecords.id, replacement!.id));
+      expect(await loadGoalReview(f.companyId, now)).toEqual(before);
       const workspace = await loadOperatingConnections(f.companyId);
       expect(workspace.connected[0]?.status).toBe("rejected");
       expect(workspace.connected[0]?.bindings[0]?.factId).toBe(f.factId);

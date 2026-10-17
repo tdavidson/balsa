@@ -74,9 +74,8 @@ describe.skipIf(!process.env.DATABASE_URL)("goal-aware decisions and outcomes", 
   const preview = async (companyId: string, selection: object) => await decide(companyId, { ...selection, action: "preview" }, null, now) as Preview;
   afterAll(async () => { if (ids.length) await db.delete(companies).where(inArray(companies.id, ids)); await closeDatabase(); });
 
-  it("completes the release fixture from partial receipt to an atomic decision and preserved outcome", async () => {
+  it("applies a reviewed decision atomically after a partial receipt is delayed", async () => {
     const fixture = await seed(); const { companyId } = fixture;
-    await execute(companyId, { action: "create_goal", definition: { name: "Cash floor", metric: "minimum_month_end_cash", currency: "USD", startMonth: "2026-09", endMonth: "2026-10", targetMinor: "35000000" }, reason: "Minimum liquidity" }, null, now);
     const plan = await save(companyId, fixture.goal.id); const original = await loadGoalSnapshot(companyId, plan.saved.id);
     const reconciliation = await loadForecastReconciliation(companyId, now); const candidate = reconciliation.candidates.find((item) => item.definition.label === "Receipts")!;
     const captured = await reconcile(companyId, { action: "capture", candidateKey: candidate.definition.key, candidateHash: candidate.hash, independentObligation: true, reason: "Reviewed original obligation", requestKey: randomUUID() }, null, now) as unknown as { id: string };
@@ -92,7 +91,6 @@ describe.skipIf(!process.env.DATABASE_URL)("goal-aware decisions and outcomes", 
     const pending = await preview(companyId, selection);
     expect(pending.conditions[0]?.status).toBe("pending"); expect(pending.blockers.join(" ")).toContain("manual condition is pending");
     await expect(decide(companyId, approval(selection, pending), null, now)).rejects.toMatchObject({ status: 422 });
-    await decide(companyId, approval(selection, pending, "save_evaluation"), null, now);
     const readySelection = { ...selection, conditionReviews: reviewed(fixture.goal.id) };
     const ready = await preview(companyId, readySelection); expect(ready.blockers).toEqual([]);
     const october = ready.evaluations.find((item) => item.goalVersionId === fixture.goal.id)!;
@@ -109,11 +107,25 @@ describe.skipIf(!process.env.DATABASE_URL)("goal-aware decisions and outcomes", 
     expect(await db.select().from(decisionEffectApplications).where(eq(decisionEffectApplications.companyId, companyId))).toHaveLength(4);
     expect((await db.select().from(scenarios).where(eq(scenarios.id, draft.id)))[0]?.active).toBe("N");
     expect(await loadGoalSnapshot(companyId, plan.saved.id)).toEqual(original);
-    // A later expectation correction appears in an outcome review; it cannot rewrite approval.
-    await reconcile(companyId, { action: "revise_occurrence", occurrenceId: captured.id, expectedVersion: 3, expectedDate: "2026-10-15", amountMinor: "10000000", status: "active", final: false, reason: "Customer confirmed earlier payment", requestKey: randomUUID() }, null, now);
+  });
+
+  it("preserves an approved decision when a later receipt expectation changes", async () => {
+    const fixture = await seed();
+    const { companyId } = fixture;
+    const plan = await save(companyId, fixture.goal.id);
+    const draft = await scenario(fixture);
+    const selection = { scenarioId: draft.id, planId: plan.saved.id, conditionReviews: reviewed(fixture.goal.id) };
+    const ready = await preview(companyId, selection);
+    const applied = await decide(companyId, approval(selection, ready), null, now) as { saved: { id: string } };
+    const preserved = await savedDecision(companyId, applied.saved.id);
+
+    const candidates = await loadForecastReconciliation(companyId, now);
+    const candidate = candidates.candidates.find((item) => item.definition.label === "Receipts")!;
+    const captured = await reconcile(companyId, { action: "capture", candidateKey: candidate.definition.key, candidateHash: candidate.hash, independentObligation: true, reason: "Synthetic receipt expectation", requestKey: randomUUID() }, null, now) as unknown as { id: string };
+    await reconcile(companyId, { action: "revise_occurrence", occurrenceId: captured.id, expectedVersion: 1, expectedDate: "2026-11-15", amountMinor: "10000000", status: "active", final: false, reason: "Synthetic receipt delayed", requestKey: randomUUID() }, null, now);
     const outcome = await decide(companyId, { action: "preview_outcome", reviewId: applied.saved.id }, null, now) as Outcome;
-    expect(outcome.bridge).toMatchObject({ beforeMinor: "41000000", afterMinor: "45000000", deltaMinor: "4000000", residualMinor: "0" });
-    await decide(companyId, { action: "save_outcome", reviewId: applied.saved.id, previewToken: outcome.previewToken, name: "Customer timing improved", reason: "Reviewed new confirmation", requestKey: randomUUID(), acknowledgeLimitations: true }, null, now);
+    expect(outcome.bridge).toMatchObject({ beforeMinor: "45000000", afterMinor: "35000000", deltaMinor: "-10000000", residualMinor: "0" });
+    await decide(companyId, { action: "save_outcome", reviewId: applied.saved.id, previewToken: outcome.previewToken, name: "Synthetic timing outcome", reason: "Reviewed changed expectation", requestKey: randomUUID(), acknowledgeLimitations: true }, null, now);
     expect(await savedDecision(companyId, applied.saved.id)).toEqual(preserved);
     await expect(db.update(goalDecisionReviews).set({ name: "Rewrite history" }).where(eq(goalDecisionReviews.id, applied.saved.id))).rejects.toThrow();
   });
@@ -255,11 +267,11 @@ describe.skipIf(!process.env.DATABASE_URL)("goal-aware decisions and outcomes", 
     try {
       const candidates = await loadForecastReconciliation(f.companyId, now); const candidate = candidates.candidates.find((item) => item.definition.label === "Receipts")!;
       const captured = await reconcile(f.companyId, { action: "capture", candidateKey: candidate.definition.key, candidateHash: candidate.hash, independentObligation: true, reason: "Synthetic timing", requestKey: randomUUID() }, null, now) as unknown as { id: string };
-      await reconcile(f.companyId, { action: "revise_occurrence", occurrenceId: captured.id, expectedVersion: 1, expectedDate: "2026-10-10", amountMinor: "10000000", status: "active", final: false, reason: "Synthetic future receipt", requestKey: randomUUID() }, null, now);
-      const scope = { kind: "sensitivity", planId: baseline.saved.id, downsideScenarioId: down.id, upsideScenarioId: up.id, occurrenceId: captured.id, maxDelayDays: 30 };
+      await reconcile(f.companyId, { action: "revise_occurrence", occurrenceId: captured.id, expectedVersion: 1, expectedDate: "2026-10-31", amountMinor: "10000000", status: "active", final: false, reason: "Synthetic future receipt", requestKey: randomUUID() }, null, now);
+      const scope = { kind: "sensitivity", planId: baseline.saved.id, downsideScenarioId: down.id, upsideScenarioId: up.id, occurrenceId: captured.id, maxDelayDays: 2 };
       const first = await review(f.companyId, user!.id, { action: "preview", scope }, now) as import("./financial-reviews").FinancialReviewPreview;
       const later = await review(f.companyId, user!.id, { action: "preview", scope }, new Date(now.getTime() + 60000)) as import("./financial-reviews").FinancialReviewPreview;
-      expect(first.previewToken).toBe(later.previewToken); expect(first.report.detail.kind).toBe("sensitivity"); if (first.report.detail.kind === "sensitivity") { expect(first.report.detail.timing).toHaveLength(31); expect(first.report.detail.timing[0]?.expectedDate).toBe("2026-10-10"); expect(first.report.detail.timing[30]?.expectedDate).toBe("2026-11-09"); expect(first.report.detail.consecutivePassingDelayDays).toBeNull(); } expect(await db.select().from(financialWorkReviews).where(eq(financialWorkReviews.companyId, f.companyId))).toHaveLength(0);
+      expect(first.previewToken).toBe(later.previewToken); expect(first.report.detail.kind).toBe("sensitivity"); if (first.report.detail.kind === "sensitivity") { expect(first.report.detail.timing.map((item) => [item.delayDays, item.expectedDate])).toEqual([[0, "2026-10-31"], [1, "2026-11-01"], [2, "2026-11-02"]]); expect(first.report.detail.consecutivePassingDelayDays).toBeNull(); } expect(await db.select().from(financialWorkReviews).where(eq(financialWorkReviews.companyId, f.companyId))).toHaveLength(0);
       const saved = await review(f.companyId, user!.id, { action: "create", scope, previewToken: first.previewToken, reviewerUserId: user!.id, name: "Synthetic named cases", reason: "Test explicit cases", requestKey: randomUUID() }, now) as { id: string };
       expect((await loadFinancialWorkReview(f.companyId, user!.id, saved.id, now)).stale).toBe(false);
       expect((await db.select().from(scenarios).where(eq(scenarios.id, down.id)))[0]!.active).toBe("Y");

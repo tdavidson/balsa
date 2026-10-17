@@ -9,8 +9,8 @@ export default defineConfig({
     },
   },
   test: {
-    // Bound worker startup and database pressure while retaining parallel suites.
-    maxWorkers: 4,
+    // Two database-heavy suites can run together without saturating CI runners.
+    maxWorkers: 2,
     exclude: ["**/node_modules/**", "**/.next/**", "**/dist/**"],
   },
 });
