@@ -7,7 +7,10 @@ run without asking for secret values or guessing which migration is current.
 
 > Read `AGENTS.md`. Run `pnpm run setup`, then `pnpm run doctor`. Never display or replace
 > populated secrets. Resolve setup failures using `.env.example`, start the app,
-> and run `pnpm verify` before handing work back.
+> and run `pnpm verify` before handing work back. Treat the repository as public:
+> never include actual customer or operating-company names, financials, details,
+> or files in GitHub, including commits, issues, pull requests, and artifacts.
+> Use entirely synthetic examples and follow the company-data rules in `AGENTS.md`.
 
 The setup command is safe to repeat. It copies `.env.example` only when `.env`
 does not exist, fills only blank application-secret fields, preserves model keys

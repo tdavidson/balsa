@@ -46,12 +46,38 @@ for auth, company selection, company-scoped routes, or row-level security change
   only sourced, scoped, approved company facts, policies, mappings, and drivers.
 - Every database access and mutation must remain company-scoped and auditable.
 
+## Company data must never enter GitHub
+
+Treat this repository as public, even while its GitHub visibility is private.
+This rule applies to Codex, ChatGPT, and every other agent or contributor.
+
+- Never include real customer or operating-company names, financial figures,
+  account identifiers, transactions, business details, or source documents in
+  GitHub. This includes code, tests, fixtures, documentation, commit messages,
+  Git history, issues, pull requests, comments, attachments, and CI logs or
+  artifacts. Balsa's own project identity is not customer data.
+- Use entirely synthetic company names, numbers, narratives, and files in
+  examples and regression tests. Renaming a company or masking an account number
+  does not make its real financial figures or business details safe to publish.
+- Keep actual company data and derived outputs in private application storage
+  outside version control. Never commit uploads, database dumps, extracted text,
+  screenshots, exports, model prompts or responses, or debugging logs containing
+  company data. Never force-add ignored private files.
+- Before committing or pushing, inspect staged changes and newly tracked files
+  for company data. Before creating GitHub content or uploading artifacts, review
+  that content too. An ignored path alone is not protection for an already
+  tracked file. If uncertain about data's origin, replace it with synthetic data.
+- If company data is found in tracked files or history, stop publishing the
+  affected material, report file locations without repeating sensitive contents,
+  and remove it from the proposed change. Do not assume deleting a current file
+  removes earlier commits; history cleanup requires explicit authorization.
+
 ## Change safety
 
 - Preserve unrelated work in a dirty tree. Never reset or discard changes you do
   not own.
-- Never use real company data in tests or fixtures. Use synthetic or fully
-  redacted examples.
+- Never use real company data in tests or fixtures. Use entirely synthetic
+  examples, following the company-data rule above.
 - Schema changes require checked-in migrations, migration tests where material,
   and backward-aware error handling. Do not hide a missing migration in app code.
 - Do not weaken auth, authorization, input validation, provenance, or audit logs

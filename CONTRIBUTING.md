@@ -7,8 +7,12 @@ those that make financial outputs more correct, traceable, secure, and useful.
 
 - Search existing issues before opening a new one.
 - Open an issue before a large product, data-model, or accounting change.
-- Never include real company data, credentials, personal information, or
-  unredacted financial documents in an issue, fixture, test, or pull request.
+- Treat this repository as public even while it is private. Never include real
+  customer or operating-company names, financials, business details, files,
+  credentials, or personal information in commits, issues, pull requests,
+  comments, attachments, or CI output. Use entirely synthetic examples and
+  fixtures; masking identifiers does not make real financial data publishable.
+  See the company-data rules in [AGENTS.md](AGENTS.md).
 - Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
 
 ## Local development
@@ -28,7 +32,7 @@ that mode directly to a network.
 
 1. Fork the repository and create a focused branch.
 2. Add or update tests for changed behavior and regressions.
-3. For a material accounting correction, add a synthetic or fully redacted
+3. For a material accounting correction, add an entirely synthetic
    fixture that would have caught it.
 4. Update documentation when behavior or configuration changes.
 
