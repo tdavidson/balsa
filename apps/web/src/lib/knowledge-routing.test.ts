@@ -3,10 +3,10 @@ import { knowledgeDestinationForFact } from "./knowledge-routing";
 
 describe("knowledgeDestinationForFact", () => {
   it("routes durable company findings without storing transaction detail", () => {
-    expect(knowledgeDestinationForFact({ label: "Account holder", value: "Synthetic Example Company" })).toBe("company");
-    expect(knowledgeDestinationForFact({ label: "Management agreement", value: "$10,000 monthly", accountingRole: "agreement" })).toBe("forecast");
-    expect(knowledgeDestinationForFact({ label: "Account ending", value: "255" })).toBe("accounting");
-    expect(knowledgeDestinationForFact({ label: "Transaction 2026-09-03", value: "+$3,100 customer receipt", accountingRole: "transaction" })).toBeNull();
+    expect(knowledgeDestinationForFact({ label: "Account holder", value: "Synthetic Example Company LLC" })).toBe("company");
+    expect(knowledgeDestinationForFact({ label: "Management agreement", value: "$1,200 monthly", accountingRole: "agreement" })).toBe("forecast");
+    expect(knowledgeDestinationForFact({ label: "Account ending", value: "1234" })).toBe("accounting");
+    expect(knowledgeDestinationForFact({ label: "Transaction 2025-01-15", value: "+$250 customer receipt", accountingRole: "transaction" })).toBeNull();
   });
 
   it("prioritizes policy and allocation rules", () => {

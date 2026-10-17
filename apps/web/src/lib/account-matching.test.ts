@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { matchStatementAccount, normalizeAccountIdentifier } from "./account-matching";
 
 describe("account matching", () => {
-  const candidates = [{ id: "account-1", name: "Operating account", attributes: JSON.stringify({ accountIdentifier: "000-000001-234", accountHolder: "Synthetic Example Company" }) }];
+  const candidates = [{ id: "account-1", name: "Operating account", attributes: JSON.stringify({ accountIdentifier: "000-000001-234", accountHolder: "Synthetic Example Company LLC" }) }];
 
   it("normalizes masked account identifiers", () => {
     expect(normalizeAccountIdentifier("000-000001-234")).toBe("000000001234");
