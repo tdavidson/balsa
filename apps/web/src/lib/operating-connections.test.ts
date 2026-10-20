@@ -568,9 +568,25 @@ describe.skipIf(!process.env.DATABASE_URL)(
         .where(eq(factRecords.id, f.factId));
       const preview = await previewUpdate(f.companyId, connectionId);
       const saved = await saveUpdate(f.companyId, preview);
-      const itemId = preview.path.changes.find(
-        (c) => c.kind === "end_item",
-      )!.itemId;
+      // Reconciliation offers current-month candidates only; replacement effects
+      // also include future months and have no guaranteed database order.
+      const currentItems = await db
+        .select({ id: economicItems.id })
+        .from(economicItems)
+        .where(
+          and(
+            eq(economicItems.companyId, f.companyId),
+            eq(economicItems.effectiveFrom, now.toISOString().slice(0, 7)),
+            inArray(
+              economicItems.id,
+              preview.path.changes.flatMap((c) =>
+                c.kind === "end_item" ? [c.itemId] : [],
+              ),
+            ),
+          ),
+        );
+      expect(currentItems).toHaveLength(1);
+      const itemId = currentItems[0]!.id;
       await db
         .update(economicItems)
         .set({ amount: "19000" })
@@ -586,6 +602,7 @@ describe.skipIf(!process.env.DATABASE_URL)(
       const candidate = reconciliation.candidates.find(
         (c) => c.definition.driverId === itemId,
       )!;
+      expect(candidate).toBeDefined();
       await executeForecastReconciliation(
         f.companyId,
         {
