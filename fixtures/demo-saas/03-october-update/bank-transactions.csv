@@ -1,0 +1,4 @@
+Date,Description,Amount,Currency,Account ID,Reference
+2026-10-02,STRIPE PAYOUT demo_po_20261002,2912.40,USD,demo_1000_001,demo_po_20261002
+2026-10-08,Demo Enterprise Customer payment September invoice,4000.00,USD,demo_1000_001,demo_inv_enterprise_sep
+2026-10-15,Demo Secure Review September invoice payment,-1800.00,USD,demo_1000_001,demo_vendor_security_sep

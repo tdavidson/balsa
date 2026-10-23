@@ -1,0 +1,23 @@
+Account Number,Account Name,Debit,Credit,Currency,As Of
+1000,Operating checking,185862.00,,USD,2026-02-28
+1010,Reserve savings,,,USD,2026-02-28
+1020,Stripe clearing,,,USD,2026-02-28
+1100,Accounts receivable,,,USD,2026-02-28
+1200,Prepaid insurance,,,USD,2026-02-28
+1500,Computer equipment,,,USD,2026-02-28
+1510,Accumulated depreciation,,,USD,2026-02-28
+2000,Accounts payable,,,USD,2026-02-28
+2100,Deferred subscription revenue,,,USD,2026-02-28
+3000,Paid-in capital,,250000.00,USD,2026-02-28
+4000,Subscription revenue,,15000.00,USD,2026-02-28
+4010,Subscription refunds,,,USD,2026-02-28
+5000,Cloud hosting,2000.00,,USD,2026-02-28
+5010,Payment processing fees,438.00,,USD,2026-02-28
+6000,Salaries,60000.00,,USD,2026-02-28
+6010,Employer payroll taxes,6000.00,,USD,2026-02-28
+6100,Software tools,1800.00,,USD,2026-02-28
+6200,Rent,2400.00,,USD,2026-02-28
+6300,Contractors,5000.00,,USD,2026-02-28
+6400,Marketing,1500.00,,USD,2026-02-28
+6500,Insurance,,,USD,2026-02-28
+6600,Depreciation,,,USD,2026-02-28

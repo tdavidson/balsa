@@ -1,0 +1,16 @@
+Customer ID,Customer Name,Email,Billing,Start,End,Monthly Price USD,Annual Price USD
+demo_cus_001,Demo Customer 01,demo_cus_001@example.test,monthly,2026-01-01,,1500.00,
+demo_cus_002,Demo Customer 02,demo_cus_002@example.test,monthly,2026-01-01,2026-07-31,1500.00,
+demo_cus_003,Demo Customer 03,demo_cus_003@example.test,monthly,2026-01-01,,1500.00,
+demo_cus_004,Demo Customer 04,demo_cus_004@example.test,monthly,2026-01-01,,1500.00,
+demo_cus_005,Demo Customer 05,demo_cus_005@example.test,monthly,2026-02-01,,1500.00,
+demo_cus_006,Demo Customer 06,demo_cus_006@example.test,monthly,2026-02-01,,1500.00,
+demo_cus_007,Demo Customer 07,demo_cus_007@example.test,monthly,2026-03-01,,1500.00,
+demo_cus_008,Demo Customer 08,demo_cus_008@example.test,monthly,2026-03-01,,1500.00,
+demo_cus_009,Demo Customer 09,demo_cus_009@example.test,monthly,2026-05-01,,1500.00,
+demo_cus_010,Demo Customer 10,demo_cus_010@example.test,monthly,2026-06-01,,1500.00,
+demo_cus_011,Demo Customer 11,demo_cus_011@example.test,monthly,2026-07-01,,1500.00,
+demo_cus_012,Demo Customer 12,demo_cus_012@example.test,monthly,2026-08-01,,1500.00,
+demo_cus_101,Demo Annual Customer A,demo_cus_101@example.test,annual prepaid,2026-04-01,2027-03-31,2000.00,24000.00
+demo_cus_102,Demo Annual Customer B,demo_cus_102@example.test,annual prepaid,2026-06-01,2027-05-31,3000.00,36000.00
+demo_cus_201,Demo Enterprise Customer,enterprise@example.test,monthly invoice net 30,2026-09-01,,4000.00,

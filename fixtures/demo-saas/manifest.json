@@ -1,0 +1,360 @@
+{
+  "synthetic": true,
+  "fixtureVersion": 2,
+  "files": [
+    {
+      "path": "00-company/accounting-policies.md",
+      "sha256": "e961a8dcfedb4e5cffcd52a3ab277455d3f1936aee19e42139ed80c95b0e5be4",
+      "bytes": 2221,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "00-company/chart-of-accounts.csv",
+      "sha256": "9a60af1540a2148c49344f02a9473bc70ee322022524beecc57dbe1fef62838c",
+      "bytes": 790,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "00-company/company-profile.md",
+      "sha256": "4b9ea2cf8e33f0d54ceb1ce844c8a5dd3f153418fd861440f9f2b2e6422abb4e",
+      "bytes": 1159,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "00-company/opening-balances.md",
+      "sha256": "f40f421a68a3b0002397128a0dfa8d111d3bf756e0210a928a8095166e6316ed",
+      "bytes": 470,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/contracts/annual-demo_cus_101.md",
+      "sha256": "814a097878d97711a346e35a260ea6c9a7d6c11461292bfb1e682d000a51c3e6",
+      "bytes": 463,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/contracts/annual-demo_cus_102.md",
+      "sha256": "c5e7013ef2b28e8b1c00176b473408c2ab5d6cec4ad586041e8e9b95d6eb347a",
+      "bytes": 463,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/contracts/enterprise-agreement.md",
+      "sha256": "a9f12de6ed8eaa74197f01a623d6e60e287cdfffe886f1a2b1d587f08f08cee1",
+      "bytes": 514,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/contracts/monthly-subscription-terms.md",
+      "sha256": "f825d311d5d3d036bd41f4a5745d7556cfb93fcb07ea1d9e3fc5fa4c9e592edb",
+      "bytes": 812,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/contracts/vendor-commitments.md",
+      "sha256": "db468d01d5c7114820573b9964b7454e7c1be11a1336aa1304abae0adad3727e",
+      "bytes": 1110,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "01-onboarding/customers.csv",
+      "sha256": "bdb0d38a2a18cf409ea8dfa32270458ca64a7bd8b8bad9cd8fe408701fe76c54",
+      "bytes": 1453,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/accounting-reference/balance-sheet.csv",
+      "sha256": "73f7ac573f343d51af4b49c8337c4ca2f81f99cb04156a657803b76e51af3631",
+      "bytes": 1323,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/cash-flow.csv",
+      "sha256": "293c9747ae1eb0a317cbee3ecbe77dfccce75743c447c2f2a21c34f6569aa1d3",
+      "bytes": 544,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/general-ledger.csv",
+      "sha256": "efb0fea7d749dcef05f18a062a58c0609f009f8c3e984eaa287c059c11ad814e",
+      "bytes": 61973,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/profit-and-loss.csv",
+      "sha256": "8d97c5939e7ced8c3a87f51f67c2fab310f0d785502874124f69d5895f67c894",
+      "bytes": 596,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-01.csv",
+      "sha256": "6ad66343e6de719c75c5737d69ebbc35641cff34292bd23b3bec6d54a0299bd0",
+      "bytes": 991,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-02.csv",
+      "sha256": "c3a0742e6eb8dedffa719b058d7889140216f2bc6df932dd34f9e0837c43de3d",
+      "bytes": 995,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-03.csv",
+      "sha256": "d0e33ddc8983fa381269b89d0f9d44c6744017d21bb070c765a808017354e19b",
+      "bytes": 995,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-04.csv",
+      "sha256": "2016726abe28dce474f08b6e5717671829469bce539220b343b28a229e397d8d",
+      "bytes": 1029,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-05.csv",
+      "sha256": "5a870f415f90a5ae8ea42f2f18a869a05f3e3edb8f6f1211a71b044c8a3aa520",
+      "bytes": 1029,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-06.csv",
+      "sha256": "2c28e0ab114e79d202f5784837f9bcacfba747aa41c27192c1b237876adb672d",
+      "bytes": 1049,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-07.csv",
+      "sha256": "9d61c36231ef59e5bd44aa82c90717a93d5d57378e10d05ea687d25ccace5522",
+      "bytes": 1050,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-08.csv",
+      "sha256": "fa4b6c046db82c628c0fd23555da89459e5366d86db0b3f9226593ba8830a6a3",
+      "bytes": 1051,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-09.csv",
+      "sha256": "cdb147edd3059ea4ea5e9c295182923bacc15f886b2f8df5d8689dfbb8d58ff8",
+      "bytes": 1078,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/bank/operating-checking-transactions.csv",
+      "sha256": "9b2e1da60ad1ba96883c913737f479c27271816fc73072cc68a911d1d67a2475",
+      "bytes": 7384,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/reserve-savings-transactions.csv",
+      "sha256": "8747eeeed6209346e666c1a5d1c37d7f8db6ff1a3f418053fd274245188d71ec",
+      "bytes": 265,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-01.md",
+      "sha256": "7fc64ca7a3e093d87b4710572bb3c027f737379a4f27dce20836b840e6175a91",
+      "bytes": 480,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-02.md",
+      "sha256": "473da0c08c99f1227d65598577f4b6f603ad6fdfc1c1785122c299f7edda2397",
+      "bytes": 480,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-03.md",
+      "sha256": "a1bfa36489159fa30ca546ce1382ff68717fdd9a3df01df7c626d1a189b1e7f9",
+      "bytes": 481,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-04.md",
+      "sha256": "77ecdb16798a7b47dbf6eba383d5b2cd9ba078e925c83ea946cb71aedb2e0a0d",
+      "bytes": 482,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-05.md",
+      "sha256": "b251b76cdfacb7842bfed927d4745eccaf20b274fb3df13420a9a4d555588a17",
+      "bytes": 479,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-06.md",
+      "sha256": "9e8db83d9486ed1ac1a939dcc3e457ac68ec3e88e2ae59417e6df8cec6adb038",
+      "bytes": 482,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-07.md",
+      "sha256": "c2d16c860a74cf161b56bac97aac7dcbe818d258b428685e38acd1b23021bc55",
+      "bytes": 481,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-08.md",
+      "sha256": "00a3b576c9c0c7d97300109afd5b42b17ca8eb8accc0109022464b5a62f88f5c",
+      "bytes": 481,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/operating-checking-2026-09.md",
+      "sha256": "c7e34aebfaad9ab845dee96a96eb059dd0e302b2f46ba381e963023565de065a",
+      "bytes": 480,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-01.md",
+      "sha256": "49d284b8ea43f08cbb9765581fd09837744771a08f271eacebf25db30e1c1f52",
+      "bytes": 457,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-02.md",
+      "sha256": "abaa4154717362d6ef12e7cd2768f34d83ba00e70de3162bbd3b714d078da938",
+      "bytes": 457,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-03.md",
+      "sha256": "f4515829571f173a82235d6acd917537db6c704d40ff18e759c7b877f3992f07",
+      "bytes": 457,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-04.md",
+      "sha256": "9985bae2837f9c0662faca1bff496876110f0db1867f4246fdce3e78f7aca4d6",
+      "bytes": 465,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-05.md",
+      "sha256": "5fa66b78a0f86b02d5ce1e3ffc9f8634387fec172377b6f99bda535bad133069",
+      "bytes": 465,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-06.md",
+      "sha256": "d182a49ca9c2b7c8e00bb3338ef35b5561c7e42552b925fb7b5d0bf387fdfe1b",
+      "bytes": 465,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-07.md",
+      "sha256": "ad9a868cc9e2e891b56ed10dc3e6bdb391ac011273fab9b4bfd5d33902c425c6",
+      "bytes": 465,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-08.md",
+      "sha256": "700b40eae480d59572b64e19d6f01c0794676e71f5763936e81c5e7a8f6b2c60",
+      "bytes": 465,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/bank/statements/reserve-savings-2026-09.md",
+      "sha256": "fd0c696e31a32c1e1aeea910150e48ca3c21170b6ffa20688296cc5be4501597",
+      "bytes": 469,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/billing/customer-invoices.csv",
+      "sha256": "45cf56d040323e847c81f1dd96021035bb6400f817c7aac06698c041eab72c74",
+      "bytes": 12420,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/billing/insurance-and-equipment.md",
+      "sha256": "39b04c7e399d4f9cc216b614c124482b11619dd7b986600df342d96b9132bcb0",
+      "bytes": 477,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/billing/security-review-invoice.md",
+      "sha256": "9f02be764670515457989f1dbc27b50b4db7fd7aaf62c9727d31ce7dbd6f4614",
+      "bytes": 365,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/people/payroll-summary.csv",
+      "sha256": "53a46c503c0940253c89438980f238c4516a3495a6ed6dbb8cd98d75323b9a24",
+      "bytes": 681,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/performance/q1-founder-update.md",
+      "sha256": "3118568ed4da545138cb6940c1604287d12ccfacf4dd9d0fd7a09e9dbe51054e",
+      "bytes": 1142,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/performance/saas-metrics.csv",
+      "sha256": "849cacd50f12b0672c80645c42a786e3d1dcfe0ad22a1db1bd9457d556289e98",
+      "bytes": 1169,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/performance/september-founder-update.md",
+      "sha256": "91ff3691949164767b481fdd84fae175df3a44774551641fe15527d663981701",
+      "bytes": 1269,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/stripe/balance-transactions.csv",
+      "sha256": "892aad9f1a1f2ec5b56fe266860de2da1c3dded978fa3bd0f04190959df74cba",
+      "bytes": 11549,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "02-history/stripe/payouts.csv",
+      "sha256": "5b2c407bf29ea72849222b0f4a81e15a9eac222890dfc643622e83b03579b87c",
+      "bytes": 2106,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "03-october-update/bank-transactions.csv",
+      "sha256": "3b431213a7106c0c2a6bac7990d5d5c74b2046e553a7a391119ee43a1192f8c1",
+      "bytes": 359,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "03-october-update/collection-and-coverage-notes.md",
+      "sha256": "068d19f440f0fc7ff2e15a71314083cb3d4abac9866b8d95cabe3b156f0828f1",
+      "bytes": 873,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "03-october-update/stripe-payout.csv",
+      "sha256": "97e2e2c3d2e67160de9b53c1ceb3645e2216543e531f08dbcdc5033818a5d515",
+      "bytes": 179,
+      "role": "synthetic-source-evidence"
+    },
+    {
+      "path": "04-edge-cases/conflicting-sales-note.md",
+      "sha256": "54b0741ea1754db9ccbf8c3e7105f7846205c90ee9508b3e2684d952d443b0fd",
+      "bytes": 458,
+      "role": "optional-edge-case"
+    },
+    {
+      "path": "04-edge-cases/overlapping-checking-extract.csv",
+      "sha256": "9846f063871834edf33261acdf546ff2549418b6184a0bc1260cf249b60a16c3",
+      "bytes": 518,
+      "role": "optional-edge-case"
+    },
+    {
+      "path": "expected/expected-results.json",
+      "sha256": "3806f9c3050bf3f347119123329f973972b46ef5eb135d926f8e8c08d6507058",
+      "bytes": 8049,
+      "role": "expected-result-do-not-upload"
+    },
+    {
+      "path": "expected/reconciliation.md",
+      "sha256": "a33a1f0d3e09b66085165fd8d3b2a2dcf46c12c3844a759542dd29a30694db8b",
+      "bytes": 2188,
+      "role": "expected-result-do-not-upload"
+    }
+  ]
+}

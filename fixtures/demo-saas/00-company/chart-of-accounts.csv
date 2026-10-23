@@ -1,0 +1,23 @@
+Account Code,Account Name,Type,Currency
+1000,Operating checking,asset,USD
+1010,Reserve savings,asset,USD
+1020,Stripe clearing,asset,USD
+1100,Accounts receivable,asset,USD
+1200,Prepaid insurance,asset,USD
+1500,Computer equipment,asset,USD
+1510,Accumulated depreciation,contra_asset,USD
+2000,Accounts payable,liability,USD
+2100,Deferred subscription revenue,liability,USD
+3000,Paid-in capital,equity,USD
+4000,Subscription revenue,revenue,USD
+4010,Subscription refunds,contra_revenue,USD
+5000,Cloud hosting,expense,USD
+5010,Payment processing fees,expense,USD
+6000,Salaries,expense,USD
+6010,Employer payroll taxes,expense,USD
+6100,Software tools,expense,USD
+6200,Rent,expense,USD
+6300,Contractors,expense,USD
+6400,Marketing,expense,USD
+6500,Insurance,expense,USD
+6600,Depreciation,expense,USD

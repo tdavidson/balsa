@@ -1,0 +1,6 @@
+Date,Description,Amount,Currency,Account ID,Reference,Balance
+2026-09-10,INTERNAL TRANSFER FROM DEMO RESERVE,20000.00,USD,demo_1000_001,demo_transfer_sep,
+2026-09-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-09,
+2026-09-16,Demo Payroll Bureau tax remittance,-9000.00,USD,demo_1000_001,demo_payroll_2026-09,
+2026-09-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-09,
+2026-09-22,Demo Campaigns advertising,-4500.00,USD,demo_1000_001,demo_ads_2026-09,
