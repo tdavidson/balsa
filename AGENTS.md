@@ -49,7 +49,7 @@ for auth, company selection, company-scoped routes, or row-level security change
 ## Company data must never enter GitHub
 
 Treat this repository as public, even while its GitHub visibility is private.
-This rule applies to Codex, ChatGPT, and every other agent or contributor.
+This rule applies to every agent and contributor.
 
 - Never include real customer or operating-company names, financial figures,
   account identifiers, transactions, business details, or source documents in

@@ -3,7 +3,7 @@ import { isDetailedFinancialEvent, parseFinancialAmount } from "./financial-even
 
 describe("financial event detail", () => {
   it("accepts ordinary deterministic transaction descriptions while excluding summaries", () => {
-    expect(isDetailedFinancialEvent("Den Technologies management fee")).toBe(true);
+    expect(isDetailedFinancialEvent("Sample Technologies management fee")).toBe(true);
     expect(isDetailedFinancialEvent("Beginning Total Value")).toBe(false);
     expect(isDetailedFinancialEvent("Consolidated ending balance")).toBe(false);
   });

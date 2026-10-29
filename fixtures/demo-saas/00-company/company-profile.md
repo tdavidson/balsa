@@ -11,4 +11,4 @@ Four employees; aggregate payroll only. No subsidiaries, debt, foreign currency,
 Monthly plan: $1,500 per customer; cancel at month end. Customer 03 downgrades to $1,000 effective September 1. Annual plans are individually contracted.
 Contacts: demo-founder@example.test and demo-finance@example.test. All account and provider IDs use demo_ prefixes and cannot authenticate to any service.
 
-The demo distinguishes subscriptions, collections, recognized revenue, annual prepayments and bank transfers. September ends with a Stripe payout in transit and an unpaid enterprise invoice.
+The demo distinguishes subscriptions, collections, recognized revenue, annual prepayments and bank transfers. September ends with a Demo Pay payout in transit and an unpaid enterprise invoice.

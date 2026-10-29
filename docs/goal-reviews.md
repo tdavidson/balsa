@@ -2,7 +2,7 @@
 
 Open **Goals & reviews** from the workspace, or visit `/goals`.
 
-This implements the initial cash workflow of the [goal-directed financial model](superpowers/specs/2026-09-25-goal-directed-financial-model-design.md): preserve a baseline, reconcile expectations, measure progress, and review decisions against stated goals. [Intra-month expectation settlement and coverage review](forecasted-closes.md) now extend this foundation. Deterministic change explanations now compare the outlook with a saved plan or review. Goal-aware scenario approval and later outcome reviews are available at `/goal-decisions`.
+This implements the initial cash workflow of the goal-directed financial model: preserve a baseline, reconcile expectations, measure progress, and review decisions against stated goals. [Intra-month expectation settlement and coverage review](forecasted-closes.md) now extend this foundation. Deterministic change explanations now compare the outlook with a saved plan or review. Goal-aware scenario approval and later outcome reviews are available at `/goal-decisions`.
 
 ## Workflow
 

@@ -50,7 +50,7 @@ const execFileAsync = promisify(execFile);
  * breaks, so downstream facts remain traceable to an OCR page.
  */
 async function extractOcrPdfDocument(buffer: Uint8Array): Promise<{ pages: PdfPageText[]; detail: NonNullable<PdfExtractionQuality["ocr"]> }> {
-  const command = (process.env.BALSA_OCR_COMMAND ?? process.env.NEVERMODEL_OCR_COMMAND)?.trim();
+  const command = process.env.BALSA_OCR_COMMAND?.trim();
   if (!command) return { pages: [], detail: { status: "unavailable", message: "OCR is not configured on this deployment." } };
   const directory = await mkdtemp(join(tmpdir(), "balsa-ocr-"));
   const input = join(directory, "source.pdf");

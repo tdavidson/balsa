@@ -1,5 +1,4 @@
-# Keep the existing Compose project and volumes when the checkout is renamed.
-name: nevermodel
+name: balsa
 
 services:
   postgres:
@@ -32,7 +31,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - nevermodel_files:/data/files
+      - balsa_files:/data/files
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,4 +39,4 @@ services:
 
 volumes:
   finance_postgres:
-  nevermodel_files:
+  balsa_files:

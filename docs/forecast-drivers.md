@@ -2,7 +2,7 @@
 
 Open **Accounting → Drivers**.
 
-Every confirmed driver can take a pattern from the Hemrock Standard Financial Model's forecasting drivers instead of a fixed amount. Balsa's engine calculates each month from the pattern; the projection, statements, runway, scenarios and the exported workbook use those amounts exactly as they use a fixed amount. The design is in the [Standard model export spec](superpowers/specs/2026-10-05-standard-model-export-design.md), part 1.
+Every confirmed driver can take a pattern from the Hemrock Standard Financial Model's forecasting drivers instead of a fixed amount. Balsa's engine calculates each month from the pattern; the projection, statements, runway, scenarios and the exported workbook use those amounts exactly as they use a fixed amount. The design is in the Standard model export spec, part 1.
 
 ## Patterns
 

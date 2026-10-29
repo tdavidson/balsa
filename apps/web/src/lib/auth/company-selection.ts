@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 
-export const activeCompanyCookieName = "nevermodel_company";
+export const activeCompanyCookieName = "balsa_company";
 const activeCompanyCookieMaxAge = 365 * 24 * 60 * 60;
 
 /**

@@ -1,7 +1,5 @@
 # AI-drafted operating models
 
-For the observation, review, adaptive-plan, and simulation implementation history, see the
-[operating decision roadmap](superpowers/plans/2026-10-05-operating-decision-roadmap.md).
 The sections below describe current behavior.
 
 See the [decision workspace guide](decision-workspace.md) for saved drafts, guided
@@ -336,7 +334,7 @@ A constant-bias proposal requires at least five training outcomes known before t
 
 Cash reliability uses settled obligations and valid posted allocations. The amount comparison is separate from the table of payment-month delays. Partial or reversed settlements are not complete outcomes. Unrevised, unrevoked obligations use the last allocation's recorded time as the knowledge cutoff; revised settlement histories conservatively use the report cutoff and cannot provide earlier training evidence. Month-level forecasts never imply a day-level due date.
 
-Simulation studies use 16–64 seeded paths, one to eight uncertain inputs, up to twelve explicit entities/cohorts and at most two additional complete structural models. All models use the same horizon, existing input IDs and included source references. Entity node memberships are disjoint; shared or unallocated cash is shown separately and reconciles to total model cash. Demand competition, shared capacity and feedback are ordinary graph dependencies, including explicit lag edges. The existing dimensional forecast model was assessed; studies reuse the bounded scalar operating graph rather than introducing another formula or accounting language. See the [simulation design review](superpowers/plans/2026-10-05-simulation-design.md).
+Simulation studies use 16–64 seeded paths, one to eight uncertain inputs, up to twelve explicit entities/cohorts and at most two additional complete structural models. All models use the same horizon, existing input IDs and included source references. Entity node memberships are disjoint; shared or unallocated cash is shown separately and reconciles to total model cash. Demand competition, shared capacity and feedback are ordinary graph dependencies, including explicit lag edges. The existing dimensional forecast model was assessed; studies reuse the bounded scalar operating graph rather than introducing another formula or accounting language. See the simulation design review.
 
 Uniform ranges are user assumptions. A named rank group shares one draw, either in the same direction or its inverse; empty groups are independent. This is not an estimated correlation matrix or an empirically calibrated distribution. Every supported path runs through the existing financial engine. Failed paths remain visible, and summaries explicitly describe only supported paths. Structural models are reported separately without inferred weights. Views include monthly P05/median/P95 cash, exact tables, threshold counts, quantile bands, a first-half/full-sample convergence check, noncausal rank associations and downside/median/upside path inspection. Each path retains assumptions, formulas, entity cash, monthly balances and projected journals.
 

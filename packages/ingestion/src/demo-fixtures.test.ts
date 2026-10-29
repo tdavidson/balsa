@@ -44,8 +44,8 @@ describe("synthetic SaaS demo import compatibility", () => {
     }
   });
 
-  it("retains gross Stripe charges and the refund, without silently netting fees", () => {
-    const rows = parseCsvRows(fixture("02-history/stripe/balance-transactions.csv"));
+  it("retains gross processor charges and the refund, without silently netting fees", () => {
+    const rows = parseCsvRows(fixture("02-history/processor/balance-transactions.csv"));
     const transactions = normalizeTransactions(rows, "1999-01");
     expect(transactions).toHaveLength(rows.length - 1);
     const refund = transactions.filter((t) => t.direction === "spend");

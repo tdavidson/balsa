@@ -75,9 +75,9 @@ if (verify) {
     const extraction = row.extractedJson ? extractionSchema.safeParse(JSON.parse(row.extractedJson)) : null;
     const facts = extraction?.success ? extraction.data.facts : [];
     const fullDates = facts.filter((fact) => /\b20\d{2}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\/20\d{2}\b|\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+20\d{2}\b/i.test(`${fact.label} ${fact.value}`)).length;
-    const identified = facts.filter((fact) => /klingenstein|sender|beneficiary|description|memo|note/i.test(`${fact.label} ${fact.value}`)).length;
+    const identified = facts.filter((fact) => /sender|beneficiary|description|memo|note/i.test(`${fact.label} ${fact.value}`)).length;
     console.log(`Verified ${row.sourceName}: ${facts.length} facts, ${fullDates} with full dates, ${identified} with identifying text.`);
-    for (const fact of facts.filter((fact) => /klingenstein/i.test(`${fact.label} ${fact.value}`)).slice(0, 4)) console.log(`  ${fact.label}: ${fact.value}`);
+    for (const fact of facts.filter((fact) => /sender|beneficiary/i.test(`${fact.label} ${fact.value}`)).slice(0, 4)) console.log(`  ${fact.label}: ${fact.value}`);
     if (!fullDates) for (const fact of facts.filter((fact) => /\b\d{1,2}[/-]\d{1,2}\b/.test(`${fact.label} ${fact.value}`)).slice(0, 2)) console.log(`  Abbreviated date sample — ${fact.label}: ${fact.value}`);
   }
   return;

@@ -34,7 +34,7 @@ export function LoginForm({ allowSignUp, requireSignUpCode }: { allowSignUp: boo
           email: email.trim(),
           password,
           name: name.trim() || email.trim(),
-          ...(requireSignUpCode ? { fetchOptions: { headers: { "x-nevermodel-sign-up-code": signUpCode } } } : {}),
+          ...(requireSignUpCode ? { fetchOptions: { headers: { "x-balsa-sign-up-code": signUpCode } } } : {}),
         })
         : await authClient.signIn.email({ email: email.trim(), password });
       if (result.error) {

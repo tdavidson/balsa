@@ -4,20 +4,20 @@
   "files": [
     {
       "path": "00-company/accounting-policies.md",
-      "sha256": "e961a8dcfedb4e5cffcd52a3ab277455d3f1936aee19e42139ed80c95b0e5be4",
-      "bytes": 2221,
+      "sha256": "7bcbe8a24d0f7c110a3d768b2a5c5754058f126542e52001b0c0026411ede81e",
+      "bytes": 2227,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "00-company/chart-of-accounts.csv",
-      "sha256": "9a60af1540a2148c49344f02a9473bc70ee322022524beecc57dbe1fef62838c",
-      "bytes": 790,
+      "sha256": "1399e694b294587c68a009ed1094dfec135b85de77155c28aec485131a6f17e5",
+      "bytes": 792,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "00-company/company-profile.md",
-      "sha256": "4b9ea2cf8e33f0d54ceb1ce844c8a5dd3f153418fd861440f9f2b2e6422abb4e",
-      "bytes": 1159,
+      "sha256": "c4c0ddb5d62dc1aa038c8528b9112e1713a08e3edd7ae1457de9eb46784e3ab6",
+      "bytes": 1161,
       "role": "synthetic-source-evidence"
     },
     {
@@ -28,14 +28,14 @@
     },
     {
       "path": "01-onboarding/contracts/annual-demo_cus_101.md",
-      "sha256": "814a097878d97711a346e35a260ea6c9a7d6c11461292bfb1e682d000a51c3e6",
-      "bytes": 463,
+      "sha256": "4d0d46ae36c5b43d9dd49418e8e354f07fd3806ad16cbf13d8575d1e29004c81",
+      "bytes": 465,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "01-onboarding/contracts/annual-demo_cus_102.md",
-      "sha256": "c5e7013ef2b28e8b1c00176b473408c2ab5d6cec4ad586041e8e9b95d6eb347a",
-      "bytes": 463,
+      "sha256": "ba419ff20cade1cc15c49cf24fb39fbc1a29d24258900ebec3f2dcf34152cb55",
+      "bytes": 465,
       "role": "synthetic-source-evidence"
     },
     {
@@ -46,8 +46,8 @@
     },
     {
       "path": "01-onboarding/contracts/monthly-subscription-terms.md",
-      "sha256": "f825d311d5d3d036bd41f4a5745d7556cfb93fcb07ea1d9e3fc5fa4c9e592edb",
-      "bytes": 812,
+      "sha256": "e3a60824c2d3665386a83f1cd3c77247296678643ded3847ea71bea58871fffd",
+      "bytes": 814,
       "role": "synthetic-source-evidence"
     },
     {
@@ -64,8 +64,8 @@
     },
     {
       "path": "02-history/accounting-reference/balance-sheet.csv",
-      "sha256": "73f7ac573f343d51af4b49c8337c4ca2f81f99cb04156a657803b76e51af3631",
-      "bytes": 1323,
+      "sha256": "9e0a8023cd93e3d0295dbf0f9e17749b48d3910aadd0f471613fc684a49508ee",
+      "bytes": 1325,
       "role": "alternate-accounting-reference"
     },
     {
@@ -76,8 +76,8 @@
     },
     {
       "path": "02-history/accounting-reference/general-ledger.csv",
-      "sha256": "efb0fea7d749dcef05f18a062a58c0609f009f8c3e984eaa287c059c11ad814e",
-      "bytes": 61973,
+      "sha256": "51ac5866414dc469c0483172d6e7f1e51a22d5da77fe84acf8325acb91af8f48",
+      "bytes": 62669,
       "role": "alternate-accounting-reference"
     },
     {
@@ -88,62 +88,62 @@
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-01.csv",
-      "sha256": "6ad66343e6de719c75c5737d69ebbc35641cff34292bd23b3bec6d54a0299bd0",
-      "bytes": 991,
+      "sha256": "df114b6106bd693fb519cf0a1e218e0ee16dbf7a8c6cab280854eb201b9deb4a",
+      "bytes": 993,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-02.csv",
-      "sha256": "c3a0742e6eb8dedffa719b058d7889140216f2bc6df932dd34f9e0837c43de3d",
-      "bytes": 995,
+      "sha256": "7e5875fa05fbf2e370e931a48cf848b6227119ca976433ae14340f60bb304363",
+      "bytes": 997,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-03.csv",
-      "sha256": "d0e33ddc8983fa381269b89d0f9d44c6744017d21bb070c765a808017354e19b",
-      "bytes": 995,
+      "sha256": "ff9fcba20e4738887b9019c83f29bcdad04f5976ad8cd54e47c73cb7b00c722d",
+      "bytes": 997,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-04.csv",
-      "sha256": "2016726abe28dce474f08b6e5717671829469bce539220b343b28a229e397d8d",
-      "bytes": 1029,
+      "sha256": "d9d2d94d69c95facd48c3d9664f7615cdbbfa6cf2baec716dfe76d2bd9b02a52",
+      "bytes": 1031,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-05.csv",
-      "sha256": "5a870f415f90a5ae8ea42f2f18a869a05f3e3edb8f6f1211a71b044c8a3aa520",
-      "bytes": 1029,
+      "sha256": "803d21c60befd06af7fb14d23c1597e69410afd76ff1d7a603917110e8fd72ba",
+      "bytes": 1031,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/accounting-reference/trial-balance-2026-06.csv",
-      "sha256": "2c28e0ab114e79d202f5784837f9bcacfba747aa41c27192c1b237876adb672d",
-      "bytes": 1049,
-      "role": "alternate-accounting-reference"
-    },
-    {
-      "path": "02-history/accounting-reference/trial-balance-2026-07.csv",
-      "sha256": "9d61c36231ef59e5bd44aa82c90717a93d5d57378e10d05ea687d25ccace5522",
-      "bytes": 1050,
-      "role": "alternate-accounting-reference"
-    },
-    {
-      "path": "02-history/accounting-reference/trial-balance-2026-08.csv",
-      "sha256": "fa4b6c046db82c628c0fd23555da89459e5366d86db0b3f9226593ba8830a6a3",
+      "sha256": "bdcd1e98e3a5ce5950aea7a2aacee9daeb4d136da5021e5f8b4b5f6ab3f5c887",
       "bytes": 1051,
       "role": "alternate-accounting-reference"
     },
     {
+      "path": "02-history/accounting-reference/trial-balance-2026-07.csv",
+      "sha256": "85d322e407abd43d95e3fabbe3df727b153ced217a0c568544c4bee08ebce9a3",
+      "bytes": 1052,
+      "role": "alternate-accounting-reference"
+    },
+    {
+      "path": "02-history/accounting-reference/trial-balance-2026-08.csv",
+      "sha256": "ebf61d562e097e0fb057439458e08b07824cdf3236f5b5205ec4c033f0aa164e",
+      "bytes": 1053,
+      "role": "alternate-accounting-reference"
+    },
+    {
       "path": "02-history/accounting-reference/trial-balance-2026-09.csv",
-      "sha256": "cdb147edd3059ea4ea5e9c295182923bacc15f886b2f8df5d8689dfbb8d58ff8",
-      "bytes": 1078,
+      "sha256": "031ae898e8783a3bd855e81f24c9e990d288022919fd47cb12a5d347a4914fbf",
+      "bytes": 1080,
       "role": "alternate-accounting-reference"
     },
     {
       "path": "02-history/bank/operating-checking-transactions.csv",
-      "sha256": "9b2e1da60ad1ba96883c913737f479c27271816fc73072cc68a911d1d67a2475",
-      "bytes": 7384,
+      "sha256": "e8351611c895e0543462f251543c683aa71eec9d4967b8ea54902ca2a1813b41",
+      "bytes": 7402,
       "role": "synthetic-source-evidence"
     },
     {
@@ -262,8 +262,8 @@
     },
     {
       "path": "02-history/billing/customer-invoices.csv",
-      "sha256": "45cf56d040323e847c81f1dd96021035bb6400f817c7aac06698c041eab72c74",
-      "bytes": 12420,
+      "sha256": "083bea516cd002dc63f44176447cb13152f00d068c0739032ac0c88db4682a88",
+      "bytes": 12580,
       "role": "synthetic-source-evidence"
     },
     {
@@ -286,48 +286,48 @@
     },
     {
       "path": "02-history/performance/q1-founder-update.md",
-      "sha256": "3118568ed4da545138cb6940c1604287d12ccfacf4dd9d0fd7a09e9dbe51054e",
-      "bytes": 1142,
+      "sha256": "556b856b9dca9efc7d4083d91870d83ecf739799a5266ba9e2894cafb58b08d7",
+      "bytes": 1144,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "02-history/performance/saas-metrics.csv",
-      "sha256": "849cacd50f12b0672c80645c42a786e3d1dcfe0ad22a1db1bd9457d556289e98",
-      "bytes": 1169,
+      "sha256": "e3797b849f2e0593cbee6c5ba558e7e1e909031aec38f7c2ef0ae083222455ce",
+      "bytes": 1175,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "02-history/performance/september-founder-update.md",
-      "sha256": "91ff3691949164767b481fdd84fae175df3a44774551641fe15527d663981701",
-      "bytes": 1269,
+      "sha256": "9b0cb59f36fa412efb3fbda6f88ee969f664c2035def0f267cc671aa38d658b6",
+      "bytes": 1271,
       "role": "synthetic-source-evidence"
     },
     {
-      "path": "02-history/stripe/balance-transactions.csv",
+      "path": "02-history/processor/balance-transactions.csv",
       "sha256": "892aad9f1a1f2ec5b56fe266860de2da1c3dded978fa3bd0f04190959df74cba",
       "bytes": 11549,
       "role": "synthetic-source-evidence"
     },
     {
-      "path": "02-history/stripe/payouts.csv",
+      "path": "02-history/processor/payouts.csv",
       "sha256": "5b2c407bf29ea72849222b0f4a81e15a9eac222890dfc643622e83b03579b87c",
       "bytes": 2106,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "03-october-update/bank-transactions.csv",
-      "sha256": "3b431213a7106c0c2a6bac7990d5d5c74b2046e553a7a391119ee43a1192f8c1",
-      "bytes": 359,
+      "sha256": "b5804eb86d31ea87ca898cfff3a330a14a139034f2a23c2cf24db6559061cbaf",
+      "bytes": 361,
       "role": "synthetic-source-evidence"
     },
     {
       "path": "03-october-update/collection-and-coverage-notes.md",
-      "sha256": "068d19f440f0fc7ff2e15a71314083cb3d4abac9866b8d95cabe3b156f0828f1",
-      "bytes": 873,
+      "sha256": "2a472f414947f36c2da5aeca908b9a02dc9cfa319cfe95de72968c0df1a785c1",
+      "bytes": 875,
       "role": "synthetic-source-evidence"
     },
     {
-      "path": "03-october-update/stripe-payout.csv",
+      "path": "03-october-update/processor-payout.csv",
       "sha256": "97e2e2c3d2e67160de9b53c1ceb3645e2216543e531f08dbcdc5033818a5d515",
       "bytes": 179,
       "role": "synthetic-source-evidence"
@@ -346,14 +346,14 @@
     },
     {
       "path": "expected/expected-results.json",
-      "sha256": "3806f9c3050bf3f347119123329f973972b46ef5eb135d926f8e8c08d6507058",
-      "bytes": 8049,
+      "sha256": "b596085c4342a8d0ae712a7c099d6c7c68822ba983c2def5f3d60e888883e33d",
+      "bytes": 8055,
       "role": "expected-result-do-not-upload"
     },
     {
       "path": "expected/reconciliation.md",
-      "sha256": "a33a1f0d3e09b66085165fd8d3b2a2dcf46c12c3844a759542dd29a30694db8b",
-      "bytes": 2188,
+      "sha256": "6ebb75e38c252cd09e8a0056ca95612376729280b55e76512ee1b708af11eb29",
+      "bytes": 2194,
       "role": "expected-result-do-not-upload"
     }
   ]

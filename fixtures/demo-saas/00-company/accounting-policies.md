@@ -4,7 +4,7 @@ Synthetic owner-approved policy memo dated 2026-01-01. Accrual basis, USD, month
 
 - Monthly service revenue is earned in its service month. Enterprise invoices create receivables until collected.
 - Annual subscriptions are collected in advance, recorded as deferred revenue and recognized evenly over the 12 stated service months. Monthly MRR is annual contract value divided by 12. ARR is closing MRR times 12; neither is cash receipts.
-- Stripe clearing records gross customer collections, fees, refunds and payouts. Each payout is a transfer from Stripe clearing into checking, never additional sales. Original processing fees are retained on refunds. No reserves, disputes or currency conversions exist in this simplified pack. Stripe exports are simplified test extracts, not a full provider schema or live API integration.
+- Demo Pay clearing records gross customer collections, fees, refunds and payouts. Each payout is a transfer from Demo Pay clearing into checking, never additional sales. Original processing fees are retained on refunds. No reserves, disputes or currency conversions exist in this simplified pack. Demo Pay exports are simplified test extracts, not a full provider schema or live API integration.
 - Bank cash is checking plus savings; processor clearing is a separate current asset, excluded from bank cash in reference cash flows.
 - Transfers between checking and savings are neither revenue nor expense. Founder contributions are equity financing.
 - Annual insurance is prepaid April 1, 2026 through March 31, 2027, amortized $1,000 per month.

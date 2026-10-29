@@ -7,7 +7,7 @@ import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-t
 import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
 
 function hasTemplateMarker(content: string, template: { id: string; version: string }) {
-  return ["Balsa", "Nevermodel", "Hemrock"].some((brand) => content.includes(`${brand} knowledge template: ${template.id} v${template.version}`));
+  return content.includes(`Balsa knowledge template: ${template.id} v${template.version}`);
 }
 
 const appliedIdsFor = (documents: { slug: string; content: string }[]) => [...new Set(documents.flatMap((document) => {

@@ -62,11 +62,11 @@ describe("transaction ingestion", () => {
   });
 
   it("keeps exact dates and note fields from bank transaction lists", () => {
-    const rows = parseCsvRows("Date,Amount,Name,Note\n2026-07-14,60000,Incoming wire,Klingenstein Fund II management fee");
+    const rows = parseCsvRows("Date,Amount,Name,Note\n2026-07-14,60000,Incoming wire,Example Fund II management fee");
     expect(normalizeTransactions(rows, "2026-09")).toEqual([{
       date: "2026-07",
       postedDate: "2026-07-14",
-      description: "Incoming wire · Klingenstein Fund II management fee",
+      description: "Incoming wire · Example Fund II management fee",
       amount: 60000,
       direction: "receipt",
       sourceLocation: "row:2",
