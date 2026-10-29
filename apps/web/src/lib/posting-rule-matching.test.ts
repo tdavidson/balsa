@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { matchPostingRules } from "./posting-rule-matching";
 
-const event = { month: "2026-09", description: "ACH DEN TECHNOLOGIES MANAGEMENT FEE", direction: "receipt", category: "operating" };
-const rule = { id: "fee", descriptionPattern: "den technologies", direction: "receipt", activity: "operating", effectiveFrom: null, effectiveTo: null, priority: "100" };
+const event = { month: "2026-09", description: "ACH SAMPLE TECHNOLOGIES MANAGEMENT FEE", direction: "receipt", category: "operating" };
+const rule = { id: "fee", descriptionPattern: "sample technologies", direction: "receipt", activity: "operating", effectiveFrom: null, effectiveTo: null, priority: "100" };
 
 describe("matchPostingRules", () => {
   it("matches a single applicable rule case-insensitively", () => {

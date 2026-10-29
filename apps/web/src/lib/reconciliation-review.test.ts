@@ -3,7 +3,7 @@ import { buildReconciliationReview } from "./reconciliation-review";
 
 describe("reconciliation review grouping", () => {
   it("groups balance and duplicate findings into CFO questions", () => {
-    const reviews = buildReconciliationReview({ month: "2026-09", opening: 100, ending: 130, expectedEnding: 125, difference: 5, transactionCount: 10, duplicateGroups: [{ amount: 25, direction: "receipt", date: "2026-09-03", sources: ["Bank", "Books"], descriptions: ["Den Technologies", "Den Technologies payment"] }], unclassifiedCount: 0 });
+    const reviews = buildReconciliationReview({ month: "2026-09", opening: 100, ending: 130, expectedEnding: 125, difference: 5, transactionCount: 10, duplicateGroups: [{ amount: 25, direction: "receipt", date: "2026-09-03", sources: ["Bank", "Books"], descriptions: ["Sample Technologies", "Sample Technologies payment"] }], unclassifiedCount: 0 });
     expect(reviews.map((review) => review.kind)).toEqual(["balance", "duplicate"]);
     expect(reviews[1]?.evidence).toContain("Sources: Bank · Books");
   });

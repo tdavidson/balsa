@@ -2,7 +2,7 @@
 
 Open **Accounting → Statements** and switch between **Ledger** and **Standard**.
 
-The [Standard Financial Model export](superpowers/specs/2026-10-05-standard-model-export-design.md) connects statement mapping, categories, the timeline, driver patterns, live workbook formulas, and returned-edit proposals. See the [implementation review](standard-model-review.md) for corrections and remaining support boundaries.
+The Standard Financial Model export connects statement mapping, categories, the timeline, driver patterns, live workbook formulas, and returned-edit proposals. See the [implementation review](standard-model-review.md) for corrections and remaining support boundaries.
 
 ## Two views of the same numbers
 

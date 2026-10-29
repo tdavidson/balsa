@@ -1,7 +1,7 @@
 Account Number,Account Name,Debit,Credit,Currency,As Of
 1000,Operating checking,60270.70,,USD,2026-05-31
 1010,Reserve savings,50000.00,,USD,2026-05-31
-1020,Stripe clearing,,,USD,2026-05-31
+1020,Demo Pay clearing,,,USD,2026-05-31
 1100,Accounts receivable,,,USD,2026-05-31
 1200,Prepaid insurance,10000.00,,USD,2026-05-31
 1500,Computer equipment,,,USD,2026-05-31

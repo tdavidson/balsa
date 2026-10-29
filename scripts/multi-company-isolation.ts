@@ -170,7 +170,7 @@ const signUpBody = (label: string, email: string) => ({ name: `Isolation ${label
 async function signUp(label: string): Promise<{ target: Browser; email: string }> {
   const target = browser(label);
   const email = addressFor(label);
-  const headers = signUpCode ? { "x-nevermodel-sign-up-code": signUpCode } : undefined;
+  const headers = signUpCode ? { "x-balsa-sign-up-code": signUpCode } : undefined;
   const response = await call(target, "/api/auth/sign-up/email", { method: "POST", json: signUpBody(label, email), ...(headers ? { headers } : {}) });
   const text = await response.text();
   assert(response.ok, `Sign-up for ${label} failed: ${response.status} ${text.slice(0, 300)}`);
@@ -269,11 +269,11 @@ async function main() {
   step("4. Guessed, stale and hand-edited company cookies are rejected");
   const forged = copyJar(one, "user1-forged");
   const guessedId = crypto.randomUUID();
-  forged.jar.set("nevermodel_company", guessedId);
+  forged.jar.set("balsa_company", guessedId);
   const forgedState = { companyId: await activeCompanyId(forged) };
   assert(forgedState.companyId === fallbackId, `A guessed company UUID resolved to ${forgedState.companyId}, expected the fallback ${fallbackId}`);
   pass("a guessed company UUID in the cookie falls back to the first company without erroring");
-  forged.jar.set("nevermodel_company", "not-a-company");
+  forged.jar.set("balsa_company", "not-a-company");
   const garbageState = { companyId: await activeCompanyId(forged) };
   assert(garbageState.companyId === fallbackId, `A garbage cookie resolved to ${garbageState.companyId}, expected the fallback ${fallbackId}`);
   pass("a garbage cookie value falls back to the first company without erroring");

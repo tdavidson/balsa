@@ -1,6 +1,6 @@
 Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-01-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-01,248800.00
-2026-01-05,STRIPE PAYOUT demo_po_202601,5824.80,USD,demo_1000_001,demo_po_202601,254624.80
+2026-01-05,DEMO PAY PAYOUT demo_po_202601,5824.80,USD,demo_1000_001,demo_po_202601,254624.80
 2026-01-08,Demo Cloud hosting,-900.00,USD,demo_1000_001,demo_cloud_2026-01,253724.80
 2026-01-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-01,252824.80
 2026-01-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-01,228824.80
@@ -8,7 +8,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-01-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-01,217324.80
 2026-01-22,Demo Campaigns advertising,-500.00,USD,demo_1000_001,demo_ads_2026-01,216824.80
 2026-02-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-02,215624.80
-2026-02-05,STRIPE PAYOUT demo_po_202602,8737.20,USD,demo_1000_001,demo_po_202602,224362.00
+2026-02-05,DEMO PAY PAYOUT demo_po_202602,8737.20,USD,demo_1000_001,demo_po_202602,224362.00
 2026-02-08,Demo Cloud hosting,-1100.00,USD,demo_1000_001,demo_cloud_2026-02,223262.00
 2026-02-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-02,222362.00
 2026-02-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-02,198362.00
@@ -16,7 +16,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-02-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-02,186862.00
 2026-02-22,Demo Campaigns advertising,-1000.00,USD,demo_1000_001,demo_ads_2026-02,185862.00
 2026-03-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-03,184662.00
-2026-03-05,STRIPE PAYOUT demo_po_202603,11649.60,USD,demo_1000_001,demo_po_202603,196311.60
+2026-03-05,DEMO PAY PAYOUT demo_po_202603,11649.60,USD,demo_1000_001,demo_po_202603,196311.60
 2026-03-08,Demo Cloud hosting,-1300.00,USD,demo_1000_001,demo_cloud_2026-03,195011.60
 2026-03-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-03,194111.60
 2026-03-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-03,170111.60
@@ -25,7 +25,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-03-22,Demo Campaigns advertising,-1500.00,USD,demo_1000_001,demo_ads_2026-03,157111.60
 2026-04-02,Demo Cover annual business insurance,-12000.00,USD,demo_1000_001,demo_insurance_annual,145111.60
 2026-04-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-04,143911.60
-2026-04-05,STRIPE PAYOUT demo_po_202604,34953.30,USD,demo_1000_001,demo_po_202604,178864.90
+2026-04-05,DEMO PAY PAYOUT demo_po_202604,34953.30,USD,demo_1000_001,demo_po_202604,178864.90
 2026-04-06,INTERNAL TRANSFER TO DEMO RESERVE,-50000.00,USD,demo_1000_001,demo_transfer_apr,128864.90
 2026-04-08,Demo Cloud hosting,-1500.00,USD,demo_1000_001,demo_cloud_2026-04,127364.90
 2026-04-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-04,126464.90
@@ -34,7 +34,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-04-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-04,90964.90
 2026-04-22,Demo Campaigns advertising,-2000.00,USD,demo_1000_001,demo_ads_2026-04,88964.90
 2026-05-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-05,87764.90
-2026-05-05,STRIPE PAYOUT demo_po_202605,13105.80,USD,demo_1000_001,demo_po_202605,100870.70
+2026-05-05,DEMO PAY PAYOUT demo_po_202605,13105.80,USD,demo_1000_001,demo_po_202605,100870.70
 2026-05-08,Demo Cloud hosting,-1700.00,USD,demo_1000_001,demo_cloud_2026-05,99170.70
 2026-05-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-05,98270.70
 2026-05-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-05,74270.70
@@ -42,7 +42,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-05-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-05,62770.70
 2026-05-22,Demo Campaigns advertising,-2500.00,USD,demo_1000_001,demo_ads_2026-05,60270.70
 2026-06-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-06,59070.70
-2026-06-05,STRIPE PAYOUT demo_po_202606,49517.70,USD,demo_1000_001,demo_po_202606,108588.40
+2026-06-05,DEMO PAY PAYOUT demo_po_202606,49517.70,USD,demo_1000_001,demo_po_202606,108588.40
 2026-06-08,Demo Cloud hosting,-1900.00,USD,demo_1000_001,demo_cloud_2026-06,106688.40
 2026-06-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-06,105788.40
 2026-06-10,FOUNDER EQUITY CONTRIBUTION,100000.00,USD,demo_1000_001,demo_capital_jun,205788.40
@@ -52,7 +52,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-06-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-06,167888.40
 2026-06-22,Demo Campaigns advertising,-3000.00,USD,demo_1000_001,demo_ads_2026-06,164888.40
 2026-07-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-07,163688.40
-2026-07-05,STRIPE PAYOUT demo_po_202607,16018.20,USD,demo_1000_001,demo_po_202607,179706.60
+2026-07-05,DEMO PAY PAYOUT demo_po_202607,16018.20,USD,demo_1000_001,demo_po_202607,179706.60
 2026-07-08,Demo Cloud hosting,-2100.00,USD,demo_1000_001,demo_cloud_2026-07,177606.60
 2026-07-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-07,176706.60
 2026-07-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-07,152706.60
@@ -60,7 +60,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-07-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-07,141206.60
 2026-07-22,Demo Campaigns advertising,-3500.00,USD,demo_1000_001,demo_ads_2026-07,137706.60
 2026-08-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-08,136506.60
-2026-08-05,STRIPE PAYOUT demo_po_202608,16018.20,USD,demo_1000_001,demo_po_202608,152524.80
+2026-08-05,DEMO PAY PAYOUT demo_po_202608,16018.20,USD,demo_1000_001,demo_po_202608,152524.80
 2026-08-08,Demo Cloud hosting,-2300.00,USD,demo_1000_001,demo_cloud_2026-08,150224.80
 2026-08-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-08,149324.80
 2026-08-15,Demo Payroll Bureau net wages (aggregate),-24000.00,USD,demo_1000_001,demo_payroll_2026-08,125324.80
@@ -68,7 +68,7 @@ Date,Description,Amount,Currency,Account ID,Reference,Balance
 2026-08-20,Demo Design contractor,-2500.00,USD,demo_1000_001,demo_design_2026-08,113824.80
 2026-08-22,Demo Campaigns advertising,-4000.00,USD,demo_1000_001,demo_ads_2026-08,109824.80
 2026-09-03,Demo Workspace rent,-1200.00,USD,demo_1000_001,demo_rent_2026-09,108624.80
-2026-09-05,STRIPE PAYOUT demo_po_202609,12120.30,USD,demo_1000_001,demo_po_202609,120745.10
+2026-09-05,DEMO PAY PAYOUT demo_po_202609,12120.30,USD,demo_1000_001,demo_po_202609,120745.10
 2026-09-08,Demo Cloud hosting,-2500.00,USD,demo_1000_001,demo_cloud_2026-09,118245.10
 2026-09-09,Demo Worktools monthly software,-900.00,USD,demo_1000_001,demo_tools_2026-09,117345.10
 2026-09-10,INTERNAL TRANSFER FROM DEMO RESERVE,20000.00,USD,demo_1000_001,demo_transfer_sep,137345.10

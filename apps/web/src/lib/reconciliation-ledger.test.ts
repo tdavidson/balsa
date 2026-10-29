@@ -15,8 +15,8 @@ describe("reconciliation ledger", () => {
 
   it("uses the more specific bank-to-books state instead of calling that pair a duplicate", () => {
     const entries = buildReconciliationLedger([
-      { id: "bank", month: "2026-09", date: "2026-09-02", amount: 100, direction: "receipt", description: "ACH Den Technologies", sourceName: "Bank", sourceKind: "bank_statement", evidenceStatus: "approved" },
-      { id: "books", month: "2026-09", date: "2026-09-03", amount: 100, direction: "receipt", description: "Den Technologies payment", sourceName: "QuickBooks", sourceKind: "quickbooks_transactions", evidenceStatus: "approved" },
+      { id: "bank", month: "2026-09", date: "2026-09-02", amount: 100, direction: "receipt", description: "ACH Sample Technologies", sourceName: "Bank", sourceKind: "bank_statement", evidenceStatus: "approved" },
+      { id: "books", month: "2026-09", date: "2026-09-03", amount: 100, direction: "receipt", description: "Sample Technologies payment", sourceName: "QuickBooks", sourceKind: "quickbooks_transactions", evidenceStatus: "approved" },
     ], "USD");
     expect(entries.map((entry) => entry.kind)).toEqual(["book_match", "book_match"]);
   });

@@ -337,7 +337,7 @@
   ],
   "september": {
     "bankCash": 12734510,
-    "stripeClearing": 291240,
+    "processorClearing": 291240,
     "receivables": 400000,
     "payables": 180000,
     "deferredRevenue": 3600000,
@@ -349,7 +349,7 @@
     "customers": 14
   },
   "octoberSelectedEventsOnly": {
-    "stripePayout": 291240,
+    "processorPayout": 291240,
     "receivableCollected": 400000,
     "payablePaid": 180000,
     "netBankMovement": 511240,

@@ -452,8 +452,8 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
 export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled, initialMessage = "" }: AppShellProps) {
   const [message, setMessage] = useState(initialMessage);
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
-  const [model, chooseModel] = useStoredChoice("nevermodel.model", "auto", (value) => modelOptions.some((option) => option.value === value));
-  const [storedEffort, chooseEffort] = useStoredChoice("nevermodel.effort", "auto", (value) => efforts.some((option) => option.value === value));
+  const [model, chooseModel] = useStoredChoice("balsa.model", "auto", (value) => modelOptions.some((option) => option.value === value));
+  const [storedEffort, chooseEffort] = useStoredChoice("balsa.effort", "auto", (value) => efforts.some((option) => option.value === value));
   const effort = storedEffort as Effort;
   const [activeThreadId, setActiveThreadId] = useState("main");
   const [threads, setThreads] = useState<Record<string, ConversationTurn[]>>({ main: [] });

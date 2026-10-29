@@ -1,9 +1,8 @@
 # Demo Lumenloop: a reusable SaaS onboarding company
 
 Every company, customer, person, account, document, transaction and amount in this
-folder is invented for Balsa. Never replace any part of it with real company data. Stripe is the name of the
-payment processor being simulated; these are simplified fictional exports, not
-downloads from a real Stripe account. No credentials or usable account numbers exist.
+folder is invented for Balsa. Never replace any part of it with real company data. Demo Pay is an invented
+payment processor; its files are simplified fictional exports. No credentials or usable account numbers exist.
 
 The intended product is a **single-company installation**. Use a fresh disposable
 installation/database for the demo, with `DEFAULT_COMPANY_NAME=Demo Lumenloop`.
@@ -42,17 +41,17 @@ the new files are not an incremental upload onto the old opening balances.
 | `00-company` | Profile, opening balances, accounting policies, chart of accounts | Establish identity, opening capital, units and treatment |
 | `01-onboarding` | Customer roster and subscription/vendor agreements | Establish sourced recurring terms and proposed forecast drivers |
 | `02-history/bank` | Checking and savings CSVs, monthly statement summaries | Import actual cash movements and check coverage/balances |
-| `02-history/stripe` | Charges, fees, refund, payout IDs and paid payouts | Explain gross-to-net collections and processor clearing |
+| `02-history/processor` | Charges, fees, refund, payout IDs and paid payouts | Explain gross-to-net collections and processor clearing |
 | `02-history/billing` | Customer invoices, unpaid vendor invoice, source receipts | Review revenue timing, receivables, payables, prepaids and fixed assets |
 | `02-history/people` | Aggregate payroll summary | Distinguish gross expense, net pay and remittances |
 | `02-history/performance` | SaaS metrics and founder update | Review MRR, ARR, churn, cash and the hiring decision |
 | `02-history/accounting-reference` | Balanced ledger, monthly trial balances, P&L, balance sheet, cash flow | Alternate import path and accounting comparisons |
-| `03-october-update` | Partial bank extract, Stripe payout confirmation, collection notes | Settle existing balances without creating new income or expense |
+| `03-october-update` | Partial bank extract, Demo Pay payout confirmation, collection notes | Settle existing balances without creating new income or expense |
 | `04-edge-cases` | Overlapping bank extract and conflicting sales note | Exercise duplicate review and evidence conflicts separately |
 | `expected` | Reconciliation guide and exact JSON results | Check answers; do not upload these as evidence |
 
 CSV amounts are decimal USD, not thousands or cents. Negative bank amounts are
-withdrawals. Negative Stripe amounts are refunds. Ledger debits and credits are
+withdrawals. Negative Demo Pay amounts are refunds. Ledger debits and credits are
 positive in separate columns. `expected-results.json` uses **integer cents**.
 All identifiers start with `demo_`; emails use `example.test`. The customer roster
 records baseline prices, and its related terms document records the September
@@ -66,9 +65,9 @@ never year-to-date totals disguised as monthly values.
 2. Upload the two bank transaction CSVs from `02-history/bank`. The statements
    are optional corroborating summaries; they contain no extra transactions.
    Identify internal transfers and the $100,000 founder contribution correctly.
-3. Upload the Stripe files and subscription agreements. Review the relationship
+3. Upload the Demo Pay files and subscription agreements. Review the relationship
    between customer collections, fees, processor clearing and bank payouts.
-   **A Stripe payout is not a second sale.** Do not bulk-approve interpretations
+   **A Demo Pay payout is not a second sale.** Do not bulk-approve interpretations
    that duplicate the bank receipts or mistake annual cash collections for one
    month's service revenue.
 4. Add customer invoices, source receipts, payroll and the September unpaid vendor
@@ -84,7 +83,7 @@ never year-to-date totals disguised as monthly values.
 
 For a faster **accounting-import demo**, use a second fresh installation and the
 reference general ledger (which already includes opening entries and adjustments)
-instead of building postings from bank/Stripe sources. Do not also post opening
+instead of building postings from bank/Demo Pay sources. Do not also post opening
 balances or import all trial balances and statements as new ledger activity.
 Use them as comparisons. Choose one posting path; the files are intentionally
 overlapping representations of the same business, not additive datasets.
@@ -129,7 +128,7 @@ The generator uses only Node built-ins, integer-cent accounting and fixed dates;
 it never connects to a database, calls a provider or reads private configuration.
 Edit the specification in `generate.mjs`, then regenerate. `--check` writes
 nothing: it recomputes the pack, checks stored bytes, and validates balanced
-journals, balance sheets, cash flow, Stripe clearing and MRR/customer bridges.
+journals, balance sheets, cash flow, Demo Pay clearing and MRR/customer bridges.
 Unexpected files in this folder fail verification so stale outputs are visible.
 
 `manifest.json` lists each generated source/expected file, its role, byte count and

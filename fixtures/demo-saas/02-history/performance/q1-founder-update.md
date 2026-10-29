@@ -2,7 +2,7 @@
 
 Entirely synthetic. Prepared April 1, 2026; information cutoff March 31. USD.
 
-The company began service January 1 with four monthly customers. Two more started in February and two in March. All customers paid monthly through Stripe.
+The company began service January 1 with four monthly customers. Two more started in February and two in March. All customers paid monthly through Demo Pay.
 
 | Month | Active customers | Recognized revenue | Closing MRR |
 | --- | ---: | ---: | ---: |

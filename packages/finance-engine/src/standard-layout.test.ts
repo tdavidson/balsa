@@ -21,7 +21,7 @@ const chart: Account[] = [
   account("4050", "contra", "Sales discounts", { statementSection: "revenue", normalBalance: "debit" }),
   account("4900", "revenue", "Interest earned"),
   account("5000", "expense", "Hosting cost of revenue"),
-  account("6000", "expense", "Google Ads advertising"),
+  account("6000", "expense", "Search advertising"),
   account("6100", "expense", "Engineering contractors"),
   account("6200", "expense", "Office rent"),
   account("6900", "expense", "Depreciation expense"),
@@ -66,7 +66,7 @@ describe("suggestStandardLine", () => {
     expect(suggested).toMatchObject({
       "Operating checking": "cash", "Accounts receivable": "accounts_receivable", "Computer equipment": "ppe", "Accumulated depreciation": "accumulated_depreciation",
       "Accounts payable": "accounts_payable", "Sales tax payable": "vat_payable", "SAFE notes": "convertible_notes_safes", "Common stock": "equity_investment", "Retained earnings": "retained_earnings",
-      "Subscription revenue": "revenue", "Sales discounts": "revenue", "Interest earned": "interest_income", "Hosting cost of revenue": "cogs", "Google Ads advertising": "sga_sales",
+      "Subscription revenue": "revenue", "Sales discounts": "revenue", "Interest earned": "interest_income", "Hosting cost of revenue": "cogs", "Search advertising": "sga_sales",
       "Engineering contractors": "sga_rd", "Office rent": "sga_ga", "Depreciation expense": "depreciation", "Sundry": "sga_misc",
     });
   });

@@ -167,7 +167,7 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-See the [Balsa getting-started guide](https://www.balsamodel.com/docs/getting-started)
+See the [Balsa getting-started guide](https://www.usebalsa.com/docs/getting-started)
 for detailed installation, configuration, authentication, and deployment
 instructions.
 
@@ -232,7 +232,7 @@ Reusable sample inputs live in [`fixtures/company-zero`](fixtures/company-zero).
 
 For a full single-company SaaS onboarding demo, use
 [`Demo Lumenloop`](fixtures/demo-saas/README.md): nine months (January–September 2026) of entirely synthetic
-bank activity, Stripe collections and payouts, customer invoices, agreements,
+bank activity, payment-processor collections and payouts, customer invoices, agreements,
 payroll, SaaS metrics and accounting references, followed by a partial October
 update. The guide includes upload order, decision exercises and expected results.
 Run `pnpm demo:check` to verify the pack or `pnpm demo:generate` to regenerate it.

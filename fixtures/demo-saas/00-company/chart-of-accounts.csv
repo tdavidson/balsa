@@ -1,7 +1,7 @@
 Account Code,Account Name,Type,Currency
 1000,Operating checking,asset,USD
 1010,Reserve savings,asset,USD
-1020,Stripe clearing,asset,USD
+1020,Demo Pay clearing,asset,USD
 1100,Accounts receivable,asset,USD
 1200,Prepaid insurance,asset,USD
 1500,Computer equipment,asset,USD

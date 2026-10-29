@@ -4,8 +4,8 @@ import { matchTransactionsAcrossSources } from "./transaction-matching";
 describe("cross-source transaction matching", () => {
   it("matches same-day same-amount activity with different source descriptions", () => {
     const groups = matchTransactionsAcrossSources([
-      { id: "statement-1", date: "2026-09-03", amount: "3100.00", direction: "receipt", description: "Direct deposit Den Technologies", sourceName: "September bank statement" },
-      { id: "qb-1", date: "2026-09-03", amount: 3100, direction: "receipt", description: "Den Technologies client payment", sourceName: "QuickBooks transaction detail" },
+      { id: "statement-1", date: "2026-09-03", amount: "3100.00", direction: "receipt", description: "Direct deposit Sample Technologies", sourceName: "September bank statement" },
+      { id: "qb-1", date: "2026-09-03", amount: 3100, direction: "receipt", description: "Sample Technologies client payment", sourceName: "QuickBooks transaction detail" },
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({ transactionIds: ["statement-1", "qb-1"], sources: ["September bank statement", "QuickBooks transaction detail"], amount: 3100 });
@@ -29,8 +29,8 @@ describe("cross-source transaction matching", () => {
 
   it("matches a bank item to a QuickBooks item only with supporting source and memo evidence", () => {
     const groups = matchTransactionsAcrossSources([
-      { id: "bank", date: "2026-09-03", amount: 3_100, direction: "receipt", description: "ACH Den Technologies", sourceName: "Bank", sourceKind: "bank_statement" },
-      { id: "books", date: "2026-09-04", amount: 3_100, direction: "receipt", description: "Den Technologies payment", sourceName: "QuickBooks", sourceKind: "quickbooks_transactions" },
+      { id: "bank", date: "2026-09-03", amount: 3_100, direction: "receipt", description: "ACH Sample Technologies", sourceName: "Bank", sourceKind: "bank_statement" },
+      { id: "books", date: "2026-09-04", amount: 3_100, direction: "receipt", description: "Sample Technologies payment", sourceName: "QuickBooks", sourceKind: "quickbooks_transactions" },
     ]);
     expect(groups).toEqual([expect.objectContaining({ kind: "book_match", transactionIds: ["bank", "books"] })]);
   });

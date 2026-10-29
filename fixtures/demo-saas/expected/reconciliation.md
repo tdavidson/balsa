@@ -2,7 +2,7 @@
 
 All values are synthetic USD. Generated deterministically from the fixture specification. This is a human review oracle, not proof that Balsa supports every accrual automatically.
 
-| Month | Revenue | Net income | Ending MRR | Bank cash | Stripe clearing |
+| Month | Revenue | Net income | Ending MRR | Bank cash | Demo Pay clearing |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 2026-01 | $6000.00 | -$33175.20 | $6000.00 | $216824.80 | $0.00 |
 | 2026-02 | $9000.00 | -$30962.80 | $9000.00 | $185862.00 | $0.00 |
@@ -22,8 +22,8 @@ September closing checks:
 - Paid-in capital $350,000, including June's $100,000 financing.
 - Closing MRR $25,000, ARR $300,000. September recognized revenue $24,500; difference is the one-time $500 refund.
 - September MRR bridge: $21,500 opening + $4,000 new enterprise − $500 downgrade = $25,000.
-- Refunds retain the original processing fee. Stripe net collections less paid payouts equals $2912.40 clearing; the October 2 payout settles this exactly.
+- Refunds retain the original processing fee. Demo Pay net collections less paid payouts equals $2912.40 clearing; the October 2 payout settles this exactly.
 - Checking/savings transfers net to zero consolidated bank cash and do not affect income.
 - October's three selected events create no new revenue or expense. They do not establish complete October coverage.
 
-The reference ledger includes opening balances and noncash adjusting entries. The bank and Stripe files alone do not establish a complete accrual balance sheet. Unsupported or unverified treatments should remain visible for review rather than be forced to match this oracle.
+The reference ledger includes opening balances and noncash adjusting entries. The bank and Demo Pay files alone do not establish a complete accrual balance sheet. Unsupported or unverified treatments should remain visible for review rather than be forced to match this oracle.

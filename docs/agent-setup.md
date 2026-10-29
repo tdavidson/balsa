@@ -64,7 +64,7 @@ docker compose --profile full up --build
 ```
 
 Open <http://localhost:3000>. The app container applies migrations before it
-starts, stores uploaded files in the `nevermodel_files` volume, and connects to
+starts, stores uploaded files in the `balsa_files` volume, and connects to
 the Compose PostgreSQL service. Stop it with:
 
 ```bash
@@ -73,17 +73,3 @@ docker compose --profile full down
 
 Volumes are retained. Removing volumes deletes the local database and uploaded
 files and therefore must be an explicit operator decision.
-
-## Balsa rename compatibility
-
-The project is now Balsa at <https://www.balsamodel.com>, with source at
-<https://github.com/tdavidson/balsa>. Existing private environment files are
-preserved. `BALSA_OCR_COMMAND` is the current OCR setting; the previous
-`NEVERMODEL_OCR_COMMAND` remains accepted for existing installations.
-
-The Compose project name stays `nevermodel` so renaming the checkout does not
-select fresh database or file volumes. If you previously supplied a custom
-Compose project name, continue supplying it with `-p` or `COMPOSE_PROJECT_NAME`.
-The company cookie, saved model preferences, and sign-up-code header retain
-their previous identifiers for compatibility. Existing knowledge template
-markers are still recognized.

@@ -41,7 +41,7 @@ export function parseFinancialAmount(value: string) {
 
 export function isDetailedFinancialEvent(description: string) {
   // Deterministic CSV/OFX rows often have ordinary merchant or customer
-  // descriptions (for example, "Den Technologies") rather than statement
+  // descriptions (for example, "Sample Technologies") rather than statement
   // keywords. A non-summary cash event is therefore a transaction by default;
   // summary lines remain excluded before they can reach reporting.
   return Boolean(description.trim()) && !summaryPattern.test(description);

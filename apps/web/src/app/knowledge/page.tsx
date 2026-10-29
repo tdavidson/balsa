@@ -2,12 +2,12 @@ import { auth, authMode } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { decisions, getDatabase, knowledgeDocuments, policies } from "@finance/database";
+import { decisions, getDatabase, policies } from "@finance/database";
 import { AccountMenu } from "@/components/account-menu";
 import { KnowledgeTemplatePicker } from "@/components/knowledge-template-picker";
 import { KnowledgeViewer } from "@/components/knowledge-viewer";
 import { listCompanies, requireCompanyAccess } from "@/lib/auth";
-import { defaultKnowledgeDocuments, knowledgeTemplates } from "@/lib/knowledge-templates";
+import { knowledgeTemplates } from "@/lib/knowledge-templates";
 import { findPolicyCandidates } from "@/lib/policy-candidates";
 import { ensureCompanyKnowledgeDocuments } from "@/lib/company-knowledge";
 
@@ -26,22 +26,7 @@ export default async function KnowledgePage() {
   const db = getDatabase();
   const policyRows = await db.select({ name: policies.name, rule: policies.rule, scope: policies.scope, effectiveFrom: policies.effectiveFrom, confidence: policies.confidence, decisionId: policies.decisionId, sourceId: policies.sourceId }).from(policies).where(eq(policies.companyId, context.company.id));
   const decisionRows = await db.select({ id: decisions.id, question: decisions.question, answer: decisions.answer, status: decisions.status }).from(decisions).where(eq(decisions.companyId, context.company.id));
-  let documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
-  for (const document of documents) {
-    // Pre-brand-change template markers are read only for migration; newly
-    // written templates use the Balsa marker.
-    const legacyTemplate = knowledgeTemplates.find((template) => document.content.includes(`Hemrock knowledge template: ${template.id} v${template.version}`));
-    const templateDocument = legacyTemplate?.documents.find((candidate) => candidate.slug === document.slug);
-    if (!legacyTemplate || !templateDocument) continue;
-    const prefixedSlug = `template:${legacyTemplate.id}:${templateDocument.slug}`;
-    const alreadyMigrated = documents.some((candidate) => candidate.slug === prefixedSlug);
-    if (!alreadyMigrated) {
-      await db.insert(knowledgeDocuments).values({ companyId: context.company.id, slug: prefixedSlug, title: `${legacyTemplate.title} · ${templateDocument.title}`, content: document.content });
-    }
-    const fallback = defaultKnowledgeDocuments.find((candidate) => candidate.slug === document.slug);
-    if (fallback) await db.update(knowledgeDocuments).set({ content: fallback.content, title: fallback.title, updatedAt: new Date() }).where(eq(knowledgeDocuments.id, document.id));
-  }
-  documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
+  const documents = await ensureCompanyKnowledgeDocuments(db, context.company.id);
   const appliedTemplateIds = [...new Set(documents.flatMap((document) => {
     const template = templateForDocument(document);
     return template ? [template.id] : [];

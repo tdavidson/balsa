@@ -33,7 +33,7 @@ export function isSignUpCodeRequired() {
   return (process.env.AUTH_SIGN_UP_CODE ?? "").trim().length > 0;
 }
 
-const SIGN_UP_CODE_HEADER = "x-nevermodel-sign-up-code";
+const SIGN_UP_CODE_HEADER = "x-balsa-sign-up-code";
 
 /**
  * Server-side gate, independent of the login UI: every /sign-up/email request

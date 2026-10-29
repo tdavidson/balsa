@@ -1,24 +1,24 @@
 Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Currency,Source Reference
 2025-12-31,demo_je_0001,1000,Operating checking,Opening founder capital; no other opening assets or liabilities,250000.00,,USD,00-company/opening-balances.md
 2025-12-31,demo_je_0001,3000,Paid-in capital,Opening founder capital; no other opening assets or liabilities,,250000.00,USD,00-company/opening-balances.md
-2026-01-01,demo_je_0002,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202601_001
+2026-01-01,demo_je_0002,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202601_001
 2026-01-01,demo_je_0002,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202601_001
-2026-01-01,demo_je_0003,5010,Payment processing fees,Stripe processing fee demo_bt_202601_001,43.80,,USD,demo_bt_202601_001
-2026-01-01,demo_je_0003,1020,Stripe clearing,Stripe processing fee demo_bt_202601_001,,43.80,USD,demo_bt_202601_001
-2026-01-01,demo_je_0004,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202601_002
+2026-01-01,demo_je_0003,5010,Payment processing fees,Demo Pay processing fee demo_bt_202601_001,43.80,,USD,demo_bt_202601_001
+2026-01-01,demo_je_0003,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202601_001,,43.80,USD,demo_bt_202601_001
+2026-01-01,demo_je_0004,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202601_002
 2026-01-01,demo_je_0004,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202601_002
-2026-01-01,demo_je_0005,5010,Payment processing fees,Stripe processing fee demo_bt_202601_002,43.80,,USD,demo_bt_202601_002
-2026-01-01,demo_je_0005,1020,Stripe clearing,Stripe processing fee demo_bt_202601_002,,43.80,USD,demo_bt_202601_002
-2026-01-01,demo_je_0006,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202601_003
+2026-01-01,demo_je_0005,5010,Payment processing fees,Demo Pay processing fee demo_bt_202601_002,43.80,,USD,demo_bt_202601_002
+2026-01-01,demo_je_0005,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202601_002,,43.80,USD,demo_bt_202601_002
+2026-01-01,demo_je_0006,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202601_003
 2026-01-01,demo_je_0006,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202601_003
-2026-01-01,demo_je_0007,5010,Payment processing fees,Stripe processing fee demo_bt_202601_003,43.80,,USD,demo_bt_202601_003
-2026-01-01,demo_je_0007,1020,Stripe clearing,Stripe processing fee demo_bt_202601_003,,43.80,USD,demo_bt_202601_003
-2026-01-01,demo_je_0008,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202601_004
+2026-01-01,demo_je_0007,5010,Payment processing fees,Demo Pay processing fee demo_bt_202601_003,43.80,,USD,demo_bt_202601_003
+2026-01-01,demo_je_0007,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202601_003,,43.80,USD,demo_bt_202601_003
+2026-01-01,demo_je_0008,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202601_004
 2026-01-01,demo_je_0008,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202601_004
-2026-01-01,demo_je_0009,5010,Payment processing fees,Stripe processing fee demo_bt_202601_004,43.80,,USD,demo_bt_202601_004
-2026-01-01,demo_je_0009,1020,Stripe clearing,Stripe processing fee demo_bt_202601_004,,43.80,USD,demo_bt_202601_004
-2026-01-05,demo_je_0010,1000,Operating checking,Stripe payout demo_po_202601,5824.80,,USD,demo_po_202601
-2026-01-05,demo_je_0010,1020,Stripe clearing,Stripe payout demo_po_202601,,5824.80,USD,demo_po_202601
+2026-01-01,demo_je_0009,5010,Payment processing fees,Demo Pay processing fee demo_bt_202601_004,43.80,,USD,demo_bt_202601_004
+2026-01-01,demo_je_0009,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202601_004,,43.80,USD,demo_bt_202601_004
+2026-01-05,demo_je_0010,1000,Operating checking,Demo Pay payout demo_po_202601,5824.80,,USD,demo_po_202601
+2026-01-05,demo_je_0010,1020,Demo Pay clearing,Demo Pay payout demo_po_202601,,5824.80,USD,demo_po_202601
 2026-01-15,demo_je_0011,6000,Salaries,Demo Payroll Bureau net wages (aggregate),24000.00,,USD,demo_payroll_2026-01
 2026-01-15,demo_je_0011,1000,Operating checking,Demo Payroll Bureau net wages (aggregate),,24000.00,USD,demo_payroll_2026-01
 2026-01-16,demo_je_0012,6000,Salaries,Payroll withholding remittance and employer payroll taxes,6000.00,,USD,demo_payroll_2026-01
@@ -34,32 +34,32 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-01-20,demo_je_0016,1000,Operating checking,Demo Design contractor,,2500.00,USD,demo_design_2026-01
 2026-01-22,demo_je_0017,6400,Marketing,Demo Campaigns advertising,500.00,,USD,demo_ads_2026-01
 2026-01-22,demo_je_0017,1000,Operating checking,Demo Campaigns advertising,,500.00,USD,demo_ads_2026-01
-2026-02-01,demo_je_0018,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202602_001
+2026-02-01,demo_je_0018,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202602_001
 2026-02-01,demo_je_0018,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202602_001
-2026-02-01,demo_je_0019,5010,Payment processing fees,Stripe processing fee demo_bt_202602_001,43.80,,USD,demo_bt_202602_001
-2026-02-01,demo_je_0019,1020,Stripe clearing,Stripe processing fee demo_bt_202602_001,,43.80,USD,demo_bt_202602_001
-2026-02-01,demo_je_0020,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202602_002
+2026-02-01,demo_je_0019,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_001,43.80,,USD,demo_bt_202602_001
+2026-02-01,demo_je_0019,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_001,,43.80,USD,demo_bt_202602_001
+2026-02-01,demo_je_0020,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202602_002
 2026-02-01,demo_je_0020,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202602_002
-2026-02-01,demo_je_0021,5010,Payment processing fees,Stripe processing fee demo_bt_202602_002,43.80,,USD,demo_bt_202602_002
-2026-02-01,demo_je_0021,1020,Stripe clearing,Stripe processing fee demo_bt_202602_002,,43.80,USD,demo_bt_202602_002
-2026-02-01,demo_je_0022,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202602_003
+2026-02-01,demo_je_0021,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_002,43.80,,USD,demo_bt_202602_002
+2026-02-01,demo_je_0021,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_002,,43.80,USD,demo_bt_202602_002
+2026-02-01,demo_je_0022,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202602_003
 2026-02-01,demo_je_0022,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202602_003
-2026-02-01,demo_je_0023,5010,Payment processing fees,Stripe processing fee demo_bt_202602_003,43.80,,USD,demo_bt_202602_003
-2026-02-01,demo_je_0023,1020,Stripe clearing,Stripe processing fee demo_bt_202602_003,,43.80,USD,demo_bt_202602_003
-2026-02-01,demo_je_0024,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202602_004
+2026-02-01,demo_je_0023,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_003,43.80,,USD,demo_bt_202602_003
+2026-02-01,demo_je_0023,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_003,,43.80,USD,demo_bt_202602_003
+2026-02-01,demo_je_0024,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202602_004
 2026-02-01,demo_je_0024,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202602_004
-2026-02-01,demo_je_0025,5010,Payment processing fees,Stripe processing fee demo_bt_202602_004,43.80,,USD,demo_bt_202602_004
-2026-02-01,demo_je_0025,1020,Stripe clearing,Stripe processing fee demo_bt_202602_004,,43.80,USD,demo_bt_202602_004
-2026-02-01,demo_je_0026,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202602_005
+2026-02-01,demo_je_0025,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_004,43.80,,USD,demo_bt_202602_004
+2026-02-01,demo_je_0025,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_004,,43.80,USD,demo_bt_202602_004
+2026-02-01,demo_je_0026,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202602_005
 2026-02-01,demo_je_0026,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202602_005
-2026-02-01,demo_je_0027,5010,Payment processing fees,Stripe processing fee demo_bt_202602_005,43.80,,USD,demo_bt_202602_005
-2026-02-01,demo_je_0027,1020,Stripe clearing,Stripe processing fee demo_bt_202602_005,,43.80,USD,demo_bt_202602_005
-2026-02-01,demo_je_0028,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202602_006
+2026-02-01,demo_je_0027,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_005,43.80,,USD,demo_bt_202602_005
+2026-02-01,demo_je_0027,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_005,,43.80,USD,demo_bt_202602_005
+2026-02-01,demo_je_0028,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202602_006
 2026-02-01,demo_je_0028,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202602_006
-2026-02-01,demo_je_0029,5010,Payment processing fees,Stripe processing fee demo_bt_202602_006,43.80,,USD,demo_bt_202602_006
-2026-02-01,demo_je_0029,1020,Stripe clearing,Stripe processing fee demo_bt_202602_006,,43.80,USD,demo_bt_202602_006
-2026-02-05,demo_je_0030,1000,Operating checking,Stripe payout demo_po_202602,8737.20,,USD,demo_po_202602
-2026-02-05,demo_je_0030,1020,Stripe clearing,Stripe payout demo_po_202602,,8737.20,USD,demo_po_202602
+2026-02-01,demo_je_0029,5010,Payment processing fees,Demo Pay processing fee demo_bt_202602_006,43.80,,USD,demo_bt_202602_006
+2026-02-01,demo_je_0029,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202602_006,,43.80,USD,demo_bt_202602_006
+2026-02-05,demo_je_0030,1000,Operating checking,Demo Pay payout demo_po_202602,8737.20,,USD,demo_po_202602
+2026-02-05,demo_je_0030,1020,Demo Pay clearing,Demo Pay payout demo_po_202602,,8737.20,USD,demo_po_202602
 2026-02-15,demo_je_0031,6000,Salaries,Demo Payroll Bureau net wages (aggregate),24000.00,,USD,demo_payroll_2026-02
 2026-02-15,demo_je_0031,1000,Operating checking,Demo Payroll Bureau net wages (aggregate),,24000.00,USD,demo_payroll_2026-02
 2026-02-16,demo_je_0032,6000,Salaries,Payroll withholding remittance and employer payroll taxes,6000.00,,USD,demo_payroll_2026-02
@@ -75,40 +75,40 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-02-20,demo_je_0036,1000,Operating checking,Demo Design contractor,,2500.00,USD,demo_design_2026-02
 2026-02-22,demo_je_0037,6400,Marketing,Demo Campaigns advertising,1000.00,,USD,demo_ads_2026-02
 2026-02-22,demo_je_0037,1000,Operating checking,Demo Campaigns advertising,,1000.00,USD,demo_ads_2026-02
-2026-03-01,demo_je_0038,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202603_001
+2026-03-01,demo_je_0038,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202603_001
 2026-03-01,demo_je_0038,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202603_001
-2026-03-01,demo_je_0039,5010,Payment processing fees,Stripe processing fee demo_bt_202603_001,43.80,,USD,demo_bt_202603_001
-2026-03-01,demo_je_0039,1020,Stripe clearing,Stripe processing fee demo_bt_202603_001,,43.80,USD,demo_bt_202603_001
-2026-03-01,demo_je_0040,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202603_002
+2026-03-01,demo_je_0039,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_001,43.80,,USD,demo_bt_202603_001
+2026-03-01,demo_je_0039,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_001,,43.80,USD,demo_bt_202603_001
+2026-03-01,demo_je_0040,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202603_002
 2026-03-01,demo_je_0040,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202603_002
-2026-03-01,demo_je_0041,5010,Payment processing fees,Stripe processing fee demo_bt_202603_002,43.80,,USD,demo_bt_202603_002
-2026-03-01,demo_je_0041,1020,Stripe clearing,Stripe processing fee demo_bt_202603_002,,43.80,USD,demo_bt_202603_002
-2026-03-01,demo_je_0042,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202603_003
+2026-03-01,demo_je_0041,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_002,43.80,,USD,demo_bt_202603_002
+2026-03-01,demo_je_0041,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_002,,43.80,USD,demo_bt_202603_002
+2026-03-01,demo_je_0042,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202603_003
 2026-03-01,demo_je_0042,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202603_003
-2026-03-01,demo_je_0043,5010,Payment processing fees,Stripe processing fee demo_bt_202603_003,43.80,,USD,demo_bt_202603_003
-2026-03-01,demo_je_0043,1020,Stripe clearing,Stripe processing fee demo_bt_202603_003,,43.80,USD,demo_bt_202603_003
-2026-03-01,demo_je_0044,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202603_004
+2026-03-01,demo_je_0043,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_003,43.80,,USD,demo_bt_202603_003
+2026-03-01,demo_je_0043,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_003,,43.80,USD,demo_bt_202603_003
+2026-03-01,demo_je_0044,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202603_004
 2026-03-01,demo_je_0044,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202603_004
-2026-03-01,demo_je_0045,5010,Payment processing fees,Stripe processing fee demo_bt_202603_004,43.80,,USD,demo_bt_202603_004
-2026-03-01,demo_je_0045,1020,Stripe clearing,Stripe processing fee demo_bt_202603_004,,43.80,USD,demo_bt_202603_004
-2026-03-01,demo_je_0046,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202603_005
+2026-03-01,demo_je_0045,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_004,43.80,,USD,demo_bt_202603_004
+2026-03-01,demo_je_0045,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_004,,43.80,USD,demo_bt_202603_004
+2026-03-01,demo_je_0046,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202603_005
 2026-03-01,demo_je_0046,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202603_005
-2026-03-01,demo_je_0047,5010,Payment processing fees,Stripe processing fee demo_bt_202603_005,43.80,,USD,demo_bt_202603_005
-2026-03-01,demo_je_0047,1020,Stripe clearing,Stripe processing fee demo_bt_202603_005,,43.80,USD,demo_bt_202603_005
-2026-03-01,demo_je_0048,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202603_006
+2026-03-01,demo_je_0047,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_005,43.80,,USD,demo_bt_202603_005
+2026-03-01,demo_je_0047,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_005,,43.80,USD,demo_bt_202603_005
+2026-03-01,demo_je_0048,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202603_006
 2026-03-01,demo_je_0048,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202603_006
-2026-03-01,demo_je_0049,5010,Payment processing fees,Stripe processing fee demo_bt_202603_006,43.80,,USD,demo_bt_202603_006
-2026-03-01,demo_je_0049,1020,Stripe clearing,Stripe processing fee demo_bt_202603_006,,43.80,USD,demo_bt_202603_006
-2026-03-01,demo_je_0050,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202603_007
+2026-03-01,demo_je_0049,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_006,43.80,,USD,demo_bt_202603_006
+2026-03-01,demo_je_0049,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_006,,43.80,USD,demo_bt_202603_006
+2026-03-01,demo_je_0050,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202603_007
 2026-03-01,demo_je_0050,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202603_007
-2026-03-01,demo_je_0051,5010,Payment processing fees,Stripe processing fee demo_bt_202603_007,43.80,,USD,demo_bt_202603_007
-2026-03-01,demo_je_0051,1020,Stripe clearing,Stripe processing fee demo_bt_202603_007,,43.80,USD,demo_bt_202603_007
-2026-03-01,demo_je_0052,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202603_008
+2026-03-01,demo_je_0051,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_007,43.80,,USD,demo_bt_202603_007
+2026-03-01,demo_je_0051,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_007,,43.80,USD,demo_bt_202603_007
+2026-03-01,demo_je_0052,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202603_008
 2026-03-01,demo_je_0052,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202603_008
-2026-03-01,demo_je_0053,5010,Payment processing fees,Stripe processing fee demo_bt_202603_008,43.80,,USD,demo_bt_202603_008
-2026-03-01,demo_je_0053,1020,Stripe clearing,Stripe processing fee demo_bt_202603_008,,43.80,USD,demo_bt_202603_008
-2026-03-05,demo_je_0054,1000,Operating checking,Stripe payout demo_po_202603,11649.60,,USD,demo_po_202603
-2026-03-05,demo_je_0054,1020,Stripe clearing,Stripe payout demo_po_202603,,11649.60,USD,demo_po_202603
+2026-03-01,demo_je_0053,5010,Payment processing fees,Demo Pay processing fee demo_bt_202603_008,43.80,,USD,demo_bt_202603_008
+2026-03-01,demo_je_0053,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202603_008,,43.80,USD,demo_bt_202603_008
+2026-03-05,demo_je_0054,1000,Operating checking,Demo Pay payout demo_po_202603,11649.60,,USD,demo_po_202603
+2026-03-05,demo_je_0054,1020,Demo Pay clearing,Demo Pay payout demo_po_202603,,11649.60,USD,demo_po_202603
 2026-03-15,demo_je_0055,6000,Salaries,Demo Payroll Bureau net wages (aggregate),24000.00,,USD,demo_payroll_2026-03
 2026-03-15,demo_je_0055,1000,Operating checking,Demo Payroll Bureau net wages (aggregate),,24000.00,USD,demo_payroll_2026-03
 2026-03-16,demo_je_0056,6000,Salaries,Payroll withholding remittance and employer payroll taxes,6000.00,,USD,demo_payroll_2026-03
@@ -124,44 +124,44 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-03-20,demo_je_0060,1000,Operating checking,Demo Design contractor,,2500.00,USD,demo_design_2026-03
 2026-03-22,demo_je_0061,6400,Marketing,Demo Campaigns advertising,1500.00,,USD,demo_ads_2026-03
 2026-03-22,demo_je_0061,1000,Operating checking,Demo Campaigns advertising,,1500.00,USD,demo_ads_2026-03
-2026-04-01,demo_je_0062,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202604_001
+2026-04-01,demo_je_0062,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202604_001
 2026-04-01,demo_je_0062,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202604_001
-2026-04-01,demo_je_0063,5010,Payment processing fees,Stripe processing fee demo_bt_202604_001,43.80,,USD,demo_bt_202604_001
-2026-04-01,demo_je_0063,1020,Stripe clearing,Stripe processing fee demo_bt_202604_001,,43.80,USD,demo_bt_202604_001
-2026-04-01,demo_je_0064,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202604_002
+2026-04-01,demo_je_0063,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_001,43.80,,USD,demo_bt_202604_001
+2026-04-01,demo_je_0063,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_001,,43.80,USD,demo_bt_202604_001
+2026-04-01,demo_je_0064,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202604_002
 2026-04-01,demo_je_0064,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202604_002
-2026-04-01,demo_je_0065,5010,Payment processing fees,Stripe processing fee demo_bt_202604_002,43.80,,USD,demo_bt_202604_002
-2026-04-01,demo_je_0065,1020,Stripe clearing,Stripe processing fee demo_bt_202604_002,,43.80,USD,demo_bt_202604_002
-2026-04-01,demo_je_0066,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202604_003
+2026-04-01,demo_je_0065,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_002,43.80,,USD,demo_bt_202604_002
+2026-04-01,demo_je_0065,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_002,,43.80,USD,demo_bt_202604_002
+2026-04-01,demo_je_0066,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202604_003
 2026-04-01,demo_je_0066,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202604_003
-2026-04-01,demo_je_0067,5010,Payment processing fees,Stripe processing fee demo_bt_202604_003,43.80,,USD,demo_bt_202604_003
-2026-04-01,demo_je_0067,1020,Stripe clearing,Stripe processing fee demo_bt_202604_003,,43.80,USD,demo_bt_202604_003
-2026-04-01,demo_je_0068,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202604_004
+2026-04-01,demo_je_0067,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_003,43.80,,USD,demo_bt_202604_003
+2026-04-01,demo_je_0067,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_003,,43.80,USD,demo_bt_202604_003
+2026-04-01,demo_je_0068,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202604_004
 2026-04-01,demo_je_0068,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202604_004
-2026-04-01,demo_je_0069,5010,Payment processing fees,Stripe processing fee demo_bt_202604_004,43.80,,USD,demo_bt_202604_004
-2026-04-01,demo_je_0069,1020,Stripe clearing,Stripe processing fee demo_bt_202604_004,,43.80,USD,demo_bt_202604_004
-2026-04-01,demo_je_0070,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202604_005
+2026-04-01,demo_je_0069,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_004,43.80,,USD,demo_bt_202604_004
+2026-04-01,demo_je_0069,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_004,,43.80,USD,demo_bt_202604_004
+2026-04-01,demo_je_0070,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202604_005
 2026-04-01,demo_je_0070,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202604_005
-2026-04-01,demo_je_0071,5010,Payment processing fees,Stripe processing fee demo_bt_202604_005,43.80,,USD,demo_bt_202604_005
-2026-04-01,demo_je_0071,1020,Stripe clearing,Stripe processing fee demo_bt_202604_005,,43.80,USD,demo_bt_202604_005
-2026-04-01,demo_je_0072,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202604_006
+2026-04-01,demo_je_0071,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_005,43.80,,USD,demo_bt_202604_005
+2026-04-01,demo_je_0071,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_005,,43.80,USD,demo_bt_202604_005
+2026-04-01,demo_je_0072,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202604_006
 2026-04-01,demo_je_0072,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202604_006
-2026-04-01,demo_je_0073,5010,Payment processing fees,Stripe processing fee demo_bt_202604_006,43.80,,USD,demo_bt_202604_006
-2026-04-01,demo_je_0073,1020,Stripe clearing,Stripe processing fee demo_bt_202604_006,,43.80,USD,demo_bt_202604_006
-2026-04-01,demo_je_0074,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202604_007
+2026-04-01,demo_je_0073,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_006,43.80,,USD,demo_bt_202604_006
+2026-04-01,demo_je_0073,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_006,,43.80,USD,demo_bt_202604_006
+2026-04-01,demo_je_0074,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202604_007
 2026-04-01,demo_je_0074,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202604_007
-2026-04-01,demo_je_0075,5010,Payment processing fees,Stripe processing fee demo_bt_202604_007,43.80,,USD,demo_bt_202604_007
-2026-04-01,demo_je_0075,1020,Stripe clearing,Stripe processing fee demo_bt_202604_007,,43.80,USD,demo_bt_202604_007
-2026-04-01,demo_je_0076,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202604_008
+2026-04-01,demo_je_0075,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_007,43.80,,USD,demo_bt_202604_007
+2026-04-01,demo_je_0075,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_007,,43.80,USD,demo_bt_202604_007
+2026-04-01,demo_je_0076,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202604_008
 2026-04-01,demo_je_0076,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202604_008
-2026-04-01,demo_je_0077,5010,Payment processing fees,Stripe processing fee demo_bt_202604_008,43.80,,USD,demo_bt_202604_008
-2026-04-01,demo_je_0077,1020,Stripe clearing,Stripe processing fee demo_bt_202604_008,,43.80,USD,demo_bt_202604_008
-2026-04-01,demo_je_0078,1020,Stripe clearing,Subscription charge Demo Annual Customer A,24000.00,,USD,demo_bt_202604_101
+2026-04-01,demo_je_0077,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_008,43.80,,USD,demo_bt_202604_008
+2026-04-01,demo_je_0077,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_008,,43.80,USD,demo_bt_202604_008
+2026-04-01,demo_je_0078,1020,Demo Pay clearing,Subscription charge Demo Annual Customer A,24000.00,,USD,demo_bt_202604_101
 2026-04-01,demo_je_0078,2100,Deferred subscription revenue,Subscription charge Demo Annual Customer A,,24000.00,USD,demo_bt_202604_101
-2026-04-01,demo_je_0079,5010,Payment processing fees,Stripe processing fee demo_bt_202604_101,696.30,,USD,demo_bt_202604_101
-2026-04-01,demo_je_0079,1020,Stripe clearing,Stripe processing fee demo_bt_202604_101,,696.30,USD,demo_bt_202604_101
-2026-04-05,demo_je_0080,1000,Operating checking,Stripe payout demo_po_202604,34953.30,,USD,demo_po_202604
-2026-04-05,demo_je_0080,1020,Stripe clearing,Stripe payout demo_po_202604,,34953.30,USD,demo_po_202604
+2026-04-01,demo_je_0079,5010,Payment processing fees,Demo Pay processing fee demo_bt_202604_101,696.30,,USD,demo_bt_202604_101
+2026-04-01,demo_je_0079,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202604_101,,696.30,USD,demo_bt_202604_101
+2026-04-05,demo_je_0080,1000,Operating checking,Demo Pay payout demo_po_202604,34953.30,,USD,demo_po_202604
+2026-04-05,demo_je_0080,1020,Demo Pay clearing,Demo Pay payout demo_po_202604,,34953.30,USD,demo_po_202604
 2026-04-30,demo_je_0081,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-04-30,demo_je_0081,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-04-15,demo_je_0082,6000,Salaries,Demo Payroll Bureau net wages (aggregate),24000.00,,USD,demo_payroll_2026-04
@@ -185,44 +185,44 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-04-06,demo_je_0090,1000,Operating checking,Internal transfer to reserve savings,,50000.00,USD,demo_transfer_apr
 2026-04-30,demo_je_0091,6500,Insurance,Monthly insurance amortization,1000.00,,USD,demo_insurance_annual
 2026-04-30,demo_je_0091,1200,Prepaid insurance,Monthly insurance amortization,,1000.00,USD,demo_insurance_annual
-2026-05-01,demo_je_0092,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202605_001
+2026-05-01,demo_je_0092,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202605_001
 2026-05-01,demo_je_0092,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202605_001
-2026-05-01,demo_je_0093,5010,Payment processing fees,Stripe processing fee demo_bt_202605_001,43.80,,USD,demo_bt_202605_001
-2026-05-01,demo_je_0093,1020,Stripe clearing,Stripe processing fee demo_bt_202605_001,,43.80,USD,demo_bt_202605_001
-2026-05-01,demo_je_0094,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202605_002
+2026-05-01,demo_je_0093,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_001,43.80,,USD,demo_bt_202605_001
+2026-05-01,demo_je_0093,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_001,,43.80,USD,demo_bt_202605_001
+2026-05-01,demo_je_0094,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202605_002
 2026-05-01,demo_je_0094,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202605_002
-2026-05-01,demo_je_0095,5010,Payment processing fees,Stripe processing fee demo_bt_202605_002,43.80,,USD,demo_bt_202605_002
-2026-05-01,demo_je_0095,1020,Stripe clearing,Stripe processing fee demo_bt_202605_002,,43.80,USD,demo_bt_202605_002
-2026-05-01,demo_je_0096,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202605_003
+2026-05-01,demo_je_0095,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_002,43.80,,USD,demo_bt_202605_002
+2026-05-01,demo_je_0095,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_002,,43.80,USD,demo_bt_202605_002
+2026-05-01,demo_je_0096,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202605_003
 2026-05-01,demo_je_0096,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202605_003
-2026-05-01,demo_je_0097,5010,Payment processing fees,Stripe processing fee demo_bt_202605_003,43.80,,USD,demo_bt_202605_003
-2026-05-01,demo_je_0097,1020,Stripe clearing,Stripe processing fee demo_bt_202605_003,,43.80,USD,demo_bt_202605_003
-2026-05-01,demo_je_0098,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202605_004
+2026-05-01,demo_je_0097,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_003,43.80,,USD,demo_bt_202605_003
+2026-05-01,demo_je_0097,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_003,,43.80,USD,demo_bt_202605_003
+2026-05-01,demo_je_0098,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202605_004
 2026-05-01,demo_je_0098,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202605_004
-2026-05-01,demo_je_0099,5010,Payment processing fees,Stripe processing fee demo_bt_202605_004,43.80,,USD,demo_bt_202605_004
-2026-05-01,demo_je_0099,1020,Stripe clearing,Stripe processing fee demo_bt_202605_004,,43.80,USD,demo_bt_202605_004
-2026-05-01,demo_je_0100,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202605_005
+2026-05-01,demo_je_0099,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_004,43.80,,USD,demo_bt_202605_004
+2026-05-01,demo_je_0099,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_004,,43.80,USD,demo_bt_202605_004
+2026-05-01,demo_je_0100,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202605_005
 2026-05-01,demo_je_0100,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202605_005
-2026-05-01,demo_je_0101,5010,Payment processing fees,Stripe processing fee demo_bt_202605_005,43.80,,USD,demo_bt_202605_005
-2026-05-01,demo_je_0101,1020,Stripe clearing,Stripe processing fee demo_bt_202605_005,,43.80,USD,demo_bt_202605_005
-2026-05-01,demo_je_0102,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202605_006
+2026-05-01,demo_je_0101,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_005,43.80,,USD,demo_bt_202605_005
+2026-05-01,demo_je_0101,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_005,,43.80,USD,demo_bt_202605_005
+2026-05-01,demo_je_0102,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202605_006
 2026-05-01,demo_je_0102,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202605_006
-2026-05-01,demo_je_0103,5010,Payment processing fees,Stripe processing fee demo_bt_202605_006,43.80,,USD,demo_bt_202605_006
-2026-05-01,demo_je_0103,1020,Stripe clearing,Stripe processing fee demo_bt_202605_006,,43.80,USD,demo_bt_202605_006
-2026-05-01,demo_je_0104,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202605_007
+2026-05-01,demo_je_0103,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_006,43.80,,USD,demo_bt_202605_006
+2026-05-01,demo_je_0103,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_006,,43.80,USD,demo_bt_202605_006
+2026-05-01,demo_je_0104,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202605_007
 2026-05-01,demo_je_0104,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202605_007
-2026-05-01,demo_je_0105,5010,Payment processing fees,Stripe processing fee demo_bt_202605_007,43.80,,USD,demo_bt_202605_007
-2026-05-01,demo_je_0105,1020,Stripe clearing,Stripe processing fee demo_bt_202605_007,,43.80,USD,demo_bt_202605_007
-2026-05-01,demo_je_0106,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202605_008
+2026-05-01,demo_je_0105,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_007,43.80,,USD,demo_bt_202605_007
+2026-05-01,demo_je_0105,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_007,,43.80,USD,demo_bt_202605_007
+2026-05-01,demo_je_0106,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202605_008
 2026-05-01,demo_je_0106,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202605_008
-2026-05-01,demo_je_0107,5010,Payment processing fees,Stripe processing fee demo_bt_202605_008,43.80,,USD,demo_bt_202605_008
-2026-05-01,demo_je_0107,1020,Stripe clearing,Stripe processing fee demo_bt_202605_008,,43.80,USD,demo_bt_202605_008
-2026-05-01,demo_je_0108,1020,Stripe clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202605_009
+2026-05-01,demo_je_0107,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_008,43.80,,USD,demo_bt_202605_008
+2026-05-01,demo_je_0107,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_008,,43.80,USD,demo_bt_202605_008
+2026-05-01,demo_je_0108,1020,Demo Pay clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202605_009
 2026-05-01,demo_je_0108,4000,Subscription revenue,Subscription charge Demo Customer 09,,1500.00,USD,demo_bt_202605_009
-2026-05-01,demo_je_0109,5010,Payment processing fees,Stripe processing fee demo_bt_202605_009,43.80,,USD,demo_bt_202605_009
-2026-05-01,demo_je_0109,1020,Stripe clearing,Stripe processing fee demo_bt_202605_009,,43.80,USD,demo_bt_202605_009
-2026-05-05,demo_je_0110,1000,Operating checking,Stripe payout demo_po_202605,13105.80,,USD,demo_po_202605
-2026-05-05,demo_je_0110,1020,Stripe clearing,Stripe payout demo_po_202605,,13105.80,USD,demo_po_202605
+2026-05-01,demo_je_0109,5010,Payment processing fees,Demo Pay processing fee demo_bt_202605_009,43.80,,USD,demo_bt_202605_009
+2026-05-01,demo_je_0109,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202605_009,,43.80,USD,demo_bt_202605_009
+2026-05-05,demo_je_0110,1000,Operating checking,Demo Pay payout demo_po_202605,13105.80,,USD,demo_po_202605
+2026-05-05,demo_je_0110,1020,Demo Pay clearing,Demo Pay payout demo_po_202605,,13105.80,USD,demo_po_202605
 2026-05-31,demo_je_0111,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-05-31,demo_je_0111,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-05-15,demo_je_0112,6000,Salaries,Demo Payroll Bureau net wages (aggregate),24000.00,,USD,demo_payroll_2026-05
@@ -242,52 +242,52 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-05-22,demo_je_0118,1000,Operating checking,Demo Campaigns advertising,,2500.00,USD,demo_ads_2026-05
 2026-05-31,demo_je_0119,6500,Insurance,Monthly insurance amortization,1000.00,,USD,demo_insurance_annual
 2026-05-31,demo_je_0119,1200,Prepaid insurance,Monthly insurance amortization,,1000.00,USD,demo_insurance_annual
-2026-06-01,demo_je_0120,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202606_001
+2026-06-01,demo_je_0120,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202606_001
 2026-06-01,demo_je_0120,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202606_001
-2026-06-01,demo_je_0121,5010,Payment processing fees,Stripe processing fee demo_bt_202606_001,43.80,,USD,demo_bt_202606_001
-2026-06-01,demo_je_0121,1020,Stripe clearing,Stripe processing fee demo_bt_202606_001,,43.80,USD,demo_bt_202606_001
-2026-06-01,demo_je_0122,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202606_002
+2026-06-01,demo_je_0121,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_001,43.80,,USD,demo_bt_202606_001
+2026-06-01,demo_je_0121,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_001,,43.80,USD,demo_bt_202606_001
+2026-06-01,demo_je_0122,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202606_002
 2026-06-01,demo_je_0122,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202606_002
-2026-06-01,demo_je_0123,5010,Payment processing fees,Stripe processing fee demo_bt_202606_002,43.80,,USD,demo_bt_202606_002
-2026-06-01,demo_je_0123,1020,Stripe clearing,Stripe processing fee demo_bt_202606_002,,43.80,USD,demo_bt_202606_002
-2026-06-01,demo_je_0124,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202606_003
+2026-06-01,demo_je_0123,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_002,43.80,,USD,demo_bt_202606_002
+2026-06-01,demo_je_0123,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_002,,43.80,USD,demo_bt_202606_002
+2026-06-01,demo_je_0124,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202606_003
 2026-06-01,demo_je_0124,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202606_003
-2026-06-01,demo_je_0125,5010,Payment processing fees,Stripe processing fee demo_bt_202606_003,43.80,,USD,demo_bt_202606_003
-2026-06-01,demo_je_0125,1020,Stripe clearing,Stripe processing fee demo_bt_202606_003,,43.80,USD,demo_bt_202606_003
-2026-06-01,demo_je_0126,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202606_004
+2026-06-01,demo_je_0125,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_003,43.80,,USD,demo_bt_202606_003
+2026-06-01,demo_je_0125,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_003,,43.80,USD,demo_bt_202606_003
+2026-06-01,demo_je_0126,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202606_004
 2026-06-01,demo_je_0126,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202606_004
-2026-06-01,demo_je_0127,5010,Payment processing fees,Stripe processing fee demo_bt_202606_004,43.80,,USD,demo_bt_202606_004
-2026-06-01,demo_je_0127,1020,Stripe clearing,Stripe processing fee demo_bt_202606_004,,43.80,USD,demo_bt_202606_004
-2026-06-01,demo_je_0128,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202606_005
+2026-06-01,demo_je_0127,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_004,43.80,,USD,demo_bt_202606_004
+2026-06-01,demo_je_0127,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_004,,43.80,USD,demo_bt_202606_004
+2026-06-01,demo_je_0128,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202606_005
 2026-06-01,demo_je_0128,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202606_005
-2026-06-01,demo_je_0129,5010,Payment processing fees,Stripe processing fee demo_bt_202606_005,43.80,,USD,demo_bt_202606_005
-2026-06-01,demo_je_0129,1020,Stripe clearing,Stripe processing fee demo_bt_202606_005,,43.80,USD,demo_bt_202606_005
-2026-06-01,demo_je_0130,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202606_006
+2026-06-01,demo_je_0129,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_005,43.80,,USD,demo_bt_202606_005
+2026-06-01,demo_je_0129,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_005,,43.80,USD,demo_bt_202606_005
+2026-06-01,demo_je_0130,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202606_006
 2026-06-01,demo_je_0130,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202606_006
-2026-06-01,demo_je_0131,5010,Payment processing fees,Stripe processing fee demo_bt_202606_006,43.80,,USD,demo_bt_202606_006
-2026-06-01,demo_je_0131,1020,Stripe clearing,Stripe processing fee demo_bt_202606_006,,43.80,USD,demo_bt_202606_006
-2026-06-01,demo_je_0132,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202606_007
+2026-06-01,demo_je_0131,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_006,43.80,,USD,demo_bt_202606_006
+2026-06-01,demo_je_0131,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_006,,43.80,USD,demo_bt_202606_006
+2026-06-01,demo_je_0132,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202606_007
 2026-06-01,demo_je_0132,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202606_007
-2026-06-01,demo_je_0133,5010,Payment processing fees,Stripe processing fee demo_bt_202606_007,43.80,,USD,demo_bt_202606_007
-2026-06-01,demo_je_0133,1020,Stripe clearing,Stripe processing fee demo_bt_202606_007,,43.80,USD,demo_bt_202606_007
-2026-06-01,demo_je_0134,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202606_008
+2026-06-01,demo_je_0133,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_007,43.80,,USD,demo_bt_202606_007
+2026-06-01,demo_je_0133,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_007,,43.80,USD,demo_bt_202606_007
+2026-06-01,demo_je_0134,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202606_008
 2026-06-01,demo_je_0134,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202606_008
-2026-06-01,demo_je_0135,5010,Payment processing fees,Stripe processing fee demo_bt_202606_008,43.80,,USD,demo_bt_202606_008
-2026-06-01,demo_je_0135,1020,Stripe clearing,Stripe processing fee demo_bt_202606_008,,43.80,USD,demo_bt_202606_008
-2026-06-01,demo_je_0136,1020,Stripe clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202606_009
+2026-06-01,demo_je_0135,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_008,43.80,,USD,demo_bt_202606_008
+2026-06-01,demo_je_0135,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_008,,43.80,USD,demo_bt_202606_008
+2026-06-01,demo_je_0136,1020,Demo Pay clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202606_009
 2026-06-01,demo_je_0136,4000,Subscription revenue,Subscription charge Demo Customer 09,,1500.00,USD,demo_bt_202606_009
-2026-06-01,demo_je_0137,5010,Payment processing fees,Stripe processing fee demo_bt_202606_009,43.80,,USD,demo_bt_202606_009
-2026-06-01,demo_je_0137,1020,Stripe clearing,Stripe processing fee demo_bt_202606_009,,43.80,USD,demo_bt_202606_009
-2026-06-01,demo_je_0138,1020,Stripe clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202606_010
+2026-06-01,demo_je_0137,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_009,43.80,,USD,demo_bt_202606_009
+2026-06-01,demo_je_0137,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_009,,43.80,USD,demo_bt_202606_009
+2026-06-01,demo_je_0138,1020,Demo Pay clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202606_010
 2026-06-01,demo_je_0138,4000,Subscription revenue,Subscription charge Demo Customer 10,,1500.00,USD,demo_bt_202606_010
-2026-06-01,demo_je_0139,5010,Payment processing fees,Stripe processing fee demo_bt_202606_010,43.80,,USD,demo_bt_202606_010
-2026-06-01,demo_je_0139,1020,Stripe clearing,Stripe processing fee demo_bt_202606_010,,43.80,USD,demo_bt_202606_010
-2026-06-01,demo_je_0140,1020,Stripe clearing,Subscription charge Demo Annual Customer B,36000.00,,USD,demo_bt_202606_102
+2026-06-01,demo_je_0139,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_010,43.80,,USD,demo_bt_202606_010
+2026-06-01,demo_je_0139,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_010,,43.80,USD,demo_bt_202606_010
+2026-06-01,demo_je_0140,1020,Demo Pay clearing,Subscription charge Demo Annual Customer B,36000.00,,USD,demo_bt_202606_102
 2026-06-01,demo_je_0140,2100,Deferred subscription revenue,Subscription charge Demo Annual Customer B,,36000.00,USD,demo_bt_202606_102
-2026-06-01,demo_je_0141,5010,Payment processing fees,Stripe processing fee demo_bt_202606_102,1044.30,,USD,demo_bt_202606_102
-2026-06-01,demo_je_0141,1020,Stripe clearing,Stripe processing fee demo_bt_202606_102,,1044.30,USD,demo_bt_202606_102
-2026-06-05,demo_je_0142,1000,Operating checking,Stripe payout demo_po_202606,49517.70,,USD,demo_po_202606
-2026-06-05,demo_je_0142,1020,Stripe clearing,Stripe payout demo_po_202606,,49517.70,USD,demo_po_202606
+2026-06-01,demo_je_0141,5010,Payment processing fees,Demo Pay processing fee demo_bt_202606_102,1044.30,,USD,demo_bt_202606_102
+2026-06-01,demo_je_0141,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202606_102,,1044.30,USD,demo_bt_202606_102
+2026-06-05,demo_je_0142,1000,Operating checking,Demo Pay payout demo_po_202606,49517.70,,USD,demo_po_202606
+2026-06-05,demo_je_0142,1020,Demo Pay clearing,Demo Pay payout demo_po_202606,,49517.70,USD,demo_po_202606
 2026-06-30,demo_je_0143,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-06-30,demo_je_0143,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-06-30,demo_je_0144,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer B,3000.00,,USD,contract_demo_cus_102
@@ -315,52 +315,52 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-06-30,demo_je_0154,1200,Prepaid insurance,Monthly insurance amortization,,1000.00,USD,demo_insurance_annual
 2026-06-30,demo_je_0155,6600,Depreciation,Laptop depreciation; 24 months straight line,100.00,,USD,demo_laptop_jun
 2026-06-30,demo_je_0155,1510,Accumulated depreciation,Laptop depreciation; 24 months straight line,,100.00,USD,demo_laptop_jun
-2026-07-01,demo_je_0156,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202607_001
+2026-07-01,demo_je_0156,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202607_001
 2026-07-01,demo_je_0156,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202607_001
-2026-07-01,demo_je_0157,5010,Payment processing fees,Stripe processing fee demo_bt_202607_001,43.80,,USD,demo_bt_202607_001
-2026-07-01,demo_je_0157,1020,Stripe clearing,Stripe processing fee demo_bt_202607_001,,43.80,USD,demo_bt_202607_001
-2026-07-01,demo_je_0158,1020,Stripe clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202607_002
+2026-07-01,demo_je_0157,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_001,43.80,,USD,demo_bt_202607_001
+2026-07-01,demo_je_0157,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_001,,43.80,USD,demo_bt_202607_001
+2026-07-01,demo_je_0158,1020,Demo Pay clearing,Subscription charge Demo Customer 02,1500.00,,USD,demo_bt_202607_002
 2026-07-01,demo_je_0158,4000,Subscription revenue,Subscription charge Demo Customer 02,,1500.00,USD,demo_bt_202607_002
-2026-07-01,demo_je_0159,5010,Payment processing fees,Stripe processing fee demo_bt_202607_002,43.80,,USD,demo_bt_202607_002
-2026-07-01,demo_je_0159,1020,Stripe clearing,Stripe processing fee demo_bt_202607_002,,43.80,USD,demo_bt_202607_002
-2026-07-01,demo_je_0160,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202607_003
+2026-07-01,demo_je_0159,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_002,43.80,,USD,demo_bt_202607_002
+2026-07-01,demo_je_0159,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_002,,43.80,USD,demo_bt_202607_002
+2026-07-01,demo_je_0160,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202607_003
 2026-07-01,demo_je_0160,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202607_003
-2026-07-01,demo_je_0161,5010,Payment processing fees,Stripe processing fee demo_bt_202607_003,43.80,,USD,demo_bt_202607_003
-2026-07-01,demo_je_0161,1020,Stripe clearing,Stripe processing fee demo_bt_202607_003,,43.80,USD,demo_bt_202607_003
-2026-07-01,demo_je_0162,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202607_004
+2026-07-01,demo_je_0161,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_003,43.80,,USD,demo_bt_202607_003
+2026-07-01,demo_je_0161,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_003,,43.80,USD,demo_bt_202607_003
+2026-07-01,demo_je_0162,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202607_004
 2026-07-01,demo_je_0162,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202607_004
-2026-07-01,demo_je_0163,5010,Payment processing fees,Stripe processing fee demo_bt_202607_004,43.80,,USD,demo_bt_202607_004
-2026-07-01,demo_je_0163,1020,Stripe clearing,Stripe processing fee demo_bt_202607_004,,43.80,USD,demo_bt_202607_004
-2026-07-01,demo_je_0164,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202607_005
+2026-07-01,demo_je_0163,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_004,43.80,,USD,demo_bt_202607_004
+2026-07-01,demo_je_0163,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_004,,43.80,USD,demo_bt_202607_004
+2026-07-01,demo_je_0164,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202607_005
 2026-07-01,demo_je_0164,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202607_005
-2026-07-01,demo_je_0165,5010,Payment processing fees,Stripe processing fee demo_bt_202607_005,43.80,,USD,demo_bt_202607_005
-2026-07-01,demo_je_0165,1020,Stripe clearing,Stripe processing fee demo_bt_202607_005,,43.80,USD,demo_bt_202607_005
-2026-07-01,demo_je_0166,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202607_006
+2026-07-01,demo_je_0165,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_005,43.80,,USD,demo_bt_202607_005
+2026-07-01,demo_je_0165,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_005,,43.80,USD,demo_bt_202607_005
+2026-07-01,demo_je_0166,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202607_006
 2026-07-01,demo_je_0166,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202607_006
-2026-07-01,demo_je_0167,5010,Payment processing fees,Stripe processing fee demo_bt_202607_006,43.80,,USD,demo_bt_202607_006
-2026-07-01,demo_je_0167,1020,Stripe clearing,Stripe processing fee demo_bt_202607_006,,43.80,USD,demo_bt_202607_006
-2026-07-01,demo_je_0168,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202607_007
+2026-07-01,demo_je_0167,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_006,43.80,,USD,demo_bt_202607_006
+2026-07-01,demo_je_0167,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_006,,43.80,USD,demo_bt_202607_006
+2026-07-01,demo_je_0168,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202607_007
 2026-07-01,demo_je_0168,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202607_007
-2026-07-01,demo_je_0169,5010,Payment processing fees,Stripe processing fee demo_bt_202607_007,43.80,,USD,demo_bt_202607_007
-2026-07-01,demo_je_0169,1020,Stripe clearing,Stripe processing fee demo_bt_202607_007,,43.80,USD,demo_bt_202607_007
-2026-07-01,demo_je_0170,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202607_008
+2026-07-01,demo_je_0169,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_007,43.80,,USD,demo_bt_202607_007
+2026-07-01,demo_je_0169,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_007,,43.80,USD,demo_bt_202607_007
+2026-07-01,demo_je_0170,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202607_008
 2026-07-01,demo_je_0170,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202607_008
-2026-07-01,demo_je_0171,5010,Payment processing fees,Stripe processing fee demo_bt_202607_008,43.80,,USD,demo_bt_202607_008
-2026-07-01,demo_je_0171,1020,Stripe clearing,Stripe processing fee demo_bt_202607_008,,43.80,USD,demo_bt_202607_008
-2026-07-01,demo_je_0172,1020,Stripe clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202607_009
+2026-07-01,demo_je_0171,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_008,43.80,,USD,demo_bt_202607_008
+2026-07-01,demo_je_0171,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_008,,43.80,USD,demo_bt_202607_008
+2026-07-01,demo_je_0172,1020,Demo Pay clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202607_009
 2026-07-01,demo_je_0172,4000,Subscription revenue,Subscription charge Demo Customer 09,,1500.00,USD,demo_bt_202607_009
-2026-07-01,demo_je_0173,5010,Payment processing fees,Stripe processing fee demo_bt_202607_009,43.80,,USD,demo_bt_202607_009
-2026-07-01,demo_je_0173,1020,Stripe clearing,Stripe processing fee demo_bt_202607_009,,43.80,USD,demo_bt_202607_009
-2026-07-01,demo_je_0174,1020,Stripe clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202607_010
+2026-07-01,demo_je_0173,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_009,43.80,,USD,demo_bt_202607_009
+2026-07-01,demo_je_0173,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_009,,43.80,USD,demo_bt_202607_009
+2026-07-01,demo_je_0174,1020,Demo Pay clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202607_010
 2026-07-01,demo_je_0174,4000,Subscription revenue,Subscription charge Demo Customer 10,,1500.00,USD,demo_bt_202607_010
-2026-07-01,demo_je_0175,5010,Payment processing fees,Stripe processing fee demo_bt_202607_010,43.80,,USD,demo_bt_202607_010
-2026-07-01,demo_je_0175,1020,Stripe clearing,Stripe processing fee demo_bt_202607_010,,43.80,USD,demo_bt_202607_010
-2026-07-01,demo_je_0176,1020,Stripe clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202607_011
+2026-07-01,demo_je_0175,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_010,43.80,,USD,demo_bt_202607_010
+2026-07-01,demo_je_0175,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_010,,43.80,USD,demo_bt_202607_010
+2026-07-01,demo_je_0176,1020,Demo Pay clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202607_011
 2026-07-01,demo_je_0176,4000,Subscription revenue,Subscription charge Demo Customer 11,,1500.00,USD,demo_bt_202607_011
-2026-07-01,demo_je_0177,5010,Payment processing fees,Stripe processing fee demo_bt_202607_011,43.80,,USD,demo_bt_202607_011
-2026-07-01,demo_je_0177,1020,Stripe clearing,Stripe processing fee demo_bt_202607_011,,43.80,USD,demo_bt_202607_011
-2026-07-05,demo_je_0178,1000,Operating checking,Stripe payout demo_po_202607,16018.20,,USD,demo_po_202607
-2026-07-05,demo_je_0178,1020,Stripe clearing,Stripe payout demo_po_202607,,16018.20,USD,demo_po_202607
+2026-07-01,demo_je_0177,5010,Payment processing fees,Demo Pay processing fee demo_bt_202607_011,43.80,,USD,demo_bt_202607_011
+2026-07-01,demo_je_0177,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202607_011,,43.80,USD,demo_bt_202607_011
+2026-07-05,demo_je_0178,1000,Operating checking,Demo Pay payout demo_po_202607,16018.20,,USD,demo_po_202607
+2026-07-05,demo_je_0178,1020,Demo Pay clearing,Demo Pay payout demo_po_202607,,16018.20,USD,demo_po_202607
 2026-07-31,demo_je_0179,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-07-31,demo_je_0179,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-07-31,demo_je_0180,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer B,3000.00,,USD,contract_demo_cus_102
@@ -384,52 +384,52 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-07-31,demo_je_0188,1200,Prepaid insurance,Monthly insurance amortization,,1000.00,USD,demo_insurance_annual
 2026-07-31,demo_je_0189,6600,Depreciation,Laptop depreciation; 24 months straight line,100.00,,USD,demo_laptop_jun
 2026-07-31,demo_je_0189,1510,Accumulated depreciation,Laptop depreciation; 24 months straight line,,100.00,USD,demo_laptop_jun
-2026-08-01,demo_je_0190,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202608_001
+2026-08-01,demo_je_0190,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202608_001
 2026-08-01,demo_je_0190,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202608_001
-2026-08-01,demo_je_0191,5010,Payment processing fees,Stripe processing fee demo_bt_202608_001,43.80,,USD,demo_bt_202608_001
-2026-08-01,demo_je_0191,1020,Stripe clearing,Stripe processing fee demo_bt_202608_001,,43.80,USD,demo_bt_202608_001
-2026-08-01,demo_je_0192,1020,Stripe clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202608_003
+2026-08-01,demo_je_0191,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_001,43.80,,USD,demo_bt_202608_001
+2026-08-01,demo_je_0191,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_001,,43.80,USD,demo_bt_202608_001
+2026-08-01,demo_je_0192,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1500.00,,USD,demo_bt_202608_003
 2026-08-01,demo_je_0192,4000,Subscription revenue,Subscription charge Demo Customer 03,,1500.00,USD,demo_bt_202608_003
-2026-08-01,demo_je_0193,5010,Payment processing fees,Stripe processing fee demo_bt_202608_003,43.80,,USD,demo_bt_202608_003
-2026-08-01,demo_je_0193,1020,Stripe clearing,Stripe processing fee demo_bt_202608_003,,43.80,USD,demo_bt_202608_003
-2026-08-01,demo_je_0194,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202608_004
+2026-08-01,demo_je_0193,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_003,43.80,,USD,demo_bt_202608_003
+2026-08-01,demo_je_0193,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_003,,43.80,USD,demo_bt_202608_003
+2026-08-01,demo_je_0194,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202608_004
 2026-08-01,demo_je_0194,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202608_004
-2026-08-01,demo_je_0195,5010,Payment processing fees,Stripe processing fee demo_bt_202608_004,43.80,,USD,demo_bt_202608_004
-2026-08-01,demo_je_0195,1020,Stripe clearing,Stripe processing fee demo_bt_202608_004,,43.80,USD,demo_bt_202608_004
-2026-08-01,demo_je_0196,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202608_005
+2026-08-01,demo_je_0195,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_004,43.80,,USD,demo_bt_202608_004
+2026-08-01,demo_je_0195,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_004,,43.80,USD,demo_bt_202608_004
+2026-08-01,demo_je_0196,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202608_005
 2026-08-01,demo_je_0196,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202608_005
-2026-08-01,demo_je_0197,5010,Payment processing fees,Stripe processing fee demo_bt_202608_005,43.80,,USD,demo_bt_202608_005
-2026-08-01,demo_je_0197,1020,Stripe clearing,Stripe processing fee demo_bt_202608_005,,43.80,USD,demo_bt_202608_005
-2026-08-01,demo_je_0198,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202608_006
+2026-08-01,demo_je_0197,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_005,43.80,,USD,demo_bt_202608_005
+2026-08-01,demo_je_0197,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_005,,43.80,USD,demo_bt_202608_005
+2026-08-01,demo_je_0198,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202608_006
 2026-08-01,demo_je_0198,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202608_006
-2026-08-01,demo_je_0199,5010,Payment processing fees,Stripe processing fee demo_bt_202608_006,43.80,,USD,demo_bt_202608_006
-2026-08-01,demo_je_0199,1020,Stripe clearing,Stripe processing fee demo_bt_202608_006,,43.80,USD,demo_bt_202608_006
-2026-08-01,demo_je_0200,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202608_007
+2026-08-01,demo_je_0199,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_006,43.80,,USD,demo_bt_202608_006
+2026-08-01,demo_je_0199,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_006,,43.80,USD,demo_bt_202608_006
+2026-08-01,demo_je_0200,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202608_007
 2026-08-01,demo_je_0200,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202608_007
-2026-08-01,demo_je_0201,5010,Payment processing fees,Stripe processing fee demo_bt_202608_007,43.80,,USD,demo_bt_202608_007
-2026-08-01,demo_je_0201,1020,Stripe clearing,Stripe processing fee demo_bt_202608_007,,43.80,USD,demo_bt_202608_007
-2026-08-01,demo_je_0202,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202608_008
+2026-08-01,demo_je_0201,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_007,43.80,,USD,demo_bt_202608_007
+2026-08-01,demo_je_0201,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_007,,43.80,USD,demo_bt_202608_007
+2026-08-01,demo_je_0202,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202608_008
 2026-08-01,demo_je_0202,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202608_008
-2026-08-01,demo_je_0203,5010,Payment processing fees,Stripe processing fee demo_bt_202608_008,43.80,,USD,demo_bt_202608_008
-2026-08-01,demo_je_0203,1020,Stripe clearing,Stripe processing fee demo_bt_202608_008,,43.80,USD,demo_bt_202608_008
-2026-08-01,demo_je_0204,1020,Stripe clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202608_009
+2026-08-01,demo_je_0203,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_008,43.80,,USD,demo_bt_202608_008
+2026-08-01,demo_je_0203,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_008,,43.80,USD,demo_bt_202608_008
+2026-08-01,demo_je_0204,1020,Demo Pay clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202608_009
 2026-08-01,demo_je_0204,4000,Subscription revenue,Subscription charge Demo Customer 09,,1500.00,USD,demo_bt_202608_009
-2026-08-01,demo_je_0205,5010,Payment processing fees,Stripe processing fee demo_bt_202608_009,43.80,,USD,demo_bt_202608_009
-2026-08-01,demo_je_0205,1020,Stripe clearing,Stripe processing fee demo_bt_202608_009,,43.80,USD,demo_bt_202608_009
-2026-08-01,demo_je_0206,1020,Stripe clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202608_010
+2026-08-01,demo_je_0205,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_009,43.80,,USD,demo_bt_202608_009
+2026-08-01,demo_je_0205,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_009,,43.80,USD,demo_bt_202608_009
+2026-08-01,demo_je_0206,1020,Demo Pay clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202608_010
 2026-08-01,demo_je_0206,4000,Subscription revenue,Subscription charge Demo Customer 10,,1500.00,USD,demo_bt_202608_010
-2026-08-01,demo_je_0207,5010,Payment processing fees,Stripe processing fee demo_bt_202608_010,43.80,,USD,demo_bt_202608_010
-2026-08-01,demo_je_0207,1020,Stripe clearing,Stripe processing fee demo_bt_202608_010,,43.80,USD,demo_bt_202608_010
-2026-08-01,demo_je_0208,1020,Stripe clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202608_011
+2026-08-01,demo_je_0207,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_010,43.80,,USD,demo_bt_202608_010
+2026-08-01,demo_je_0207,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_010,,43.80,USD,demo_bt_202608_010
+2026-08-01,demo_je_0208,1020,Demo Pay clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202608_011
 2026-08-01,demo_je_0208,4000,Subscription revenue,Subscription charge Demo Customer 11,,1500.00,USD,demo_bt_202608_011
-2026-08-01,demo_je_0209,5010,Payment processing fees,Stripe processing fee demo_bt_202608_011,43.80,,USD,demo_bt_202608_011
-2026-08-01,demo_je_0209,1020,Stripe clearing,Stripe processing fee demo_bt_202608_011,,43.80,USD,demo_bt_202608_011
-2026-08-01,demo_je_0210,1020,Stripe clearing,Subscription charge Demo Customer 12,1500.00,,USD,demo_bt_202608_012
+2026-08-01,demo_je_0209,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_011,43.80,,USD,demo_bt_202608_011
+2026-08-01,demo_je_0209,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_011,,43.80,USD,demo_bt_202608_011
+2026-08-01,demo_je_0210,1020,Demo Pay clearing,Subscription charge Demo Customer 12,1500.00,,USD,demo_bt_202608_012
 2026-08-01,demo_je_0210,4000,Subscription revenue,Subscription charge Demo Customer 12,,1500.00,USD,demo_bt_202608_012
-2026-08-01,demo_je_0211,5010,Payment processing fees,Stripe processing fee demo_bt_202608_012,43.80,,USD,demo_bt_202608_012
-2026-08-01,demo_je_0211,1020,Stripe clearing,Stripe processing fee demo_bt_202608_012,,43.80,USD,demo_bt_202608_012
-2026-08-05,demo_je_0212,1000,Operating checking,Stripe payout demo_po_202608,16018.20,,USD,demo_po_202608
-2026-08-05,demo_je_0212,1020,Stripe clearing,Stripe payout demo_po_202608,,16018.20,USD,demo_po_202608
+2026-08-01,demo_je_0211,5010,Payment processing fees,Demo Pay processing fee demo_bt_202608_012,43.80,,USD,demo_bt_202608_012
+2026-08-01,demo_je_0211,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202608_012,,43.80,USD,demo_bt_202608_012
+2026-08-05,demo_je_0212,1000,Operating checking,Demo Pay payout demo_po_202608,16018.20,,USD,demo_po_202608
+2026-08-05,demo_je_0212,1020,Demo Pay clearing,Demo Pay payout demo_po_202608,,16018.20,USD,demo_po_202608
 2026-08-31,demo_je_0213,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-08-31,demo_je_0213,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-08-31,demo_je_0214,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer B,3000.00,,USD,contract_demo_cus_102
@@ -453,54 +453,54 @@ Date,Journal Entry ID,Account Number,Account Name,Description,Debit,Credit,Curre
 2026-08-31,demo_je_0222,1200,Prepaid insurance,Monthly insurance amortization,,1000.00,USD,demo_insurance_annual
 2026-08-31,demo_je_0223,6600,Depreciation,Laptop depreciation; 24 months straight line,100.00,,USD,demo_laptop_jun
 2026-08-31,demo_je_0223,1510,Accumulated depreciation,Laptop depreciation; 24 months straight line,,100.00,USD,demo_laptop_jun
-2026-09-01,demo_je_0224,1020,Stripe clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202609_001
+2026-09-01,demo_je_0224,1020,Demo Pay clearing,Subscription charge Demo Customer 01,1500.00,,USD,demo_bt_202609_001
 2026-09-01,demo_je_0224,4000,Subscription revenue,Subscription charge Demo Customer 01,,1500.00,USD,demo_bt_202609_001
-2026-09-01,demo_je_0225,5010,Payment processing fees,Stripe processing fee demo_bt_202609_001,43.80,,USD,demo_bt_202609_001
-2026-09-01,demo_je_0225,1020,Stripe clearing,Stripe processing fee demo_bt_202609_001,,43.80,USD,demo_bt_202609_001
-2026-09-01,demo_je_0226,1020,Stripe clearing,Subscription charge Demo Customer 03,1000.00,,USD,demo_bt_202609_003
+2026-09-01,demo_je_0225,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_001,43.80,,USD,demo_bt_202609_001
+2026-09-01,demo_je_0225,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_001,,43.80,USD,demo_bt_202609_001
+2026-09-01,demo_je_0226,1020,Demo Pay clearing,Subscription charge Demo Customer 03,1000.00,,USD,demo_bt_202609_003
 2026-09-01,demo_je_0226,4000,Subscription revenue,Subscription charge Demo Customer 03,,1000.00,USD,demo_bt_202609_003
-2026-09-01,demo_je_0227,5010,Payment processing fees,Stripe processing fee demo_bt_202609_003,29.30,,USD,demo_bt_202609_003
-2026-09-01,demo_je_0227,1020,Stripe clearing,Stripe processing fee demo_bt_202609_003,,29.30,USD,demo_bt_202609_003
-2026-09-01,demo_je_0228,1020,Stripe clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202609_004
+2026-09-01,demo_je_0227,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_003,29.30,,USD,demo_bt_202609_003
+2026-09-01,demo_je_0227,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_003,,29.30,USD,demo_bt_202609_003
+2026-09-01,demo_je_0228,1020,Demo Pay clearing,Subscription charge Demo Customer 04,1500.00,,USD,demo_bt_202609_004
 2026-09-01,demo_je_0228,4000,Subscription revenue,Subscription charge Demo Customer 04,,1500.00,USD,demo_bt_202609_004
-2026-09-01,demo_je_0229,5010,Payment processing fees,Stripe processing fee demo_bt_202609_004,43.80,,USD,demo_bt_202609_004
-2026-09-01,demo_je_0229,1020,Stripe clearing,Stripe processing fee demo_bt_202609_004,,43.80,USD,demo_bt_202609_004
-2026-09-01,demo_je_0230,1020,Stripe clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202609_005
+2026-09-01,demo_je_0229,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_004,43.80,,USD,demo_bt_202609_004
+2026-09-01,demo_je_0229,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_004,,43.80,USD,demo_bt_202609_004
+2026-09-01,demo_je_0230,1020,Demo Pay clearing,Subscription charge Demo Customer 05,1500.00,,USD,demo_bt_202609_005
 2026-09-01,demo_je_0230,4000,Subscription revenue,Subscription charge Demo Customer 05,,1500.00,USD,demo_bt_202609_005
-2026-09-01,demo_je_0231,5010,Payment processing fees,Stripe processing fee demo_bt_202609_005,43.80,,USD,demo_bt_202609_005
-2026-09-01,demo_je_0231,1020,Stripe clearing,Stripe processing fee demo_bt_202609_005,,43.80,USD,demo_bt_202609_005
-2026-09-01,demo_je_0232,1020,Stripe clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202609_006
+2026-09-01,demo_je_0231,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_005,43.80,,USD,demo_bt_202609_005
+2026-09-01,demo_je_0231,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_005,,43.80,USD,demo_bt_202609_005
+2026-09-01,demo_je_0232,1020,Demo Pay clearing,Subscription charge Demo Customer 06,1500.00,,USD,demo_bt_202609_006
 2026-09-01,demo_je_0232,4000,Subscription revenue,Subscription charge Demo Customer 06,,1500.00,USD,demo_bt_202609_006
-2026-09-01,demo_je_0233,5010,Payment processing fees,Stripe processing fee demo_bt_202609_006,43.80,,USD,demo_bt_202609_006
-2026-09-01,demo_je_0233,1020,Stripe clearing,Stripe processing fee demo_bt_202609_006,,43.80,USD,demo_bt_202609_006
-2026-09-01,demo_je_0234,1020,Stripe clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202609_007
+2026-09-01,demo_je_0233,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_006,43.80,,USD,demo_bt_202609_006
+2026-09-01,demo_je_0233,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_006,,43.80,USD,demo_bt_202609_006
+2026-09-01,demo_je_0234,1020,Demo Pay clearing,Subscription charge Demo Customer 07,1500.00,,USD,demo_bt_202609_007
 2026-09-01,demo_je_0234,4000,Subscription revenue,Subscription charge Demo Customer 07,,1500.00,USD,demo_bt_202609_007
-2026-09-01,demo_je_0235,5010,Payment processing fees,Stripe processing fee demo_bt_202609_007,43.80,,USD,demo_bt_202609_007
-2026-09-01,demo_je_0235,1020,Stripe clearing,Stripe processing fee demo_bt_202609_007,,43.80,USD,demo_bt_202609_007
-2026-09-01,demo_je_0236,1020,Stripe clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202609_008
+2026-09-01,demo_je_0235,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_007,43.80,,USD,demo_bt_202609_007
+2026-09-01,demo_je_0235,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_007,,43.80,USD,demo_bt_202609_007
+2026-09-01,demo_je_0236,1020,Demo Pay clearing,Subscription charge Demo Customer 08,1500.00,,USD,demo_bt_202609_008
 2026-09-01,demo_je_0236,4000,Subscription revenue,Subscription charge Demo Customer 08,,1500.00,USD,demo_bt_202609_008
-2026-09-01,demo_je_0237,5010,Payment processing fees,Stripe processing fee demo_bt_202609_008,43.80,,USD,demo_bt_202609_008
-2026-09-01,demo_je_0237,1020,Stripe clearing,Stripe processing fee demo_bt_202609_008,,43.80,USD,demo_bt_202609_008
-2026-09-01,demo_je_0238,1020,Stripe clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202609_009
+2026-09-01,demo_je_0237,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_008,43.80,,USD,demo_bt_202609_008
+2026-09-01,demo_je_0237,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_008,,43.80,USD,demo_bt_202609_008
+2026-09-01,demo_je_0238,1020,Demo Pay clearing,Subscription charge Demo Customer 09,1500.00,,USD,demo_bt_202609_009
 2026-09-01,demo_je_0238,4000,Subscription revenue,Subscription charge Demo Customer 09,,1500.00,USD,demo_bt_202609_009
-2026-09-01,demo_je_0239,5010,Payment processing fees,Stripe processing fee demo_bt_202609_009,43.80,,USD,demo_bt_202609_009
-2026-09-01,demo_je_0239,1020,Stripe clearing,Stripe processing fee demo_bt_202609_009,,43.80,USD,demo_bt_202609_009
-2026-09-01,demo_je_0240,1020,Stripe clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202609_010
+2026-09-01,demo_je_0239,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_009,43.80,,USD,demo_bt_202609_009
+2026-09-01,demo_je_0239,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_009,,43.80,USD,demo_bt_202609_009
+2026-09-01,demo_je_0240,1020,Demo Pay clearing,Subscription charge Demo Customer 10,1500.00,,USD,demo_bt_202609_010
 2026-09-01,demo_je_0240,4000,Subscription revenue,Subscription charge Demo Customer 10,,1500.00,USD,demo_bt_202609_010
-2026-09-01,demo_je_0241,5010,Payment processing fees,Stripe processing fee demo_bt_202609_010,43.80,,USD,demo_bt_202609_010
-2026-09-01,demo_je_0241,1020,Stripe clearing,Stripe processing fee demo_bt_202609_010,,43.80,USD,demo_bt_202609_010
-2026-09-30,demo_je_0242,1020,Stripe clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202609_011
+2026-09-01,demo_je_0241,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_010,43.80,,USD,demo_bt_202609_010
+2026-09-01,demo_je_0241,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_010,,43.80,USD,demo_bt_202609_010
+2026-09-30,demo_je_0242,1020,Demo Pay clearing,Subscription charge Demo Customer 11,1500.00,,USD,demo_bt_202609_011
 2026-09-30,demo_je_0242,4000,Subscription revenue,Subscription charge Demo Customer 11,,1500.00,USD,demo_bt_202609_011
-2026-09-30,demo_je_0243,5010,Payment processing fees,Stripe processing fee demo_bt_202609_011,43.80,,USD,demo_bt_202609_011
-2026-09-30,demo_je_0243,1020,Stripe clearing,Stripe processing fee demo_bt_202609_011,,43.80,USD,demo_bt_202609_011
-2026-09-30,demo_je_0244,1020,Stripe clearing,Subscription charge Demo Customer 12,1500.00,,USD,demo_bt_202609_012
+2026-09-30,demo_je_0243,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_011,43.80,,USD,demo_bt_202609_011
+2026-09-30,demo_je_0243,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_011,,43.80,USD,demo_bt_202609_011
+2026-09-30,demo_je_0244,1020,Demo Pay clearing,Subscription charge Demo Customer 12,1500.00,,USD,demo_bt_202609_012
 2026-09-30,demo_je_0244,4000,Subscription revenue,Subscription charge Demo Customer 12,,1500.00,USD,demo_bt_202609_012
-2026-09-30,demo_je_0245,5010,Payment processing fees,Stripe processing fee demo_bt_202609_012,43.80,,USD,demo_bt_202609_012
-2026-09-30,demo_je_0245,1020,Stripe clearing,Stripe processing fee demo_bt_202609_012,,43.80,USD,demo_bt_202609_012
+2026-09-30,demo_je_0245,5010,Payment processing fees,Demo Pay processing fee demo_bt_202609_012,43.80,,USD,demo_bt_202609_012
+2026-09-30,demo_je_0245,1020,Demo Pay clearing,Demo Pay processing fee demo_bt_202609_012,,43.80,USD,demo_bt_202609_012
 2026-09-04,demo_je_0246,4010,Subscription refunds,One-time service credit; subscription remains active,500.00,,USD,demo_bt_refund_202609
-2026-09-04,demo_je_0246,1020,Stripe clearing,One-time service credit; subscription remains active,,500.00,USD,demo_bt_refund_202609
-2026-09-05,demo_je_0247,1000,Operating checking,Stripe payout demo_po_202609,12120.30,,USD,demo_po_202609
-2026-09-05,demo_je_0247,1020,Stripe clearing,Stripe payout demo_po_202609,,12120.30,USD,demo_po_202609
+2026-09-04,demo_je_0246,1020,Demo Pay clearing,One-time service credit; subscription remains active,,500.00,USD,demo_bt_refund_202609
+2026-09-05,demo_je_0247,1000,Operating checking,Demo Pay payout demo_po_202609,12120.30,,USD,demo_po_202609
+2026-09-05,demo_je_0247,1020,Demo Pay clearing,Demo Pay payout demo_po_202609,,12120.30,USD,demo_po_202609
 2026-09-30,demo_je_0248,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer A,2000.00,,USD,contract_demo_cus_101
 2026-09-30,demo_je_0248,4000,Subscription revenue,Monthly service earned Demo Annual Customer A,,2000.00,USD,contract_demo_cus_101
 2026-09-30,demo_je_0249,2100,Deferred subscription revenue,Monthly service earned Demo Annual Customer B,3000.00,,USD,contract_demo_cus_102
