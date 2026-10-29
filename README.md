@@ -167,7 +167,7 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-See the [Balsa getting-started guide](https://www.balsamodel.com/docs/getting-started)
+See the [Balsa getting-started guide](https://usebalsa.com/docs/getting-started)
 for detailed installation, configuration, authentication, and deployment
 instructions.
 
