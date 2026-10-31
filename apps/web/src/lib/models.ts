@@ -1,6 +1,9 @@
 import "server-only";
 import { z } from "zod";
-import { createModelProvider, type ModelOverrides } from "@finance/model-providers";
+import { NextResponse } from "next/server";
+import { createModelProvider, ModelProviderConfigurationError, type ModelOverrides } from "@finance/model-providers";
+
+export { ModelProviderConfigurationError };
 
 export type ModelOption = { value: string; label: string };
 
@@ -76,6 +79,22 @@ export function resolveModelOverrides(input: z.infer<typeof modelRequestSchema>)
     model: input.model && allowed.has(input.model) ? input.model : "auto",
     effort: input.effort,
   };
+}
+
+/**
+ * The operator-facing reason AI features cannot run, or null when a provider
+ * is configured. Names the missing setting, never a value.
+ */
+export function modelConfigurationProblem(): string | null {
+  try { getModelProvider(); return null; } catch (error) {
+    if (error instanceof ModelProviderConfigurationError) return error.message;
+    throw error;
+  }
+}
+
+/** A 503 response for a route that cannot proceed without a model provider. */
+export function modelUnavailableResponse(error: ModelProviderConfigurationError) {
+  return NextResponse.json({ error: error.message, code: "model_not_configured" }, { status: 503 });
 }
 
 export function getModelProvider(overrides: ModelOverrides = {}) {

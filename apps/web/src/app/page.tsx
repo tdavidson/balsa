@@ -1,6 +1,6 @@
 import { auth, authMode, listCompanies, requireCompanyAccess } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
-import { getModelOptions } from "@/lib/models";
+import { getModelOptions, modelConfigurationProblem } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
       staleSelection={context.selection.staleSelection}
       user={{ email: context.user.email, name: context.user.name, hasAvatar: context.user.hasAvatar }}
       modelOptions={getModelOptions()}
+      modelProblem={modelConfigurationProblem()}
       loginEnabled={authMode === "better-auth"}
     />
   );

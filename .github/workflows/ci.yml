@@ -42,6 +42,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm demo:check
       - run: pnpm typecheck
+      - run: pnpm lint
       # The database package's tests run against a real Postgres; migrate first
       # so the row level security policies under test exist.
       - run: pnpm db:migrate
