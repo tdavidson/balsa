@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createModelProvider, OpenAIProvider, OpenRouterProvider } from "./index";
+import { createModelProvider, ModelProviderConfigurationError, OpenAIProvider, OpenRouterProvider } from "./index";
 
 describe("model providers", () => {
+  it("reports a missing key as a configuration error that names the setting", () => {
+    const missing = () => createModelProvider({ MODEL_PROVIDER: "openrouter", MODEL_NAME: "auto" });
+    expect(missing).toThrow(ModelProviderConfigurationError);
+    expect(missing).toThrow(/OPENROUTER_API_KEY/);
+    expect(() => createModelProvider({ MODEL_PROVIDER: "openai", MODEL_NAME: "gpt-5" })).toThrow(/OPENAI_API_KEY/);
+    expect(() => createModelProvider({ MODEL_PROVIDER: "other", MODEL_NAME: "x", OPENAI_API_KEY: "k" })).toThrow(ModelProviderConfigurationError);
+  });
+
   it("uses the OpenAI Responses API without provider leakage", async () => {
     const create = vi.fn().mockResolvedValue({ output_text: "Ready" });
     const provider = new OpenAIProvider("test-model", "test-key", {

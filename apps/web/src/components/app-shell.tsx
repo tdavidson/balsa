@@ -335,6 +335,8 @@ type AppShellProps = {
   staleSelection: boolean;
   user: { email: string; name: string | null; hasAvatar?: boolean };
   modelOptions: { value: string; label: string }[];
+  /** Why AI features cannot run (for example a missing API key), or null when a model is configured. */
+  modelProblem?: string | null;
   loginEnabled: boolean;
 };
 
@@ -449,7 +451,7 @@ function aggregatePnlRows(rows: PnlMonth[], cadence: StatementCadence) {
   }));
 }
 
-export function AppShell({ company, companies, role, staleSelection, user, modelOptions, loginEnabled, initialMessage = "" }: AppShellProps) {
+export function AppShell({ company, companies, role, staleSelection, user, modelOptions, modelProblem = null, loginEnabled, initialMessage = "" }: AppShellProps) {
   const [message, setMessage] = useState(initialMessage);
   const [composerPlaceholder, setComposerPlaceholder] = useState("Tell me what needs attention");
   const [model, chooseModel] = useStoredChoice("balsa.model", "auto", (value) => modelOptions.some((option) => option.value === value));
@@ -1569,6 +1571,12 @@ export function AppShell({ company, companies, role, staleSelection, user, model
               <span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">Reviewing proposed decision</span>
               <p className="text-[15px] leading-[1.45] text-ink">{activeDecision.question}</p>
               <p className="text-[13px] leading-[1.45] text-ink-2">Proposed answer: {activeDecision.answer}</p>
+            </div>
+          )}
+          {modelProblem && (
+            <div role="status" className="grid gap-1 rounded-[12px] border border-rule bg-rule/35 px-4 py-3" aria-label="AI model not configured">
+              <span className="text-[12px] uppercase tracking-[0.1em] text-ink-2">AI features are off</span>
+              <p className="text-[14px] leading-[1.45] text-ink">{modelProblem} Until then, chat and document extraction cannot run; bank CSV imports still stage transactions for review.</p>
             </div>
           )}
           <form

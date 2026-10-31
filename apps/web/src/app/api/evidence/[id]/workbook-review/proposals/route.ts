@@ -4,7 +4,7 @@ import { evidence, getDatabase, sources } from "@finance/database";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { getModelProvider, ModelProviderConfigurationError, modelRequestSchema, modelUnavailableResponse, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { takeRateLimit } from "@/lib/request-rate-limit";
 
@@ -35,7 +35,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const worksheetRoles = metadata.workbookReview ?? {};
   if (!Object.keys(worksheetRoles).length) return NextResponse.json({ error: "Classify at least one worksheet before drafting onboarding proposals" }, { status: 409 });
 
-  const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
+  let provider: ReturnType<typeof getModelProvider>;
+  try { provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {})); } catch (error) {
+    if (error instanceof ModelProviderConfigurationError) return modelUnavailableResponse(error);
+    throw error;
+  }
   try {
     const proposal = await provider.generateStructured({
       name: "reference_workbook_onboarding_proposals",
