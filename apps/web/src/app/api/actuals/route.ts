@@ -12,7 +12,7 @@ import { assertExtractedTextSize, assertUploadSize } from "@/lib/ingestion-guard
 import { extractSpreadsheetText } from "@/lib/spreadsheet-extraction";
 import { takeRateLimit } from "@/lib/request-rate-limit";
 import { categorizeTransactions, resolveCounterparty, type KnownEntity } from "@/lib/interpretation";
-import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { getModelProvider, ModelProviderConfigurationError, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { loadEntityStructure, resolveImportAccount } from "@/lib/entity-structure";
 
@@ -96,22 +96,29 @@ export async function POST(request: Request) {
       ]);
       const candidates: KnownEntity[] = entityRows.filter((entity) => entity.type !== "legal_entity" && entity.type !== "account");
       const choice = modelRequestSchema.safeParse({ model: String(form.get("model") || "") || undefined, effort: String(form.get("effort") || "") || undefined });
-      const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
-      const categorized = await categorizeTransactions({ provider, transactions: toCategorize, entities: candidates, policies: activePolicies.map((policy) => ({ name: policy.name, rule: policy.rule })), decisions: decisionRows, activityOf: classifyCashActivity });
-      const modelResults = categorized.filter((entry) => entry.source === "model");
-      if (modelResults.length) await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "transaction_categorization", request: { sourceName: file.name, transactions: toCategorize.length, sentToModel: modelResults.length }, response: JSON.stringify(modelResults.slice(0, 200)) });
-      const byIndex = new Map(toCategorize.map((event) => [event.index, event]));
-      for (const entry of categorized) {
-        const event = byIndex.get(entry.index);
-        if (!event) continue;
-        const entity = entry.counterparty && entry.activity === "operating" ? await resolveCounterparty(db, context.company.id, { name: entry.counterparty, alias: event.description, category: entry.category, direction: event.direction, candidates }) : undefined;
-        const activityOverride = !event.policyId && entry.activity !== "operating" ? entry.activity : !event.policyId && event.category === "unclassified" && entry.category ? (entry.category === "management_fee" || entry.category === "other_revenue" ? "revenue" : "expense") : undefined;
-        await db.update(cashEvents).set({ ...(activityOverride ? { category: activityOverride } : {}), financialCategory: entry.category ?? undefined, counterpartyEntityId: entity?.id, updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.externalKey, event.externalKey)));
+      let provider: ReturnType<typeof getModelProvider> | undefined;
+      try { provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {})); } catch (error) {
+        // Without a model, imported rows keep their deterministic classification
+        // and stay in review; categorization can run once a model is configured.
+        if (!(error instanceof ModelProviderConfigurationError)) throw error;
       }
-      const uncertain = categorized.filter((entry) => entry.activity === "operating" && (!entry.category || entry.confidence < 0.6));
-      if (uncertain.length) {
-        const names = [...new Set(uncertain.map((entry) => entry.counterparty ?? byIndex.get(entry.index)?.description ?? "").filter(Boolean))].slice(0, 8);
-        await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, reviewKey: `categorization:${placeholder!.id}`, question: `${uncertain.length} imported transaction${uncertain.length === 1 ? "" : "s"} from ${file.name} could not be categorized with confidence (${names.join(", ")}${uncertain.length > names.length ? ", …" : ""}). Which income statement line should each counterparty use?` });
+      if (provider) {
+        const categorized = await categorizeTransactions({ provider, transactions: toCategorize, entities: candidates, policies: activePolicies.map((policy) => ({ name: policy.name, rule: policy.rule })), decisions: decisionRows, activityOf: classifyCashActivity });
+        const modelResults = categorized.filter((entry) => entry.source === "model");
+        if (modelResults.length) await recordLlmRun({ db, provider, companyId: context.company.id, userId: context.user.id, operation: "transaction_categorization", request: { sourceName: file.name, transactions: toCategorize.length, sentToModel: modelResults.length }, response: JSON.stringify(modelResults.slice(0, 200)) });
+        const byIndex = new Map(toCategorize.map((event) => [event.index, event]));
+        for (const entry of categorized) {
+          const event = byIndex.get(entry.index);
+          if (!event) continue;
+          const entity = entry.counterparty && entry.activity === "operating" ? await resolveCounterparty(db, context.company.id, { name: entry.counterparty, alias: event.description, category: entry.category, direction: event.direction, candidates }) : undefined;
+          const activityOverride = !event.policyId && entry.activity !== "operating" ? entry.activity : !event.policyId && event.category === "unclassified" && entry.category ? (entry.category === "management_fee" || entry.category === "other_revenue" ? "revenue" : "expense") : undefined;
+          await db.update(cashEvents).set({ ...(activityOverride ? { category: activityOverride } : {}), financialCategory: entry.category ?? undefined, counterpartyEntityId: entity?.id, updatedAt: new Date() }).where(and(eq(cashEvents.companyId, context.company.id), eq(cashEvents.externalKey, event.externalKey)));
+        }
+        const uncertain = categorized.filter((entry) => entry.activity === "operating" && (!entry.category || entry.confidence < 0.6));
+        if (uncertain.length) {
+          const names = [...new Set(uncertain.map((entry) => entry.counterparty ?? byIndex.get(entry.index)?.description ?? "").filter(Boolean))].slice(0, 8);
+          await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, reviewKey: `categorization:${placeholder!.id}`, question: `${uncertain.length} imported transaction${uncertain.length === 1 ? "" : "s"} from ${file.name} could not be categorized with confidence (${names.join(", ")}${uncertain.length > names.length ? ", …" : ""}). Which income statement line should each counterparty use?` });
+        }
       }
       if (!account && structure.accounts.length > 1) await db.insert(reviewItems).values({ companyId: context.company.id, evidenceId: placeholder!.id, reviewKey: `account:${placeholder!.id}`, question: `Which account do the ${events.length} transactions in ${file.name} belong to? (${structure.accounts.map((entry) => entry.name).join(", ")})` });
     }

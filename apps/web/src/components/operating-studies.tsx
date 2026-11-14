@@ -395,8 +395,8 @@ export function OperatingStudies({
                   </ToggleGroup>
                   <FieldDescription>
                     Observed decisions use only evidence recorded before that
-                    month's start. Set the first decision month after the
-                    prediction's approval month. Branches are checked in the
+                    month&apos;s start. Set the first decision month after the
+                    prediction&apos;s approval month. Branches are checked in the
                     order shown; the first qualifying branch wins.
                   </FieldDescription>
                   {branches.map((b, i) => (

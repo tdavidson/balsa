@@ -207,30 +207,39 @@ export type ModelOverrides = ModelOptions & {
   model?: string | undefined;
 };
 
+/**
+ * Thrown when no usable model provider is configured. Its message is safe to
+ * show to the operator: it names the missing setting, never a value.
+ */
+export class ModelProviderConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ModelProviderConfigurationError";
+  }
+}
+
 export function createModelProvider(
   environment: ModelProviderEnvironment,
   overrides: ModelOverrides = {},
 ): ModelProvider {
   const provider = environment.MODEL_PROVIDER ?? "openai";
   const model = overrides.model && overrides.model !== "auto" ? overrides.model : environment.MODEL_NAME;
-  if (!model) throw new Error("MODEL_NAME is required");
+  if (!model) throw new ModelProviderConfigurationError("No AI model is configured. Set MODEL_NAME in .env and restart Balsa.");
   const options: ModelOptions = { effort: overrides.effort };
 
   if (provider === "openai") {
     if (!environment.OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY is required when MODEL_PROVIDER=openai");
+      throw new ModelProviderConfigurationError("No AI model is configured. Add OPENAI_API_KEY to .env (MODEL_PROVIDER=openai) and restart Balsa.");
     }
     return new OpenAIProvider(model, environment.OPENAI_API_KEY, undefined, options);
   }
 
   if (provider === "openrouter") {
     if (!environment.OPENROUTER_API_KEY) {
-      throw new Error(
-        "OPENROUTER_API_KEY is required when MODEL_PROVIDER=openrouter",
-      );
+      throw new ModelProviderConfigurationError("No AI model is configured. Add OPENROUTER_API_KEY to .env (MODEL_PROVIDER=openrouter) and restart Balsa.");
     }
     return new OpenRouterProvider(model, environment.OPENROUTER_API_KEY, fetch, options);
   }
 
-  throw new Error(`Unsupported MODEL_PROVIDER: ${provider}`);
+  throw new ModelProviderConfigurationError(`Unsupported MODEL_PROVIDER: ${provider}. Use openrouter or openai.`);
 }

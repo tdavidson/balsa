@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { cashEvents, companies, economicItems, entities, evidence, factRecords, getDatabase, ingestionRuns, observations, policies, reviewItems, sources } from "@finance/database";
 import { classifySource, detectSourceCurrencies, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, type PdfExtractionQuality } from "@balsa/ingestion";
 import { requireCompanyAccess } from "@/lib/auth";
-import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { getModelProvider, ModelProviderConfigurationError, modelRequestSchema, modelUnavailableResponse, resolveModelOverrides } from "@/lib/models";
 import { recordLlmRun } from "@/lib/llm-telemetry";
 import { readSourceBlob } from "@/lib/blob-store";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
@@ -85,7 +85,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await db.insert(ingestionRuns).values({ companyId: context.company.id, sourceId: source.sourceId!, stage: "storage", status: "failed", error: "The retained original failed its integrity check", completedAt: new Date(), metadata: JSON.stringify({ reprocess: true }) });
     return NextResponse.json({ error: "The retained original failed its integrity check" }, { status: 409 });
   }
-  const provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {}));
+  let provider: ReturnType<typeof getModelProvider>;
+  try { provider = getModelProvider(resolveModelOverrides(choice.success ? choice.data : {})); } catch (error) {
+    if (!(error instanceof ModelProviderConfigurationError)) throw error;
+    // Leave the source retryable rather than stuck "extracting": once a model
+    // is configured, reprocessing picks it up again.
+    await db.update(sources).set({ ingestionStatus: "failed", ingestionError: error.message, processedAt: new Date() }).where(and(eq(sources.id, source.sourceId!), eq(sources.companyId, context.company.id)));
+    await finishExtractionRuns("failed", { reprocess: true, failure: "model_not_configured" }, error.message);
+    return modelUnavailableResponse(error);
+  }
   let content: string;
   let pdfQuality: PdfExtractionQuality | undefined;
   let workbookStructure: WorkbookStructure | undefined;

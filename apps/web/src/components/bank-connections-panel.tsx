@@ -19,6 +19,7 @@ async function api(path: string, body?: unknown) {
 export function BankConnectionsPanel({ companyId, companyName }: { companyId: string; companyName: string }) {
   const [data, setData] = useState<Workspace | null>(null); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const [ready, setReady] = useState(false); const [notice, setNotice] = useState("");
   const refresh = useCallback(async () => { const result = await api("/api/banks") as Workspace; if (result.companyId !== companyId) throw new Error("Active company changed. Reload this page."); setData(result); }, [companyId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- loads from the API; state is set after the request resolves
   useEffect(() => { void refresh().catch((e: Error) => setError(e.message)); }, [refresh]);
   const act = async (body: unknown) => {
     setBusy(true); setError(""); setNotice("");

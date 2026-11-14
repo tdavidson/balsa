@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { decisions, economicItems, entities, evidence, factRecords, getDatabase, knowledgeDocuments, policies, recordAudit, reviewItems } from "@finance/database";
 import { isCategory, isValidMonth, type Category } from "@balsa/finance-engine";
-import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { getModelProvider, ModelProviderConfigurationError, modelRequestSchema, modelUnavailableResponse, resolveModelOverrides } from "@/lib/models";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordConversation, recordLlmRun } from "@/lib/llm-telemetry";
 import { relevantEvidenceContext } from "@/lib/evidence-context";
@@ -159,7 +159,11 @@ export async function POST(request: Request) {
   const confirmedItems = itemRows.filter((item) => item.status === "confirmed").map((item) => ({ ...item, amount: Number(item.amount ?? 0) }));
   const draftItems = itemRows.filter((item) => item.status === "draft").map((item) => ({ id: item.id, label: item.label, amount: Number(item.amount ?? 0), direction: item.direction, cadence: item.cadence, effectiveFrom: item.effectiveFrom, category: item.category, confidence: item.confidence ? Number(item.confidence) : null }));
   const knownEntities = entityRows.map((entity) => ({ id: entity.id, name: entity.name, type: entity.type, category: parseEntityAttributes(entity.attributes).category ?? null }));
-  const provider = getModelProvider(resolveModelOverrides(body.data));
+  let provider: ReturnType<typeof getModelProvider>;
+  try { provider = getModelProvider(resolveModelOverrides(body.data)); } catch (error) {
+    if (error instanceof ModelProviderConfigurationError) return modelUnavailableResponse(error);
+    throw error;
+  }
   const conversation = [...body.data.history, { role: "user" as const, content: body.data.message }];
   const focusedReview = body.data.reviewQuestionId ? consolidatedOpenReviews.find((review) => review.id === body.data.reviewQuestionId) : undefined;
   const focusedDecision = body.data.decisionId ? proposedDecisionRows.find((decision) => decision.id === body.data.decisionId) : undefined;

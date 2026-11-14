@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { getDatabase, recordAudit, approvalEvents, cashEvents, economicItems, entities, evidence, factRecords, ingestionRuns, observations, policies, reportingPeriods, reviewItems, sourceRows, sources, users } from "@finance/database";
 import { requireCompanyAccess } from "@/lib/auth";
 import { recordLlmRun } from "@/lib/llm-telemetry";
-import { getModelProvider, modelRequestSchema, resolveModelOverrides } from "@/lib/models";
+import { getModelProvider, ModelProviderConfigurationError, modelRequestSchema, modelUnavailableResponse, resolveModelOverrides } from "@/lib/models";
 import { adaptStatementFacts, classifySource, detectSourceCurrencies, expandFinancialFactDates, extractPdfDocument, extractStructuredStatementFacts, mergeStatementFacts, parseCsvRows, type PdfExtractionQuality } from "@balsa/ingestion";
 import { parseFinancialAmount } from "@/lib/financial-events";
 import { uniqueReviewQuestions } from "@/lib/review-questions";
@@ -175,7 +175,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: row.id, balsaExport: { exportedAt: edits.manifest.exportedAt, proposed: proposal.proposed, notes: proposal.notes }, extraction: { summary, facts: [], questions: [] } });
   }
   const csv = /\.csv$/i.test(sourceName) ? normalizeCsv(rawText) : rawText;
-  const provider = getModelProvider(resolveModelOverrides(modelChoice));
+  let provider: ReturnType<typeof getModelProvider>;
+  try { provider = getModelProvider(resolveModelOverrides(modelChoice)); } catch (error) {
+    if (!(error instanceof ModelProviderConfigurationError)) throw error;
+    // Keep the retained original and mark it failed rather than leaving it
+    // "running": it can be reprocessed once a model is configured.
+    if (source?.id) {
+      await getDatabase().update(sources).set({ ingestionStatus: "failed", ingestionError: error.message, processedAt: new Date() }).where(and(eq(sources.id, source.id), eq(sources.companyId, context.company.id)));
+      await getDatabase().update(ingestionRuns).set({ status: "failed", error: error.message, completedAt: new Date(), updatedAt: new Date() }).where(and(eq(ingestionRuns.companyId, context.company.id), eq(ingestionRuns.sourceId, source.id), eq(ingestionRuns.stage, "extraction"), eq(ingestionRuns.status, "running")));
+    }
+    return modelUnavailableResponse(error);
+    throw error;
+  }
   const extracted = await provider.generateStructured({
     name: "financial_evidence_extraction",
     schema: extractionSchema,
